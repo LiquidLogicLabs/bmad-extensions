@@ -35,18 +35,18 @@ If **any artifact-only stories are found**, halt immediately with `{readiness}` 
 🔴 Readiness check FAILED — {count} story artifact(s) have no state node.
 
 These stories exist as .md files in the artifact tree but have no corresponding
-state YAML under {pm_state_root}/. l3io-pm-plan reads state only, so these stories
+state YAML under {pm_state_root}/. l3io-plan reads state only, so these stories
 are invisible to planning, estimation, and execution.
 
 Artifact-only stories:
 {list each: {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md}
 
-Fix: run /l3io-util-doctor bootstrap-state to create state nodes from your artifact
+Fix: run /l3io-doctor bootstrap-state to create state nodes from your artifact
 files. This is a one-time step for projects whose stories were created outside l3io-pm
-(e.g. via the legacy `bmad-create-story` workflow, without going through l3io-pm-plan).
+(e.g. via the legacy `bmad-create-story` workflow, without going through l3io-plan).
 ```
 
-BLOCKED: artifact-only stories detected — run `/l3io-util-doctor bootstrap-state` first.
+BLOCKED: artifact-only stories detected — run `/l3io-doctor bootstrap-state` first.
 
 If no artifact-only stories are found (or no `.md` files exist at all), continue to §1.
 
@@ -80,7 +80,7 @@ Technical ACs check only applies when `{work_type}` is CODE or MIXED. For DOCS a
 
 **An absent story document is Amber, not Red, deliberately.** Red halts this step with `BLOCKED` and forbids loading the next one (§6) — and the next one, step 03, is exactly where §4 says "if the file does not yet exist at the given path, create it first" before enriching it. Grading a missing document Red therefore blocked the only step that could produce it, and left that create-it-first branch unreachable by any input: Amber requires a file to exist, so no story could ever arrive at it. Amber is the grade for a gap elaboration closes, and a missing document is one. A document that exists but carries no AC section stays Red — that is a story someone wrote and left empty, which is a content decision rather than a missing artifact.
 
-**A missing estimate block is Amber for the same reason.** The full-plan router loads `steps/shared/step-estimate.md` four steps after this one, so Red here halted the run before the step that writes the estimates it was demanding — the story-document case above, one row down. Nothing about an absent estimate needs a human: this step reports the gap, and the estimate step fills it before the plan is written. The row therefore has no Red. Two things kept this rarer than it looks, and neither makes it safe: `/l3io-pm-plan estimate` loads the estimate step alone and bypasses readiness entirely, and `promote-issue` writes a calibrated estimate block when it creates a story, so stories that arrive through backlog intake never lacked one. A story created any other way did.
+**A missing estimate block is Amber for the same reason.** The full-plan router loads `steps/shared/step-estimate.md` four steps after this one, so Red here halted the run before the step that writes the estimates it was demanding — the story-document case above, one row down. Nothing about an absent estimate needs a human: this step reports the gap, and the estimate step fills it before the plan is written. The row therefore has no Red. Two things kept this rarer than it looks, and neither makes it safe: `/l3io-plan estimate` loads the estimate step alone and bypasses readiness entirely, and `promote-issue` writes a calibrated estimate block when it creates a story, so stories that arrive through backlog intake never lacked one. A story created any other way did.
 
 ## 3. BMad readiness integration
 
@@ -148,7 +148,7 @@ Stories checked: {total_story_count}
 ```
 🔴 Readiness check FAILED — {count} blocking issue(s) found.
 See {planning_artifacts}/readiness-report.md for details.
-Resolve all Red findings before running /l3io-pm-plan again.
+Resolve all Red findings before running /l3io-plan again.
 ```
 BLOCKED: readiness gate — red. Do not load the next step.
 

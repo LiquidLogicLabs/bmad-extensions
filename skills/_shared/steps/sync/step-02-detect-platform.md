@@ -24,7 +24,7 @@ Parse the JSON and bind:
 If `{sync_platform}` is `unknown`:
 ```
 Could not detect a supported sync platform from the git remote ({remote_url}).
-l3io-pm-sync currently supports GitHub only. Point a remote at a GitHub repo and re-run.
+l3io-sync currently supports GitHub only. Point a remote at a GitHub repo and re-run.
 ```
 BLOCKED: platform detection failed.
 

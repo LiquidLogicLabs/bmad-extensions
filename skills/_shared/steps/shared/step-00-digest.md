@@ -50,7 +50,7 @@ naming what you were waiting for.
 
 **Every poll is a full turn, and a turn costs your whole history, not one line.** Cost is
 turns × what you carry through them. Read narrowly, end early —
-`l3io-pm-execute/steps/execute/step-05-epic-loop.md` §5.
+`l3io-execute/steps/execute/step-05-epic-loop.md` §5.
 
 **These rules reach a spawned subagent only if you put them there** — a `bmad-*` agent
 loads none of this file. Bind `{agent_contract}` to the lines below and include them
@@ -81,7 +81,7 @@ verbatim in **every** spawn prompt you issue:
 `pm-status.py` is the only component that resolves a key to a location for writes. Address
 nodes by key when writing; if you find yourself concatenating `state/active/epic-...` to write
 a file, stop and use a subcommand. Direct reads are fine where a step file directs one — e.g.
-`l3io-pm-execute/steps/sprint/step-02-story-prep.md` reads `epic.yaml` directly for `goal`,
+`l3io-execute/steps/sprint/step-02-story-prep.md` reads `epic.yaml` directly for `goal`,
 a field `show` omits.
 
 Uses `{pm_status}` (bound in §2).

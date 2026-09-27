@@ -38,7 +38,7 @@ readiness_detail:
 {readiness_detail_yaml_block}          # per-epic: key, status (green/amber/red), gaps list
 
 arch_gate_summary:
-  ran: false                           # always false at plan time — arch gate runs in l3io-pm-execute
+  ran: false                           # always false at plan time — arch gate runs in l3io-execute
   reviewers: []
   findings: []
 ```
@@ -70,14 +70,14 @@ For parallel phases, wall_clock (`elapsed_hours`) = max(epic.elapsed_hours) not 
 
 **These blocks are a report, not an input.** The authority for estimates is the state node
 files under `{pm_state_root}`, written by `pm-status.py estimate-story` / `estimate-rollup`.
-Nothing reads these numbers back: `l3io-pm-execute` extracts only the phases list, `generated`,
+Nothing reads these numbers back: `l3io-execute` extracts only the phases list, `generated`,
 and `confidence` from the snapshot, and the critical path in step-05 is computed from epic
 estimates in state. They exist so a human reading the snapshot sees what the plan cost was
 projected at.
 
 `estimates_as_of` therefore records when the numbers were true, and the snapshot is never
-rewritten to refresh them — `/l3io-pm-plan estimate` updates state and leaves this file alone.
-A snapshot is immutable once written (`l3io-pm-execute` step-03 treats snapshots as inert
+rewritten to refresh them — `/l3io-plan estimate` updates state and leaves this file alone.
+A snapshot is immutable once written (`l3io-execute` step-03 treats snapshots as inert
 history), so a stamp that goes stale is correct behavior; a snapshot that mutates under an
 executing run is not. To get current numbers into a snapshot, generate a new one.
 
@@ -101,15 +101,15 @@ Write `{plan_snapshot}` as YAML to `{planning_artifacts}/{plan_filename}`.
 ## 4. Update plan-output-meta.yaml
 
 Order matters and is not interchangeable: the snapshot must be written and confirmed before the
-pointer is updated. `l3io-pm-execute` treats this file as the sole authority for which plan is
+pointer is updated. `l3io-execute` treats this file as the sole authority for which plan is
 current, so a pointer naming a snapshot that does not exist blocks execution outright. If
 section 3 did not complete, do not write this file — leaving the previous pointer intact is
 strictly better than publishing a dangling one.
 
 This file is a **pointer plus summary scalars — never a second copy of the plan.** It used to
 repeat the whole `phases:` list, giving the plan two sources of truth that could diverge under
-hand-editing while no consumer benefited: `l3io-pm-execute` reads phases only from the snapshot,
-and `l3io-pm-help` wants nothing but the count. Write `phase_count` and leave the list to the
+hand-editing while no consumer benefited: `l3io-execute` reads phases only from the snapshot,
+and `l3io-help` wants nothing but the count. Write `phase_count` and leave the list to the
 snapshot.
 
 Write `{planning_artifacts}/plan-output-meta.yaml` (overwrite):
@@ -144,7 +144,7 @@ Readiness: {readiness}
 Plan written to: {planning_artifacts}/{plan_filename}
 Stable pointer: {planning_artifacts}/plan-output-meta.yaml
 
-Next: run /l3io-pm-execute to start execution.
+Next: run /l3io-execute to start execution.
 ```
 
 If `{plan_output}` is `console`, skip writing files in steps 3 and 4 — print only.

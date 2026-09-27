@@ -2,7 +2,7 @@
 
 Communicate all responses in `{communication_language}`.
 
-Callable from l3io-pm-plan and l3io-pm-execute. Computes and writes estimate blocks for
+Callable from l3io-plan and l3io-execute. Computes and writes estimate blocks for
 stories, sprints, and epics in scope. All arithmetic — base band lookup, calibrated scope
 ratio and fix factor per metric, closure band — runs inside `pm-status.py`; this step's job
 is to choose scope and classification and call it.
@@ -41,7 +41,7 @@ For each story in the selected set — **whether or not it already carries an `e
 block**. `estimate-story` overwrites unconditionally (`node["estimate"] = est`), which is
 exactly what re-estimation needs; there is no "needs re-estimation" flag to test and none is
 required. Note this is deliberately the opposite of
-`l3io-pm-execute/steps/sprint/step-02-story-prep.md` §4,
+`l3io-execute/steps/sprint/step-02-story-prep.md` §4,
 which skips a story that is already estimated: prep is priming a story about to be built, and
 re-estimation is re-pricing one that has not started. Both are right for their caller.
 

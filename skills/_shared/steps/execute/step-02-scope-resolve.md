@@ -7,7 +7,7 @@ by all subsequent execute steps.
 
 ## 1. Parse scope argument
 
-Inspect the text that follows `/l3io-pm-execute` (or the args block in context):
+Inspect the text that follows `/l3io-execute` (or the args block in context):
 
 | Argument pattern | Scope | Bind variables |
 |---|---|---|
@@ -18,9 +18,9 @@ Inspect the text that follows `/l3io-pm-execute` (or the args block in context):
 If the argument does not match any pattern, output:
 ```
 Unrecognized scope argument. Usage:
-  /l3io-pm-execute              — run all epics in plan phase order
-  /l3io-pm-execute E001         — run a single epic
-  /l3io-pm-execute E001-S02     — run a single sprint
+  /l3io-execute              — run all epics in plan phase order
+  /l3io-execute E001         — run a single epic
+  /l3io-execute E001-S02     — run a single sprint
 ```
 BLOCKED: unrecognized scope argument.
 

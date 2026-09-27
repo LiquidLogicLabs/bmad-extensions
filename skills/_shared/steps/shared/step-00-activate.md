@@ -23,16 +23,16 @@ yourself and do not continue.
 `modules.l3io-pm` being absent is **not** a first-run and **not** an error — it means the
 module has no project-level overrides, which is the normal state. Bind the defaults below
 and continue. This skill never loads module setup, regardless of argument —
-`/l3io-pm-setup` is the module's setup entry point.
+`/l3io-setup` is the module's setup entry point.
 
 Bind `{l3io_pm_section_absent}` = `true` when `modules.l3io-pm` is absent from the resolved
 JSON, else `false`. This reuses the same resolved JSON already read above — it is not a second
-resolve. It exists solely for the once-per-project setup-pointer check in `l3io-pm-execute` and
-`l3io-pm-plan` (`config-resolution.md` §5) — not once per session: there is no cross-invocation
+resolve. It exists solely for the once-per-project setup-pointer check in `l3io-execute` and
+`l3io-plan` (`config-resolution.md` §5) — not once per session: there is no cross-invocation
 session identifier available, so a session-keyed check would fire on every invocation instead.
 The pointer's only useful message is "you have not configured this," so it must say nothing
 once a section exists. This flag is never a trigger for setup itself — no argument to this
-skill triggers module setup; `/l3io-pm-setup` is the module's setup entry point.
+skill triggers module setup; `/l3io-setup` is the module's setup entry point.
 
 Extract and bind from the resolved JSON:
 - `{communication_language}` — `core.communication_language` (default `English`)
@@ -75,19 +75,19 @@ Extract and bind from the resolved JSON:
 ## 2. Install pm-status.py
 
 `pm-status.py` ships once per module, not once per skill. For `l3io-pm` it lives at
-`l3io-pm-setup/scripts/pm-status.py` — the module's home — not here in this skill's own
-`scripts/`. That is a module-home read, not the cross-skill path read `l3io-pm-help/SKILL.md`
+`l3io-setup/scripts/pm-status.py` — the module's home — not here in this skill's own
+`scripts/`. That is a module-home read, not the cross-skill path read `l3io-help/SKILL.md`
 says it avoids for its own, unrelated staleness question: `.claude-plugin/marketplace.json`
-declares the whole `l3io-pm` plugin — all five of its skills, including `l3io-pm-setup` — as
+declares the whole `l3io-pm` plugin — all five of its skills, including `l3io-setup` — as
 one unit, and BMad's installer resolves and copies that unit as siblings under
-`.claude/skills/`. `/l3io-pm-setup` itself stays **optional**: nothing here requires the setup
+`.claude/skills/`. `/l3io-setup` itself stays **optional**: nothing here requires the setup
 skill to ever have been *run*, only installed beside this one.
 
 **That co-installation is conditional, not absolute — say so plainly.** BMad's installer only
 carries a skill into `.claude/skills/` and `_bmad/_config/skill-manifest.csv` when its
 `SKILL.md` frontmatter strict-YAML-parses and its `name:` equals its directory name; a skill
 that fails either test is silently dropped from the plugin, with no install-time warning. This
-happened for real: `l3io-pm-sync/SKILL.md`'s unquoted `Modes: …` line broke the parse and a
+happened for real: `l3io-sync/SKILL.md`'s unquoted `Modes: …` line broke the parse and a
 real install shipped only four of `l3io-pm`'s five skills until it was quoted (Task 11A fix
 round 1; `check:docs`'s `skill-frontmatter` check now guards this mechanically going forward,
 but a project on an older, unpatched copy of this package could still hit it).
@@ -99,13 +99,13 @@ partial checkout). Either way the failure must name the missing piece rather tha
 silently or opaquely inside `uv run`:
 
 ```bash
-test -f {skill-root}/../l3io-pm-setup/scripts/pm-status.py
+test -f {skill-root}/../l3io-setup/scripts/pm-status.py
 ```
 
 If absent, halt:
 ```
-BLOCKED: l3io-pm-setup/scripts/pm-status.py is missing beside this skill.
-Check {project-root}/_bmad/_config/skill-manifest.csv for an l3io-pm-setup row: if it is
+BLOCKED: l3io-setup/scripts/pm-status.py is missing beside this skill.
+Check {project-root}/_bmad/_config/skill-manifest.csv for an l3io-setup row: if it is
 missing, the installer rejected that skill (a SKILL.md frontmatter or naming defect) and
 reinstalling the l3io-pm plugin will reproduce the same result until that is fixed upstream.
 If the row IS present, a skill directory was likely hand-copied or the checkout is partial —
@@ -121,12 +121,12 @@ Self-install runs here — **before** layout detection — deliberately. Self-in
 layout-independent (it copies a file and needs no state), so nothing in detection depends on
 it, and running it first guarantees a current script whichever branch detection takes below.
 This also keeps an upgrading user from getting stuck on a stale installed copy: a legacy
-layout blocks in section 3 and sends the user to `/l3io-util-doctor migrate-state`, and that
+layout blocks in section 3 and sends the user to `/l3io-doctor migrate-state`, and that
 command needs a current `{pm_status}` to succeed — which this section guarantees regardless of
 which layout branch section 3 takes.
 
 ```bash
-uv run {skill-root}/../l3io-pm-setup/scripts/pm-status.py self-install \
+uv run {skill-root}/../l3io-setup/scripts/pm-status.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 
@@ -170,21 +170,21 @@ tokens/cost. Guessing `claude` without transcript access, or `codex` without rea
 files, would either block every write (exit 2 on `--tokens-na`) or invite a fabricated number,
 and both are worse than an honest N/A.
 
-## 2.5. Verify the l3io-util-doctor sibling module is installed
+## 2.5. Verify the l3io-doctor sibling module is installed
 
-`l3io-util-doctor` is a required intra-package module (CLAUDE.md "Dependencies") — the PM
+`l3io-doctor` is a required intra-package module (CLAUDE.md "Dependencies") — the PM
 skills forward migrations, health checks, and the plan-aware progress dashboard to it, and
-`l3io-pm-help` invokes `check-pm-status` on every activation. A standard install carries the
+`l3io-help` invokes `check-pm-status` on every activation. A standard install carries the
 whole marketplace bundle so this is only false when someone has manually stripped the module.
 
 The check probes both the 6.12 and pre-6.12 skill layouts, project-root first then user home,
 matching `bmad-deps.py`'s resolve() (which cannot help here because it *is* the doctor):
 
 ```bash
-if   [ -f "{project-root}/.claude/skills/l3io-util-doctor/SKILL.md" ] \
-  || [ -f "{project-root}/.claude/commands/l3io-util-doctor.md" ] \
-  || [ -f "$HOME/.claude/skills/l3io-util-doctor/SKILL.md" ] \
-  || [ -f "$HOME/.claude/commands/l3io-util-doctor.md" ]; then
+if   [ -f "{project-root}/.claude/skills/l3io-doctor/SKILL.md" ] \
+  || [ -f "{project-root}/.claude/commands/l3io-doctor.md" ] \
+  || [ -f "$HOME/.claude/skills/l3io-doctor/SKILL.md" ] \
+  || [ -f "$HOME/.claude/commands/l3io-doctor.md" ]; then
   doctor=present
 else
   doctor=absent
@@ -199,7 +199,7 @@ into a diagnosable install anomaly instead of a downstream mystery.
 When `doctor=absent`, print exactly once at activation (do not repeat later):
 
 ```
-⚠️  l3io-util-doctor is not installed — this is a required module of the LiquidLogicLabs
+⚠️  l3io-doctor is not installed — this is a required module of the LiquidLogicLabs
     extension. The marketplace bundle in .claude-plugin/marketplace.json ships it alongside
     l3io-pm, so this state is an install anomaly. Some steps below (state-layout migrations,
     the progress dashboard, and `check-pm-status`) will fail if reached. Reinstall
@@ -225,7 +225,7 @@ places, and guessing which is authoritative would fork the project's state:
 ```
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT). An earlier migration
 did not finish. Do not run any l3io-pm skill until this is resolved — inspect both
-locations and remove the stale one, then re-run /l3io-util-doctor migrate-state.
+locations and remove the stale one, then re-run /l3io-doctor migrate-state.
 ```
 
 **If only sharded** → current layout. Continue to section 4.
@@ -233,7 +233,7 @@ locations and remove the stale one, then re-run /l3io-util-doctor migrate-state.
 **If only the legacy per-epic layout or only the legacy flat layout** → halt:
 ```
 ⚠️  Legacy state layout detected (legacy per-epic layout = _bmad/state/, legacy flat layout = flat sprint-status.yaml).
-Run /l3io-util-doctor migrate-state to upgrade before continuing.
+Run /l3io-doctor migrate-state to upgrade before continuing.
 ```
 BLOCKED: legacy state layout — migrate required. (`{pm_status}` was just self-installed in
 section 2, so `migrate-state` runs against a current copy.)
@@ -291,7 +291,7 @@ An empty list is valid on first run.
 
 ## 6. Verify schema of files this skill will touch (if any active epics exist)
 
-If `{active_epic_keys}` is non-empty AND this skill is `l3io-pm-execute` or `l3io-pm-plan`,
+If `{active_epic_keys}` is non-empty AND this skill is `l3io-execute` or `l3io-plan`,
 run for each epic key in scope:
 
 ```bash

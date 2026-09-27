@@ -15,7 +15,7 @@ spec-align.py -- keeps a project's specs and its implementation in step, for l3i
 Subcommands: build, check-pointers, sections, disposition, check-dispositions, adrs,
 check-links, lease, sync-plan, propose, commit, reject, check-stale, migrate-adrs.
 
-It never calls a model. Each spec-alignment point in l3io-pm-execute runs one of these
+It never calls a model. Each spec-alignment point in l3io-execute runs one of these
 first, and the result decides whether an agent is dispatched at all.
 
 Global flags come before the subcommand: --project-root (required), --planning-root,
@@ -51,7 +51,7 @@ SPEC_PATHS_RE = re.compile(r"^# spec-paths: (.*)$")
 
 # Spec kinds in precedence order: a name matching several kinds takes the first. The
 # architecture, ux and prd patterns are copied verbatim from
-# l3io-util-doctor/steps/layout-cleanup.md heuristic 5 -- check-docs check 13 compares them.
+# l3io-doctor/steps/layout-cleanup.md heuristic 5 -- check-docs check 13 compares them.
 KINDS = (
     ("architecture", ("*architecture*", "*arch-spec*", "*system-design*", "*tech-design*")),
     ("ux", ("*ux-spec*", "*ux-design*", "*wireframe*", "*mockup*", "*ui-spec*")),
@@ -798,7 +798,7 @@ def cmd_adrs(ctx, a):
     for x in rows:
         if x["home"] == "legacy":
             sys.stderr.write(f"WARN {x['path']} is in the old ADR home -- run "
-                             f"/l3io-util-doctor migrate-adrs\n")
+                             f"/l3io-doctor migrate-adrs\n")
     if a.format == "json":
         print(json.dumps(rows, indent=2))
     else:
@@ -975,7 +975,7 @@ def _spec_issue_args(ctx, nnn, kind, ref, ident, title, severity, pointer, where
     return ["append-issue", "--state-root", ctx.state_root, "--epic", nnn, "--sprint", "",
             "--kind", kind, "--ref", ref, "--title", f"{label}: {title}",
             "--source", f"spec-sync ({ident})", "--severity", SEV_MAP.get(severity, "Low"),
-            "--description", f"Confirm or reject: /l3io-util-doctor triage. Spec: {pointer}. "
+            "--description", f"Confirm or reject: /l3io-doctor triage. Spec: {pointer}. "
                              f"From: {where}."]
 
 
@@ -1089,7 +1089,7 @@ def _deferred_text(it):
     lines += ["- **Why deferred:** the spec-sync lease was held by another epic's closure, so "
               "nothing was edited.", "",
               "Apply the change the finding describes to that section, then confirm this item "
-              "in `/l3io-util-doctor triage`.", ""]
+              "in `/l3io-doctor triage`.", ""]
     return "\n".join(lines)
 
 
@@ -1401,7 +1401,7 @@ def cmd_check_stale(ctx, a):
             age = f"{(time.time() - int(ct)) / 86400:.0f} day(s) old, " if ct.isdigit() else ""
             findings.append(f"{it['key']}: unconfirmed spec change {ref[:12]} ({age}"
                             f"{len(later)} later commit(s) on {', '.join(files)}) -- confirm "
-                            f"or reject it in /l3io-util-doctor triage")
+                            f"or reject it in /l3io-doctor triage")
     for f in findings:
         print(f)
     if findings:

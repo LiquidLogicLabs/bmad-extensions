@@ -11,7 +11,7 @@ never offers a choice it cannot then act on.
 `plan-output-meta.yaml` is the **only** pointer to the current plan. Snapshots accumulate in
 `{planning_artifacts}/` as `plan-{YYYY-MM-DD}-v{N}.yaml` and are inert history — never pick one
 by scanning the directory when the pointer resolves. Newest-on-disk is not the same question as
-current: `l3io-pm-plan` writes the snapshot and the pointer as two separate steps, so the newest
+current: `l3io-plan` writes the snapshot and the pointer as two separate steps, so the newest
 file may be from a run that never finished.
 
 ```bash
@@ -28,7 +28,7 @@ ls -1 {planning_artifacts}/plan-*-v*.yaml 2>/dev/null | sort -V | tail -3
 If nothing is listed:
 ```
 No plan found at {planning_artifacts}/plan-output-meta.yaml.
-Run /l3io-pm-plan first to build the execution plan.
+Run /l3io-plan first to build the execution plan.
 ```
 BLOCKED: plan-output-meta.yaml absent.
 
@@ -44,7 +44,7 @@ This is a degraded path, not a clean one, and this step has no inbox to wait on 
 you found and stop:
 ```
 BLOCKED: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}). Decide: re-run
-/l3io-pm-plan to rebuild the pointer and readiness from current state (recommended), or, if
+/l3io-plan to rebuild the pointer and readiness from current state (recommended), or, if
 {newest_snapshot} is verified complete, write plan-output-meta.yaml with
 current_plan: {newest_snapshot} (plus a readiness value) and re-run this step.
 ```
@@ -58,11 +58,11 @@ This is a degraded path, not a clean one, and this step has no inbox to wait on 
 you found and stop:
 ```
 BLOCKED: plan readiness is RED for {current_plan_file}. Two things unblock it: run
-/l3io-pm-plan to resolve the readiness gaps and rebuild the plan (recommended), or, having
+/l3io-plan to resolve the readiness gaps and rebuild the plan (recommended), or, having
 accepted the risk, edit readiness: in {planning_artifacts}/plan-output-meta.yaml to amber and
-re-run /l3io-pm-execute.
+re-run /l3io-execute.
 ```
-**Do not tell the user to simply re-run `/l3io-pm-execute`.** A re-run reads the same
+**Do not tell the user to simply re-run `/l3io-execute`.** A re-run reads the same
 `readiness: red` from the same pointer and blocks here identically; there is no override flag,
 and naming one that does not exist sends them round a loop. Only the two remedies above change
 what this step reads.
@@ -83,7 +83,7 @@ test -f {current_plan_file} && echo OK || echo MISSING
 If `MISSING`:
 ```
 BLOCKED: plan-output-meta.yaml points at {current_plan}, which does not exist in
-{planning_artifacts}. Re-run /l3io-pm-plan to rebuild the plan and pointer.
+{planning_artifacts}. Re-run /l3io-plan to rebuild the plan and pointer.
 ```
 Do not substitute another snapshot — that would execute a plan the pointer does not vouch for.
 Nor may a legacy pointer's `phases:` list stand in for the missing snapshot: current pointers
@@ -108,7 +108,7 @@ If this prints a path, state has changed since the plan was generated:
 ```
 ⚠️  Plan generated {plan_generated}; project state has changed since.
     Epics may have been added, completed, or re-scoped. Sections 2c–4 report what differs.
-    Re-run /l3io-pm-plan for a current plan.
+    Re-run /l3io-plan for a current plan.
 ```
 Warn and continue — the reconcile in 2c is what actually protects execution.
 
@@ -131,7 +131,7 @@ Bind `{state_epic_keys}` = the `E{nnn}` key for each directory found (`epic-001`
 `{exec_scope}=full` these would silently never run:
 ```
 ⚠️  Not in the plan, will NOT be executed: {missing_from_plan_keys}
-    Re-run /l3io-pm-plan to include them.
+    Re-run /l3io-plan to include them.
 ```
 
 **In the plan but not in `planned/` or `active/`** — the epic is done (under `archived/`) or was

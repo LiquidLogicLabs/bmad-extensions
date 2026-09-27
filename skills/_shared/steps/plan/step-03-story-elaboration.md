@@ -97,7 +97,7 @@ Spawn `{enrich_agent}` with:
   model changes, error handling and edge cases, observability requirements, security
   considerations, testability (unit + integration test anchors) — treating each story on its
   own terms rather than applying one answer across the batch
-- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-pm-plan`
+- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-plan`
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 Issue the next batch only after the previous one has returned. That is sequencing, not waiting

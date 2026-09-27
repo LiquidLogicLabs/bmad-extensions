@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 3.1.2   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 3.1.3   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 sharded state tree, and the reader behind its progress report.
@@ -39,7 +39,7 @@ Subcommands
                 --resolution. A story set to done resolves every key in its resolves:
                 as fixed, ref the story, printing `resolved BL-...` per NEW resolution
                 and `ok BL-... already resolved (...)` per key resolved before; a failure
-                there warns, naming /l3io-util-doctor triage, and still exits 0 -- ADR-0003)
+                there warns, naming /l3io-doctor triage, and still exits 0 -- ADR-0003)
   sync-story-doc --artifacts-root R  (NOT the state root)  --story KEY  --status S
                 [--quiet]
                 (writes status: into the story markdown's frontmatter; the state
@@ -283,7 +283,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "3.1.2"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "3.1.3"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done", "blocked"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
@@ -1263,7 +1263,7 @@ def notices_lock(state_root: str):
     """Hold an exclusive lock over a whole notices read-modify-write cycle.
 
     Same reasoning as calibration_lock and adr_register_lock: load -> mutate -> save is
-    not atomic, and two concurrent callers -- e.g. `l3io-pm-execute` and `l3io-pm-plan`
+    not atomic, and two concurrent callers -- e.g. `l3io-execute` and `l3io-plan`
     invoked around the same time in one project -- must not both decide the same key has
     not been shown yet and each write their own "now recorded" copy, silently dropping one.
     """
@@ -4161,7 +4161,7 @@ def _resolve_story_items(state_root, node, story_key, session) -> None:
             keys = [str(k) for k in raw]
         else:
             sys.stderr.write(f"pm-status.py: warning -- {story_key} has a malformed resolves: "
-                             f"({raw!r}); nothing resolved. Run /l3io-util-doctor triage.\n")
+                             f"({raw!r}); nothing resolved. Run /l3io-doctor triage.\n")
             return
         open_path = issues_paths(state_root)[0]
         with issues_lock(open_path):
@@ -4177,13 +4177,13 @@ def _resolve_story_items(state_root, node, story_key, session) -> None:
                     sys.stdout.write(f"{'ok' if was_resolved else 'resolved'} {msg}\n")
                 except PMError as e:
                     sys.stderr.write(f"pm-status.py: warning -- could not resolve {k} "
-                                     f"for {story_key}: {e.msg} -- run /l3io-util-doctor "
+                                     f"for {story_key}: {e.msg} -- run /l3io-doctor "
                                      f"triage\n")
     except KeyboardInterrupt:
         raise
     except BaseException as e:  # noqa: BLE001 -- deliberate, ADR-0003
         sys.stderr.write(f"pm-status.py: warning -- done hook failed for {story_key}: "
-                         f"{e!r}; the status write stands. Run /l3io-util-doctor triage "
+                         f"{e!r}; the status write stands. Run /l3io-doctor triage "
                          f"(audit-issues finding 1c) to finish it.\n")
 
 
@@ -4401,7 +4401,7 @@ def cmd_set_depends_on(args) -> int:
     migration engine WARNed and skipped this field rather than flattening it.
 
     All-or-nothing: every key is validated before anything is written, because a half-applied
-    dependency list is a worse artefact than an absent one -- l3io-pm-plan topologically sorts
+    dependency list is a worse artefact than an absent one -- l3io-plan topologically sorts
     on it, so a missing edge silently reorders a phase.
     """
     from ruamel.yaml.comments import CommentedSeq
@@ -6349,7 +6349,7 @@ def _partial_promotion(state_root, keys):
                                  f"it by hand, then rerun")
             return story_key
     raise PMError(2, f"{', '.join(keys)} already claimed by {sorted(claimants)} -- run "
-                     f"/l3io-util-doctor triage (audit-issues 1d/1h)")
+                     f"/l3io-doctor triage (audit-issues 1d/1h)")
 
 
 def _promotable_items(store, keys):
@@ -6370,7 +6370,7 @@ def _promotable_items(store, keys):
         kind = str(item.get("kind") or "defect")
         if kind != "defect":
             raise PMError(2, f"{k} is a {kind} item -- spec items are confirmed or rejected in "
-                             f"/l3io-util-doctor triage, never promoted to a story")
+                             f"/l3io-doctor triage, never promoted to a story")
         items.append(item)
     return items
 
@@ -6669,7 +6669,7 @@ def cmd_audit_issues(args) -> int:
     channel, not a new finding id), also exits 4; under
     --format json it still prints a parseable document, {"findings": [], "error": MSG},
     because triage and the health check parse it. Heuristic checks live in
-    l3io-util-doctor/scripts/audit-backlog.py."""
+    l3io-doctor/scripts/audit-backlog.py."""
     findings = []
     open_path, res_path = issues_paths(args.state_root)
     try:
@@ -7249,7 +7249,7 @@ def _write_spend(spend: dict) -> None:
 
 def cmd_report(args) -> int:
     """Plan-aware progress report. Read-only unless --out is given, which is what lets
-    read-only callers (l3io-util-doctor stats) share this exact code path."""
+    read-only callers (l3io-doctor stats) share this exact code path."""
     if not os.path.isdir(args.state_root):
         _die_notfound(f"state root {args.state_root}")
 

@@ -5,8 +5,8 @@ Communicate all responses in `{communication_language}`.
 
 This file is the single source of truth for **where** epic/sprint/story/backlog state lives
 on disk and **how** to read or write it. It is a **deep reference, consulted on demand** — do
-not load it at activation. The PM skills' `l3io-pm-execute/steps/shared/step-00-digest.md`
-(each of `l3io-pm-execute`, `l3io-pm-plan` and `l3io-pm-sync` carries its own copy; a
+not load it at activation. The PM skills' `l3io-execute/steps/shared/step-00-digest.md`
+(each of `l3io-execute`, `l3io-plan` and `l3io-sync` carries its own copy; a
 `l3io-util` install has none) carries the operative digest
 every run needs (keys, subcommand signatures, exit codes) plus a routing table naming the
 section to read for each case that genuinely needs this file: a `verify` failure (§7), a
@@ -160,7 +160,7 @@ key: 'E001'
 title: 'Epic 001 — Foundation'
 goal: 'Stand up the core platform'
 status: in-progress
-depends_on: []                            # epic keys; read by l3io-pm-plan
+depends_on: []                            # epic keys; read by l3io-plan
 estimate:                                 # ranges at epic/sprint level
   man_hours_low: 40
   man_hours_high: 60
@@ -307,7 +307,7 @@ directory that contains them.
 
 ## 6. Ownership lock
 
-When `l3io-pm-execute` claims an epic, `pm-status.py set-lock` writes a `_lock` block as the
+When `l3io-execute` claims an epic, `pm-status.py set-lock` writes a `_lock` block as the
 **first key** of that epic's `epic.yaml`:
 
 ```yaml
@@ -441,8 +441,8 @@ event log is unconditional so it cannot be silently skipped.
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
 write (`--no-calibrate` suppresses it). What it computes, and why a failed derivation only
 warns rather than failing the actuals write, is specified in the calibration model —
-`l3io-pm-execute/references/calibration-model.md`, which ships with the PM skills
-(`l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`) and not with every skill that carries
+`l3io-execute/references/calibration-model.md`, which ships with the PM skills
+(`l3io-execute`, `l3io-plan`, `l3io-sync`) and not with every skill that carries
 this contract. Do not go looking for it here
 unless your own `references/` has it; `pm-status.py` performs the whole loop itself, so
 nothing on a normal run needs to read it.
@@ -520,7 +520,7 @@ sharding gives each epic its own directory, and nothing below the epic level nee
 - `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-time-ever
   advisory ledger `pm-status.py notice` reads/writes, keyed on `--key` alone (not a session —
   there is no cross-invocation session identifier available), for the
-  `l3io-pm-execute`/`l3io-pm-plan` setup-pointer (`config-resolution.md` §5). Same shape as
+  `l3io-execute`/`l3io-plan` setup-pointer (`config-resolution.md` §5). Same shape as
   the three above: whole read-modify-write cycle under one lock, likewise created empty and
   never deleted.
 - `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
@@ -541,10 +541,10 @@ absent from the file is appended (patterns already present are left alone, never
 reordered); an absent file is created with both. The check is best-effort: a failure warns on
 stderr and never fails the verb. Neither pattern matches a directory, so the activation gate's
 `git check-ignore` on the state-root directory (the PM skills'
-`l3io-pm-execute/steps/shared/step-00-activate.md`) still passes. Lock files a project
+`l3io-execute/steps/shared/step-00-activate.md`) still passes. Lock files a project
 committed before this rule existed are untracked, and left on disk, by the sprint-closure
-checkpoint (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md` §9) and by
-`/l3io-util-doctor`'s health check (Check 14). Old `epic.yaml.lock` files
+checkpoint (`l3io-execute/steps/sprint/step-04-sprint-closure.md` §9) and by
+`/l3io-doctor`'s health check (Check 14). Old `epic.yaml.lock` files
 left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock;
 the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
 is harmless.
@@ -603,7 +603,7 @@ Run once at startup, before any state read or write:
 | Order | Found | Layout | Action |
 |---|---|---|---|
 | 1 | `{implementation_artifacts}/state/` | current | Proceed |
-| 2 | `{project-root}/_bmad/state/` | legacy (per-epic file) | Block → `/l3io-util-doctor migrate-state` |
+| 2 | `{project-root}/_bmad/state/` | legacy (per-epic file) | Block → `/l3io-doctor migrate-state` |
 | 3 | `{implementation_artifacts}/sprint-status.yaml` | legacy (flat) | Block → same command |
 | 4 | none | first run | Create lazily |
 
@@ -640,10 +640,10 @@ per-node-kind path variable — every path below `{pm_state_root}` is resolved i
 `depends_on` on an epic node (`epic.yaml`): list of epic keys that must be `status: done`
 before this epic can start. Present regardless of which status folder the epic currently
 sits in (most commonly populated while the epic is under `planned/`). Read by
-`l3io-pm-plan` to build the execution graph.
+`l3io-plan` to build the execution graph.
 
 `depends_on` on a story node: list of globally-unique story keys (`E{nnn}-S{nn}-{nnn}`) that
 must be `status: done` before this story starts. Lives in that story's own file.
 
-`l3io-pm-plan` validates all referenced keys exist and detects cycles before writing the
+`l3io-plan` validates all referenced keys exist and detects cycles before writing the
 plan.
