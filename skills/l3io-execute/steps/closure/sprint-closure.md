@@ -72,11 +72,10 @@ where its behavior is the `adversarial` lens.
 ls {project-root}/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls {project-root}/.claude/commands/bmad-review.md 2>/dev/null \
   || ls {project-root}/.agents/skills/bmad-review/SKILL.md 2>/dev/null \
-  || ls {project-root}/.agents/commands/bmad-review.md 2>/dev/null \
+  || ls {project-root}/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls ~/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-review.md 2>/dev/null \
-  || ls ~/.agents/skills/bmad-review/SKILL.md 2>/dev/null \
-  || ls ~/.agents/commands/bmad-review.md 2>/dev/null
+  || ls ~/.agents/skills/bmad-review/SKILL.md 2>/dev/null
 ```
 
 A path printed → `{adversarial_reviewer}` = `bmad-review`, invoked as
@@ -147,11 +146,10 @@ for n in bmad-ux-review bmad-ux; do
   ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
     || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls {project-root}/.agents/commands/$n.md 2>/dev/null \
+    || ls {project-root}/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/commands/$n.md 2>/dev/null \
-    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls ~/.agents/commands/$n.md 2>/dev/null
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null
 done | head -1
 ```
 Bind `{ux_reviewer}` to whichever resolved — the legacy `bmad-ux-review` preferred because it is

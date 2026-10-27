@@ -30,25 +30,45 @@ start writing there because it would save the user a step.
 | `diff` | Staged overlay vs. the currently resolved merge, per skill |
 | `verify` | Assert a placed overlay actually merged |
 
-**Step OV1 — Load config**
+**Step OV1 — Load config and resolve the tool root**
 
 Config is already resolved and `{implementation_artifacts}` bound per the *On Activation*
-section above. No additional binding is needed before any of the three actions below.
+section above. One further binding is needed by all three actions below.
+
+Resolve the root BMad's skills are installed under and bind `{bmad_skills_root}`. **Never
+hardcode `.claude/`** — `.agents/skills` is BMad's cross-tool standard on 6.x (6.12.4's
+installer names it as such; cursor and gemini installs share one), so a hardcoded path reports
+BMad's own scripts missing on a perfectly good non-Claude install. These are the roots BMad's
+`registry.py` `default_roots()` scans, in that order:
+
+```bash
+for r in {project-root}/.claude/skills {project-root}/.agents/skills {project-root}/skills \
+         ~/.claude/skills ~/.agents/skills; do
+  [ -d "$r" ] && echo "$r" && break
+done
+```
+
+Bind `{bmad_skills_root}` to the printed root. If nothing prints, no skill root exists here:
+report `BLOCKED: no BMad skill root found — is BMad installed in this project?` and stop.
 
 ## `list`
 
 **Step OV2 — Enumerate what BMad exposes**
 
+`{bmad_skills_root}` is bound by Step OV1. If
+`{bmad_skills_root}/bmad-customize/scripts/list_customizable_skills.py` does not exist,
+`bmad-customize` is not installed here: report `BLOCKED: bmad-customize is not installed —
+install it to enumerate customizable skills.` and stop.
+
 ```bash
-uv run {project-root}/.claude/skills/bmad-customize/scripts/list_customizable_skills.py \
+uv run {bmad_skills_root}/bmad-customize/scripts/list_customizable_skills.py \
   --project-root {project-root}
 ```
 
-This is a BMad core script installed by `bmad-customize` at a fixed path in the target
-project — never bundled with this skill (same rule as `resolve_config.py` and
-`resolve_customization.py`; see root `CLAUDE.md`). If it is missing, `bmad-customize` is not
-installed here: report `BLOCKED: bmad-customize is not installed — install it to enumerate
-customizable skills.` and stop.
+This is a BMad core script installed by `bmad-customize` — never bundled with this skill (same
+rule as `resolve_config.py` and `resolve_customization.py`; see root `CLAUDE.md`). Its path is
+fixed *relative to the tool root*, which is exactly why the root must be resolved rather than
+assumed.
 
 **Step OV3 — Report**
 
@@ -72,7 +92,7 @@ is the staging path — it is never `_bmad/custom/`.
 
 ```bash
 uv run {project-root}/_bmad/scripts/resolve_customization.py \
-  --skill {project-root}/.claude/skills/<skill> --project-root {project-root} --key <root-key>
+  --skill {bmad_skills_root}/<skill> --project-root {project-root} --key <root-key>
 ```
 
 `<root-key>` is `agent` or `workflow` per the Skill Authoring Conventions table for that
@@ -105,7 +125,7 @@ For each overlay this mode ships (today: none — see `list`), run:
 
 ```bash
 uv run {project-root}/_bmad/scripts/resolve_customization.py \
-  --skill {project-root}/.claude/skills/<skill> --project-root {project-root} --key <root-key>
+  --skill {bmad_skills_root}/<skill> --project-root {project-root} --key <root-key>
 ```
 
 **Step OV8 — Compare and report per overlay**

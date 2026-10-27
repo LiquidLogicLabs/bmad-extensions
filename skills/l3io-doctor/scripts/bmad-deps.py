@@ -124,27 +124,46 @@ STATUSES = ("required", "optional", "related", "deprecated", "removed", "not-a-s
 def skill_roots(project_root: str) -> list[str]:
     """Every directory that may hold installed skills: project first, then the user's home.
 
-    `.agents` sits beside `.claude` because v7 discovers skills across `.<tool>/skills`
-    generally and names `~/.agents` in its own skill-lock path, so a v7 install need not be
-    under `.claude` at all. Probing one tool directory would mis-detect such an install as
-    absent -- the same shape as the single-layout probe that once let a gate self-skip.
+    Derived from BMad's own `registry.py` `default_roots()`, NOT by mirroring `.claude`'s
+    shape onto `.agents`. That list is `<project>/.agents/skills`, `<project>/.claude/skills`,
+    `<project>/skills`, `~/.agents/skills` and `~/.claude/skills`; `scan_paths.py`'s
+    SKILL_DIR_RE corroborates it (`skills|.claude/skills|.agents/skills|_bmad`).
+
+    `.agents` sits beside `.claude` because `.agents/skills` is the CROSS-TOOL STANDARD on
+    6.x -- 6.12.4's installer calls it exactly that, and cursor and gemini installs share one
+    -- so this is a live-install concern, not v7 forward work. Probing one tool directory
+    mis-detects such an install as absent, the same shape as the single-layout probe that
+    once let a gate self-skip.
+
+    The BARE project `skills/` root is the one `registry.py` names that mirroring cannot
+    reach. Relative order of the pre-existing roots is preserved; the bare root is appended
+    to the project group so nothing that resolved before resolves differently now.
     """
-    return [os.path.join(base, tool)
-            for base in (project_root, os.path.expanduser("~"))
-            for tool in (".claude", ".agents")]
+    home = os.path.expanduser("~")
+    return [os.path.join(project_root, ".claude"),
+            os.path.join(project_root, ".agents"),
+            project_root,
+            os.path.join(home, ".claude"),
+            os.path.join(home, ".agents")]
 
 
 def resolve(name: str, project_root: str) -> str | None:
-    """Return the path `name` resolves to, or None. Both layouts, every root.
+    """Return the path `name` resolves to, or None. Every root skill_roots() names.
 
     6.12.0 installs skills/<name>/SKILL.md; earlier releases install commands/<name>.md.
     Probing only one layout mis-detects an installed skill as absent on the other version,
-    which is how a gate came to self-skip silently -- so both are always tried, under every
-    root skill_roots() names.
+    which is how a gate came to self-skip silently -- so both are tried wherever both exist.
+
+    `commands/` is probed under `.claude` ONLY. There is no `.agents/commands` upstream (zero
+    references at 61e01f8, against 15 for `.agents/skills`) and `default_roots()` names no
+    `commands` dir on any root, so probing one would read as supported layout while matching
+    nothing. The bare project root takes `skills/` alone for the same reason.
     """
     for root in skill_roots(project_root):
-        for rel in (os.path.join("skills", name, "SKILL.md"),
-                    os.path.join("commands", f"{name}.md")):
+        rels = [os.path.join("skills", name, "SKILL.md")]
+        if os.path.basename(root) == ".claude":
+            rels.append(os.path.join("commands", f"{name}.md"))
+        for rel in rels:
             p = os.path.join(root, rel)
             if os.path.exists(p):
                 return p

@@ -34,22 +34,25 @@ Halt step and continue to step-05.
 | `bmad-agent-architect` | Probe below |
 | superpowers (`superpowers:requesting-code-review`) | Probe below |
 
-Probe both optional reviewers the same eight ways — the 6.12 (`skills/`) and pre-6.12
-(`commands/`) layouts under both tool roots (`.claude/`, `.agents/`), project-root first then
-user home. `.agents/` is the tool-neutral root BMad v7 installs under; probing `.claude/` alone
-reports a reviewer absent on any non-Claude install, and this gate then runs with fewer
-reviewers than are present without ever saying so:
+Probe both optional reviewers the same seven ways — the roots BMad's own
+`registry.py` `default_roots()` scans (`.agents/skills`, `.claude/skills`, a bare `skills/`,
+then the two home roots), plus the pre-6.12 `.claude/commands/` layout. `.agents/skills` is
+the **cross-tool standard on 6.x today**, not a v7 path: BMad 6.12.4's installer names it as
+such and cursor and gemini installs share it. Probing `.claude/` alone reports a reviewer
+absent on any non-Claude install, and this gate then runs with fewer reviewers than are
+present without ever saying so. There is deliberately **no `.agents/commands/`** probe —
+upstream has zero references to one and `default_roots()` names no `commands` dir on any
+root, so probing it would read as supported layout while matching nothing:
 
 ```bash
 for n in bmad-agent-architect superpowers:requesting-code-review; do
   ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
     || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls {project-root}/.agents/commands/$n.md 2>/dev/null \
+    || ls {project-root}/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/commands/$n.md 2>/dev/null \
-    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls ~/.agents/commands/$n.md 2>/dev/null
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null
 done
 ```
 

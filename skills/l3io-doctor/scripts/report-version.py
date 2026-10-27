@@ -204,7 +204,8 @@ def main(argv=None) -> int:
             sys.stdout.write(
                 f"l3io-extensions: no l3io skills found under {a.skills_root}\n"
                 f"Fix: pass --skills-root, or reinstall -- a standard install puts them "
-                f"in .claude/skills/.\n")
+                f"in the skill root of whichever tool BMad installed for "
+                f"(.claude/skills/, .agents/skills/, or a bare skills/).\n")
         return 4
 
     status = "current" if len(versions) == 1 else "mixed"
