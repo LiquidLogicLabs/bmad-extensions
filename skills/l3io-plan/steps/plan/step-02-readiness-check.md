@@ -203,11 +203,10 @@ for n in bmad-check-implementation-readiness bmad-sprint-planning; do
   ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
     || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls {project-root}/.agents/commands/$n.md 2>/dev/null \
+    || ls {project-root}/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/commands/$n.md 2>/dev/null \
-    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls ~/.agents/commands/$n.md 2>/dev/null
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null
 done | head -1
 ```
 

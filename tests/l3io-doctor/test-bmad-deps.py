@@ -325,13 +325,49 @@ class TestLayouts(Base):
 
 
     def test_agents_root_is_probed(self):
-        """v7 discovers skills across `.<tool>/skills`; an install under .agents/ is not
-        absent, and reporting it so would silently self-skip the gate that needs it."""
+        """`.agents/skills` is the CROSS-TOOL STANDARD on 6.x -- 6.12.4's installer names it
+        as such and cursor and gemini installs share one -- so an install under .agents/ is
+        not absent, and reporting it so would silently self-skip the gate that needs it."""
         inv = self._inv([{"name": "a-one", "status": "required"}])
         root = self._tree(["a-one"], tool=".agents")
         code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
         self.assertEqual(code, 0, self.err)
         self.assertIn("ok       a-one", out)
+
+
+    def test_bare_project_skills_root_is_probed(self):
+        """`registry.py` `default_roots()` names a BARE `<project>/skills` beside the two
+        dotted roots, and `scan_paths.py`'s SKILL_DIR_RE corroborates it. Deriving the probe
+        set by mirroring `.claude`'s shape onto `.agents` cannot reach it, so a skill
+        installed there read as absent and self-skipped its phase.
+
+        Inverted: deleting `project_root` from skill_roots() makes this the only failure.
+        """
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], tool="")
+        self.assertTrue(os.path.isdir(os.path.join(root, "skills", "a-one")),
+                        "fixture must place the skill at the BARE root, not under a tool dir")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("ok       a-one", out)
+
+
+    def test_agents_commands_layout_is_not_probed(self):
+        """There is no `.agents/commands` upstream: 0 references at 61e01f8 against 15 for
+        `.agents/skills`, and `default_roots()` names no `commands` dir on any root. Probing
+        one would read as supported layout while matching nothing, so a name found ONLY
+        there must still be reported missing.
+
+        Inverted: widening resolve()'s `commands/` arm to `.agents` makes this the only
+        failure. This is the guard that keeps the probe set derived rather than mirrored.
+        """
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], layout="commands", tool=".agents")
+        self.assertTrue(os.path.isfile(os.path.join(root, ".agents", "commands", "a-one.md")),
+                        "fixture must actually plant the file the probe must NOT honour")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertNotEqual(code, 0, "a .agents/commands-only install is not an install")
+        self.assertNotIn("ok       a-one", out)
 
 
 class TestUnreadable(Base):
