@@ -2821,6 +2821,119 @@ class TestVerifyDerivedCost(TestLayoutResolution):
         self.assertIn("hitl_hours", out)
 
 
+class TestMixedModelActual(TestVerifyDerivedCost):
+    """A run on more than one model records `by_model`, and its cost is each model's tokens
+    at that model's own rates. Before this, set-actual took one --model, so a mixed run's
+    recorded cost was priced entirely at one rate."""
+
+    SPLIT = {"claude-opus-5-5": {"input": 100, "output": 10, "cache_write": 1000, "cache_read": 200},
+             "claude-sonnet-5-5": {"input": 50, "output": 20, "cache_write": 500, "cache_read": 100}}
+
+    def _ready(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        pm.nodes.save_node(y, node, p)
+
+    def _set(self, *extra):
+        return self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                              "--story", "E001-S01-003", "--runtime", "claude",
+                              "--elapsed-hours", "1", "--man-hours", "2", "--hitl-hours", "0.1",
+                              "--no-calibrate", *extra])
+
+    def _verify(self):
+        return self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                              "--story", "E001-S01-003", "--runtime", "claude"])
+
+    def _actual(self):
+        return pm.load_node(pm.story_file(self.root, "E001-S01-003"))[1]["actual"]
+
+    def test_split_is_priced_per_model_and_verifies(self):
+        self._ready()
+        code, out = self._set("--tokens-by-model", json.dumps(self.SPLIT))
+        self.assertEqual(code, 0, out)
+        a = self._actual()
+        # opus: (100*4 + 10*20 + 1000*5 + 200*0.20)/1000 = 5.64
+        # sonnet: (50*2 + 20*10 + 500*2.5 + 100*0.10)/1000 = 1.56
+        self.assertEqual(float(a["cost"]), 7.20)
+        self.assertEqual(a["model"], "claude-opus-5-5", "the model carrying the most tokens")
+        self.assertEqual(dict(a["tokens_k"]), {"total": 1980, "input": 150, "output": 30,
+                                               "cache_write": 1500, "cache_read": 300})
+        self.assertEqual(sorted(a["by_model"]), ["claude-opus-5-5", "claude-sonnet-5-5"])
+        code, out = self._verify()
+        self.assertEqual(code, 0, out)
+
+    def test_verify_fails_a_hand_edited_split_cost(self):
+        self._ready()
+        self._set("--tokens-by-model", json.dumps(self.SPLIT))
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["actual"]["cost"] = 9.99
+        pm.nodes.save_node(y, node, p)
+        code, out = self._verify()
+        self.assertEqual(code, 4, out)
+        self.assertIn("actual.cost=9.99 != derived 7.2 for each model in by_model", out)
+
+    def test_verify_fails_when_by_model_does_not_sum_to_tokens_k(self):
+        self._ready()
+        self._set("--tokens-by-model", json.dumps(self.SPLIT))
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["actual"]["by_model"]["claude-sonnet-5-5"]["input"] = 999
+        pm.nodes.save_node(y, node, p)
+        code, out = self._verify()
+        self.assertEqual(code, 4, out)
+        self.assertIn("actual.tokens_k.input=150.0 != sum of by_model (1099.0)", out)
+
+    def test_a_single_model_recapture_drops_the_old_split(self):
+        self._ready()
+        self._set("--tokens-by-model", json.dumps(self.SPLIT))
+        code, out = self._set("--model", "claude-opus-5-5", "--tokens-input", "1",
+                              "--tokens-output", "1", "--tokens-cache-write", "1",
+                              "--tokens-cache-read", "1")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("by_model", self._actual())
+        self.assertEqual(self._verify()[0], 0)
+
+    def test_split_refuses_model_flag_unknown_model_and_missing_class(self):
+        self._ready()
+        code, _ = self._set("--tokens-by-model", json.dumps(self.SPLIT), "--model", "claude-opus-5-5")
+        self.assertEqual(code, 2)
+        code, _ = self._set("--tokens-by-model", json.dumps(
+            {"claude-nope": {"input": 1, "output": 1, "cache_write": 0, "cache_read": 0}}))
+        self.assertEqual(code, 2)
+        code, _ = self._set("--tokens-by-model", json.dumps(
+            {"claude-opus-5-5": {"input": 1, "output": 1, "cache_write": 0}}))
+        self.assertEqual(code, 2)
+        self.assertNotIn("actual", pm.load_node(pm.story_file(self.root, "E001-S01-003"))[1] or {})
+
+    def _priced_sonnet5(self, cost):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 2, "hitl_hours": 0.1,
+                          "tokens_k": {"total": 1100, "input": 1000, "output": 100,
+                                       "cache_write": 0, "cache_read": 0},
+                          "cost": cost, "model": "claude-sonnet-5"}
+        pm.nodes.save_node(y, node, p)
+
+    def test_an_actual_priced_before_the_sonnet5_correction_still_verifies(self):
+        """claude-sonnet-5 moved from $3/$15 to $2/$10. Actuals frozen at the old card
+        must not start failing verify -- RATE_HISTORY carries it."""
+        self._priced_sonnet5(4.50)            # (1000*3 + 100*15)/1000
+        self.assertEqual(self._verify()[0], 0)
+        self._priced_sonnet5(3.00)            # (1000*2 + 100*10)/1000, the current card
+        self.assertEqual(self._verify()[0], 0)
+
+    def test_a_cost_matching_no_card_still_fails(self):
+        self._priced_sonnet5(3.75)
+        code, out = self._verify()
+        self.assertEqual(code, 4, out)
+        self.assertIn("actual.cost=3.75 != derived 3.0 for model claude-sonnet-5", out)
+
+
 class TestVerifyTokenRatesWiring(TestLayoutResolution):
     """--token-rates on `verify` (Decision 1 of the task-8 brief, not in the
     original design doc): without this wiring, a project using
@@ -7001,9 +7114,9 @@ class TestTranscriptScoping(Base):
         self.assertEqual(len(lines), 1)
         self.assertNotIn("synthetic", lines[0])
 
-    def test_cli_prices_per_model_and_warns_set_actual_records_one(self):
-        """The CLI's cost line is the per-model sum, and a mixed window says that
-        set-actual will price it at one model."""
+    def test_cli_prices_per_model_and_emits_a_split_for_set_actual(self):
+        """The CLI's cost line is the per-model sum, and a mixed window's set-actual flag is
+        the per-model split rather than --tokens-* priced at one model."""
         p = self._write("t.jsonl", [self._mrec("p", "claude-opus-5-5", out=1_000_000),
                                     self._mrec("s", "claude-sonnet-5-5", out=1_000_000)])
         code, out = self.run_main(["usage", p, "--allow-unidentified", "--model",
@@ -7012,6 +7125,12 @@ class TestTranscriptScoping(Base):
         self.assertEqual(code, 0, out)
         self.assertIn("cost 30.00 USD, each model at its own rates", out)
         self.assertIn("ran on more than one model", out)
+        flag = re.search(r"--tokens-by-model '([^']+)'", out)
+        self.assertIsNotNone(flag, out)
+        self.assertEqual(json.loads(flag.group(1)), {
+            "claude-opus-5-5": {"input": 0.0, "output": 1000.0, "cache_write": 0.0, "cache_read": 0.0},
+            "claude-sonnet-5-5": {"input": 0.0, "output": 1000.0, "cache_write": 0.0, "cache_read": 0.0}})
+        self.assertNotIn("--tokens-input", out)
 
     def test_new_model_rates_match_the_published_table(self):
         """Read from the pricing page 2026-11-16. Cache reads are 0.05x input on Opus and
@@ -7023,6 +7142,8 @@ class TestTranscriptScoping(Base):
                                                   "cache_write": 2.50, "cache_read": 0.10})
         self.assertEqual(r["claude-fable-5-2"], {"input": 8.00, "output": 40.00,
                                                  "cache_write": 10.00, "cache_read": 0.20})
+        self.assertEqual(r["claude-sonnet-5"], {"input": 2.00, "output": 10.00,
+                                                "cache_write": 2.50, "cache_read": 0.20})
 
     def test_dispatch_window_naive_ts_is_refused_not_typeerror(self):
         """A ts with no offset beside aware ones raised TypeError comparing them. It now

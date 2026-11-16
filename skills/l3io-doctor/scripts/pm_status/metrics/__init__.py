@@ -76,6 +76,10 @@ def register(sub):
     a.add_argument("--tokens-na", dest="tokens_na", action="store_true",
                    help="record tokens/cost as N/A (runtime=other only)")
     a.add_argument("--model", default="", help="model id that priced these tokens")
+    a.add_argument("--tokens-by-model", dest="tokens_by_model", default=None,
+                   help="JSON {model: {input, output, cache_write, cache_read}} in thousands: "
+                        "a run on more than one model, each priced at its own rates "
+                        "(replaces --tokens-* and --model)")
     a.add_argument("--token-rates", dest="token_rates", default="",
                    help="JSON object of per-model rate overrides")
     a.add_argument("--cost", default=None, help=argparse.SUPPRESS)

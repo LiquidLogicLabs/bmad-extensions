@@ -181,7 +181,12 @@ actual:                                   # METRIC_FIELDS — all five required
   hitl_hours: 7.2
   tokens_k: {total: 2840, input: 420, output: 140, cache_write: 850, cache_read: 1430}
   cost: 6.98                              # derived; written by the tool, never by hand
-  model: claude-sonnet-5
+  model: claude-sonnet-5                  # with by_model: the model that carried most tokens
+  # by_model:                             # optional — only for a run on more than one model
+  #   claude-opus-5-5: {total: 1310, input: 100, output: 10, cache_write: 1000, cache_read: 200}
+  #   claude-sonnet-5-5: {total: 670, input: 50, output: 20, cache_write: 500, cache_read: 100}
+  # tokens_k is then the per-class sum, and cost is each model at its own rates
+  # (set-actual --tokens-by-model; verify re-prices it the same way)
 orchestration:                            # sprint/epic only — the orchestrator's own overhead
   elapsed_hours: 0.6
   man_hours: 0                            # AI-only overhead; no human-developer counterfactual

@@ -380,9 +380,20 @@ For Claude, `usage` prints the four class totals and the exact `--tokens-*` flag
 dispatched agent may run on a different model from the session that spawned it. With
 `--model`, `usage` prices each model's tokens at that model's own rates and lists them; a model
 the rate table does not know, or a record naming none, is priced at `--model` and labelled so.
-`set-actual` still records **one** `--model` and derives `cost` from it, so for a window that
-ran on more than one model the recorded cost differs from `usage`'s figure — `usage` says so
-when that is the case.
+
+For a window that ran on more than one model, `usage` prints
+`--tokens-by-model '{"<model>": {"input": …, "output": …, "cache_write": …, "cache_read": …}, …}'`
+instead of `--tokens-*`. Paste it into `set-actual` in place of `--tokens-*` and `--model`. The
+actual then carries `by_model`; `tokens_k` is its per-class sum; `cost` is each model's tokens
+at that model's rates; and `model` names the model that carried the most tokens, which is what
+the estimate comparison and calibration read. `verify` re-prices a `by_model` actual the same
+way. `usage` withholds the flag, and says why, when a model has no rate card: a cost is never
+guessed.
+
+**A corrected rate does not invalidate old actuals.** `cost` is frozen at capture and `verify`
+re-prices it, so `rates.py` keeps every superseded card in `RATE_HISTORY`, and `verify` accepts
+a cost that matches the current card or a historical one. A hand-edited cost matches neither and
+still fails.
 
 **Claude: "Read the usage fields and sum them" is not an executable instruction.** An agent
 asked to follow it by hand hit all three traps in the file format at once. Two inflate and one
