@@ -616,9 +616,9 @@ test("check 15: a steps file with no routing row trips the derivations-disagree 
 
 // ---- check 16 (bmad-dependency-inventory) ----
 //
-// The check's scope is derived by walking skills/ markdown plus every skills/<dir>/assets/module.yaml,
-// so the planted violations below go into new files, a new skills/ directory, and a module.yaml,
-// not only into files the check's author happened to think of.
+// The check's scope is derived by walking skills/ markdown, so the planted violations below go
+// into new files and a new skills/ directory, not only into files the check's author happened
+// to think of.
 
 const DEP_INV = "skills/l3io-util/l3io-doctor/assets/bmad-dependencies.json";
 
@@ -646,14 +646,6 @@ test("check 16: a step file dispatching a removed skill fails", async (t) => {
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /dispatches removed skill 'bmad-architect'/);
-});
-
-test("check 16: a module.yaml naming an undeclared skill is caught", async (t) => {
-  const root = fixture(t);
-  write(root, "skills/l3io-arch/l3io-arch-review/assets/module.yaml", "\n# also requires bmad-frobnicate\n", true);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /l3io-arch-review\/assets\/module\.yaml:\d+: names 'bmad-frobnicate', not declared in/);
 });
 
 test("check 16: an entry missing a status-required field is caught", async (t) => {
@@ -814,9 +806,6 @@ test("PROBE_LINE_RE: an ls probe under either root matches, and prose does not",
 // ---- check 37 (probe-tool-root-parity) ----
 const ONLY_CLAUDE = "```bash\nls {project-root}/.claude/skills/l3io-doctor/SKILL.md 2>/dev/null\n```\n";
 const ONLY_AGENTS = "```bash\nls {project-root}/.agents/skills/l3io-doctor/SKILL.md 2>/dev/null\n```\n";
-// Check 38 requires every tool-directory probe to also test BMad's install record, so a
-// fixture meant to PASS carries this line too.
-const MANIFEST_DOCTOR = "```bash\ngrep -qs '^\"l3io-doctor\",' {project-root}/_bmad/_config/skill-manifest.csv\n```\n";
 
 test("check 37: a .claude-only skills probe fails, naming the file and the skill", async (t) => {
   const root = fixture(t);
@@ -829,7 +818,7 @@ test("check 37: a .claude-only skills probe fails, naming the file and the skill
 
 test("check 37: a probe through both tool roots passes", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm/l3io-execute/steps/x-root.md", ONLY_CLAUDE + ONLY_AGENTS + MANIFEST_DOCTOR);
+  write(root, "skills/l3io-pm/l3io-execute/steps/x-root.md", ONLY_CLAUDE + ONLY_AGENTS);
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -845,47 +834,9 @@ test("check 37: prose naming .agents/ does not stand in for the probe path", asy
 
 test("check 37: an .agents/-only probe is fine (the reverse is not a defect)", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm/l3io-execute/steps/x-root.md", ONLY_AGENTS + MANIFEST_DOCTOR);
+  write(root, "skills/l3io-pm/l3io-execute/steps/x-root.md", ONLY_AGENTS);
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
-});
-
-// ---- check 38 (probe-manifest-parity) ----
-test("check 38: a tool-directory probe with no manifest test fails, naming the file and the skill", async (t) => {
-  const root = fixture(t);
-  write(root, "skills/l3io-pm/l3io-execute/steps/x-man.md", ONLY_CLAUDE + ONLY_AGENTS);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr,
-    /\[check 38\] skills\/l3io-pm\/l3io-execute\/steps\/x-man\.md: probes `l3io-doctor` through a tool directory but never tests `_bmad\/_config\/skill-manifest\.csv` for it/);
-});
-
-test("check 38: the loop form (\"^\\\"$n\\\",\") satisfies a $n probe", async (t) => {
-  const root = fixture(t);
-  write(root, "skills/l3io-pm/l3io-execute/steps/x-man.md",
-        "```bash\nfor n in a b; do\n  ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \\\n" +
-        "    || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \\\n" +
-        "    || { grep -qs \"^\\\"$n\\\",\" {project-root}/_bmad/_config/skill-manifest.csv && echo x; }\ndone\n```\n");
-  const r = await run(root);
-  assert.equal(r.status, 0, r.stderr + r.stdout);
-});
-
-test("check 38: prose naming the manifest does not stand in for the test", async (t) => {
-  const root = fixture(t);
-  write(root, "skills/l3io-pm/l3io-execute/steps/x-man.md", ONLY_CLAUDE + ONLY_AGENTS +
-        "BMad records `\"l3io-doctor\",` in `skill-manifest.csv` on every install.\n");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /\[check 38\] .*x-man\.md: probes `l3io-doctor`/);
-});
-
-test("check 38: a manifest test for a DIFFERENT name does not satisfy the probe", async (t) => {
-  const root = fixture(t);
-  write(root, "skills/l3io-pm/l3io-execute/steps/x-man.md", ONLY_CLAUDE + ONLY_AGENTS +
-        "```bash\ngrep -qs '^\"bmad-review\",' {project-root}/_bmad/_config/skill-manifest.csv\n```\n");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /\[check 38\] .*x-man\.md: probes `l3io-doctor`/);
 });
 
 // The probe arm has the same substring hole the replaced_by arm was hardened against: a bare
@@ -2347,7 +2298,7 @@ test("check 4/skills: prose naming pm-status.py outside a uv run command is not 
 // Check 4, module-reference arm. The completeness arm was bound to one hand-typed constant,
 // docs/l3io-pm-reference.md, so docs/l3io-util-reference.md -- a reference for a skill whose
 // mode files invoke {pm_status} directly -- was checked by nothing in either direction. The
-// set is now derived from each skill's module.yaml `code:` and the repo's own `<code>-*`
+// set is now derived from the module folder each skill sits in and the repo's own `<code>-*`
 // naming convention. These tests attack that derivation, not just the rule.
 // ---------------------------------------------------------------------------
 
@@ -2424,7 +2375,7 @@ test("check 4/modules: a reference doc naming no real module is caught", async (
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /docs\/l3io-ghost-reference\.md: is a reference doc for module 'l3io-ghost', which no skill's module\.yaml declares/);
+    /docs\/l3io-ghost-reference\.md: is a reference doc for module 'l3io-ghost', which no module folder under skills\/ holds/);
 });
 
 // ---------------------------------------------------------------------------
@@ -2954,91 +2905,6 @@ test("check 4 catches a real flag invoked on a subcommand that does not take it"
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
     /invokes 'set-status --scope', but pm-status\.py registers that option on other subcommands only/);
-});
-
-// ---------------------------------------------------------------------------
-// Check 23 (marketplace-deps). M-4 of the whole-branch review: marketplace.json's
-// `dependencies` block declared three DEPRECATED shims as required, omitted two skills that
-// really are required, and listed one BMad had removed. Nothing read it.
-
-const MARKETPLACE_REL = ".claude-plugin/marketplace.json";
-const INVENTORY_REL = "skills/l3io-util/l3io-doctor/assets/bmad-dependencies.json";
-
-function readJson(root, rel) {
-  return JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
-}
-
-function writeJson(root, rel, value) {
-  fs.writeFileSync(path.join(root, rel), JSON.stringify(value, null, 2) + "\n");
-}
-
-test("check 23 catches a deprecated shim declared as a required dependency", async (t) => {
-  const root = fixture(t);
-  const mp = readJson(root, MARKETPLACE_REL);
-  mp.dependencies["required-skills"].push("bmad-create-story");
-  writeJson(root, MARKETPLACE_REL, mp);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /names 'bmad-create-story', which .* declares 'deprecated' — not 'required'/);
-});
-
-test("check 23 catches a required dependency the marketplace block omits", async (t) => {
-  const root = fixture(t);
-  const mp = readJson(root, MARKETPLACE_REL);
-  mp.dependencies["required-skills"] =
-    mp.dependencies["required-skills"].filter((n) => n !== "bmad-sprint-planning");
-  writeJson(root, MARKETPLACE_REL, mp);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /omits 'bmad-sprint-planning', which .* declares 'required'/);
-});
-
-test("check 23 catches a removed skill listed as optional", async (t) => {
-  const root = fixture(t);
-  const mp = readJson(root, MARKETPLACE_REL);
-  mp.dependencies["optional-skills"].push("bmad-ux-review");
-  writeJson(root, MARKETPLACE_REL, mp);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /names 'bmad-ux-review', which .* declares 'removed' — not 'optional'/);
-});
-
-test("check 23 catches a non-bmad entry that is not a skill directory", async (t) => {
-  const root = fixture(t);
-  const mp = readJson(root, MARKETPLACE_REL);
-  mp.dependencies["optional-skills"].push("l3io-not-a-skill");
-  writeJson(root, MARKETPLACE_REL, mp);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr,
-    /names 'l3io-not-a-skill', which is neither a bmad-\* skill nor a directory under skills\//);
-});
-
-// The scope attack: the EXPECTED sets are derived from the inventory's `status` field, not
-// typed into the checker. Reclassifying a skill there must move the requirement, so the
-// marketplace block that was correct a moment ago becomes wrong. A hand-listed expectation
-// would sail through this.
-test("scope attack: reclassifying a skill in the inventory moves what check 23 demands", async (t) => {
-  const root = fixture(t);
-  const inventory = readJson(root, INVENTORY_REL);
-  const entry = inventory.skills.find((s) => s.name === "bmad-code-review");
-  assert.ok(entry, "bmad-code-review is no longer in the inventory — re-anchor this test");
-  assert.equal(entry.status, "required");
-  entry.status = "optional";
-  writeJson(root, INVENTORY_REL, inventory);
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /dependencies\.optional-skills omits 'bmad-code-review'/);
-  assert.match(r.stderr, /dependencies\.required-skills names 'bmad-code-review'/);
-});
-
-// An input set that can silently become empty is the failure this repo keeps meeting.
-test("check 23 fails rather than passing when the inventory declares nothing", async (t) => {
-  const root = fixture(t);
-  writeJson(root, INVENTORY_REL, { verified_against: "6.12.0", skills: [] });
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /declares no skills — check 23 would compare against an empty set/);
 });
 
 // ---------------------------------------------------------------------------
@@ -4152,90 +4018,6 @@ test("check 34: a line forbidding hand edits is not a hand edit", async (t) => {
         "Never edit these files by hand — they are machine-written.\n" +
         "Regenerate rather than hand-editing the manifest.\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
-});
-
-// --- check 35: forwarder-version-oracle ----------------------------------------------- //
-// The oracle sits OUTSIDE the file on purpose. Every other guard over a forwarder's versions
-// compares the file to itself — rule 13 asks whether frontmatter, body and notice agree —
-// and three agreeing copies of a wrong number pass by construction.
-
-// The package ships no forwarder any more, so each check-35 test plants one: the last real
-// forwarder's text, under a name nothing else in the tree uses.
-const FORWARDER_REL = "skills/l3io-pm/l3io-old-execute/SKILL.md";
-function plantForwarder(root) {
-  write(root, FORWARDER_REL, [
-    "---",
-    "name: l3io-old-execute",
-    "description: DEPRECATED forwarder for /l3io-execute — renamed in 3.1.3. Use /l3io-execute instead. This forwarder will be removed in 4.0.0.",
-    "---",
-    "",
-    "# l3io-old-execute (DEPRECATED — use /l3io-execute)",
-    "",
-    "This skill was renamed to `/l3io-execute` in v3.1.3. This forwarder exists only so old",
-    "invocations continue to work; it will be **removed in v4.0.0**.",
-    "",
-    "## On Activation",
-    "",
-    "1. Print one line to stderr, verbatim:",
-    "",
-    "   ```",
-    "   NOTICE: /l3io-old-execute is deprecated (renamed to /l3io-execute in v3.1.3). This forwarder will be removed in v4.0.0.",
-    "   ```",
-    "",
-    "2. Invoke `skill:l3io-execute` with the exact arguments the user gave, and report its output unchanged.",
-    "",
-  ].join("\n"));
-  write(root, "skills/l3io-pm/l3io-old-execute/customize.toml", "[workflow]\n");
-  return FORWARDER_REL;
-}
-
-test("check 35: the tree as committed states no impossible forwarder version", async (t) => {
-  const root = fixture(t);
-  assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
-});
-
-test("check 35: a rename version newer than the package version fails", async (t) => {
-  const root = fixture(t);
-  const rel = plantForwarder(root);
-  const v = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-  write(root, rel, fs.readFileSync(path.join(root, rel), "utf8").replace(/3\.1\.3/g, "9.9.9"));
-  const r = await run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /\[check 35\]/);
-  assert.match(r.stderr, /renamed in 9\.9\.9, which is newer than the current version/);
-  assert.match(r.stderr, new RegExp(v.replace(/\./g, "\\.")));
-});
-
-test("check 35: one line per wrong version, not one per copy of it", async (t) => {
-  const root = fixture(t);
-  const rel = plantForwarder(root);
-  const before = fs.readFileSync(path.join(root, rel), "utf8");
-  // Load-bearing: a forwarder states the rename version three times by design, and if that
-  // ever stops being true this fails loudly rather than letting the dedup assertion below
-  // pass vacuously over a single occurrence.
-  assert.equal((before.match(/3\.1\.3/g) || []).length, 3);
-  write(root, rel, before.replace(/3\.1\.3/g, "9.9.9"));
-  const hits = ((await run(root)).stderr.match(/\[check 35\][^\n]*renamed in 9\.9\.9/g) || []);
-  assert.equal(hits.length, 1, "three copies of one wrong version are one defect");
-});
-
-test("check 35: the removal version is check-module rule 13's, not this check's", async (t) => {
-  // One fact, one gate. Asserted here so that if check 35 ever grows a removal arm, this
-  // fails and says where that comparison already lives.
-  const root = fixture(t);
-  const rel = plantForwarder(root);
-  write(root, rel,
-        fs.readFileSync(path.join(root, rel), "utf8").replace(/4\.0\.0/g, "0.0.1"));
-  assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
-});
-
-test("check 35: a skill that is not a forwarder is not judged", async (t) => {
-  const root = fixture(t);
-  // The identical sentence shape, in a skill whose description does not declare it one.
-  write(root, "skills/l3io-pm/l3io-plan/SKILL.md",
-        fs.readFileSync(path.join(root, "skills/l3io-pm/l3io-plan/SKILL.md"), "utf8")
-        + "\nThis was renamed in v9.9.9 and will be removed in v0.0.1.\n");
-  assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
 });
 
 const READINESS_STEP = "skills/_shared/steps/plan/step-02-readiness-check.md";

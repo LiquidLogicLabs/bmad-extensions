@@ -11,7 +11,7 @@
 // and `check:scripts`, which are gates that report per-finding in a loop and then exit -- the
 // exact shape -- but are implemented in `write-payload-manifest.mjs` and
 // `sync-shared-scripts.mjs`, so a pattern over filenames never saw them. The npm side alone
-// would miss `check-module-view.mjs`, which `smoke-install.sh` invokes rather than npm. A
+// would miss a `check-*.mjs` that a shell script invokes rather than npm. A
 // hand-written list would have to be updated by exactly the person who did not know the rule.
 import { test } from "node:test";
 import assert from "node:assert/strict";

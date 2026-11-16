@@ -12,7 +12,7 @@
 //
 // Two changes retired that failure. self-install now compares content, so a stale copy heals
 // itself. And the script's version is no longer its own: postbump writes it from
-// package.json, alongside marketplace.json and every bmod.toml. Nobody has to remember it.
+// package.json, alongside every bmod.toml. Nobody has to remember it.
 //
 // This check asserts the invariant that makes both true:
 //

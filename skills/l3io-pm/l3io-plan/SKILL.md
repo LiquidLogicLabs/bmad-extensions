@@ -58,7 +58,7 @@ and carries no procedure.
 
 | Keyword | Load | Menu | Notes |
 |---|---|---|---|
-| `plan` (or no argument) | the full-plan step list below | registered | the default: readiness → elaboration → graph → estimate → snapshot |
+| `plan` (or no argument) | the full-plan step list below | default | the default: readiness → elaboration → graph → estimate → snapshot |
 | `estimate` | `steps/shared/step-estimate.md` | registered | re-estimate only; optional `E{nnn}` or `E{nnn}-S{nn}` scope |
 | `reorg` | `steps/reorg/step-reorg.md` | registered | propose, confirm and apply a better plan shape — writes planned work only |
 | `lanes` | `steps/lanes/step-lanes.md` | registered | who owns what when several developers share one plan; inert unless `lane_count` > 1 |

@@ -50,7 +50,7 @@
 //                    check count agrees with both
 //  19. derived-counts  the skill count, module count, and l3io-pm skill count claimed in
 //                    prose match what skills/ actually has, derived from the directory and
-//                    each skill's module.yaml `code:` field — never typed
+//                    the module folder each skill sits in (ADR-0021) — never typed
 //  20. shared-files-table  every skills/_shared/* source a sync group in
 //                    sync-shared-scripts.mjs references has a row in CLAUDE.md's Shared
 //                    Files table, and every table row names a source that actually exists
@@ -58,16 +58,14 @@
 //                    `name:` equals the directory name -- what BMad's installer requires
 //                    before a skill reaches skill-manifest.csv and .claude/skills/ at all;
 //                    a skill that fails either test is dropped from a real install with no
-//                    warning (Task 11A fix round 1, H-1/H-2)
+//                    warning (Task 11A fix round 1, H-1/H-2). KEPT on v7 without a v7
+//                    measurement: `npx skills add` installs a folder flat under its name, and
+//                    a frontmatter that does not parse is broken for any reader
 //  22. readme-repo-layout  README's "## Repo Layout" block lists, for every l3io-* skill, the
 //                    subdirectories that skill actually has -- both directions, with both
 //                    sides derived (the skill set and the real directories from `git
 //                    ls-files`, the claims from the block), so a gitignored build artifact is
 //                    not mistaken for something README should describe
-//  23. marketplace-deps  `.claude-plugin/marketplace.json`'s `dependencies` block agrees with
-//                    the declared inventory in
-//                    `skills/l3io-doctor/assets/bmad-dependencies.json` — required and
-//                    optional sets both ways, with both sides derived from the two files
 //  24. shared-pointers  every skill-relative pointer inside a file sync-shared-scripts.mjs
 //                    ships resolves in EVERY skill that file's sync group delivers it to —
 //                    scope and destinations both derived from syncGroups, no allowlist. Read
@@ -95,6 +93,9 @@
 //                    name .claude/skills/<n>/SKILL.md in the same file, or the phase
 //                    self-skips silently on a 6.12 install. CLAUDE.md carried this hole
 //                    in prose. See the block above probePathParity() for the KNOWN GAP.
+//                    KEPT on v7, as a guard over probes the step files still carry: v7 has no
+//                    .claude/commands/, so the check goes vacuous, and is retired, when Phase
+//                    3 rewrites dispatch and deletes those probes.
 //  30. subcommand-required  a documented invocation of a script that registers subparsers
 //                    must name one. Check 4 does this for pm-status.py and spec-align.py;
 //                    the skills' scripts/ hold twenty scripts and bmad-deps.py shipped in
@@ -107,13 +108,6 @@
 //                    mentions, not calls, and each produced a false positive first.
 //  34. no-hand-edit-directives  no runtime directive tells a user to hand-edit a file
 //                              this package writes — the human decides, the agent edits
-//  35. forwarder-version-oracle  a forwarder's RENAME version names a release that was
-//                              actually cut (<= package.json's). The oracle is OUTSIDE the
-//                              file: every other guard over these versions compares the file
-//                              to itself, and three agreeing copies of a wrong number pass by
-//                              construction. Not the tag list — CI checks out shallow, so
-//                              that arm would be empty exactly where it runs. The REMOVAL
-//                              version is check-module rule 13's, not this one's.
 //  36. remediation-coverage  every column-0 `BLOCKED:` line in a shared step file is a site
 //                    in one of skills/_shared/auto-remediation.md's two tables, every table
 //                    row is still backed by such a line, and a Remediable row's remedy appears
@@ -132,14 +126,9 @@
 //                    nothing and the phase self-skips silently. Sibling of check 29, one axis
 //                    over (29: layout within a root; 37: the root). No exemption, this
 //                    package's own l3io-doctor included. Same file-scoped KNOWN GAP as 29. See
-//                    the block above probeToolRootParity().
-//  38. probe-manifest-parity  a dependency probe naming <tool>/skills/<n>/SKILL.md must also
-//                    test BMad's install record for <n> (`skill-manifest.csv`, a line matching
-//                    '^"<n>",') in the same file. 20 of 6.12.4's platforms install to a
-//                    tool-specific directory no step file lists (.cline/skills, .kiro/skills,
-//                    ...); the manifest is the one record covering all of them. Same
-//                    file-scoped KNOWN GAP as 29 and 37. See the block above
-//                    probeManifestParity().
+//                    the block above probeToolRootParity(). KEPT on v7 and more relevant there:
+//                    `npx skills add` installs into .agents/skills, the first root v7's setup
+//                    reads, beside each chosen tool's own directory.
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -168,6 +157,21 @@
 //                    plausible and wrong instead of erroring. Reported by the downstream
 //                    package while porting, which carried the collision faithfully rather
 //                    than diverging. Derived from the same table check 25 reads.
+//
+// RETIRED on the v7 branch (ADR-0014), each because the 6.x artifact it compared is gone. The
+// numbers are not reused, so a reference to "check 36" means the same thing on both lines:
+//   (23) marketplace-deps  compared `.claude-plugin/marketplace.json`'s `dependencies` block to
+//                    the inventory. v7 does not read marketplace.json and this branch deletes
+//                    it; a module's requirements are its bmod.toml `required_skills`, which
+//                    `check:bmod` (validate_manifests.py) validates.
+//   (35) forwarder-version-oracle  judged a DEPRECATED forwarder's rename version. v7 retires a
+//                    skill through `retired.toml` instead, and the branch ships no forwarder;
+//                    `validate_manifests.py` and scripts/tests/retired.test.mjs guard that file.
+//   (38) probe-manifest-parity  required every tool-directory probe to also test
+//                    `_bmad/_config/skill-manifest.csv`. v7 writes no such file (its
+//                    `migrate_v6.py` lists it as a 6.x leftover), so the rule would force a
+//                    6.x-only probe into every new v7 probe. The manifest lines the step files
+//                    still carry are harmless on v7 and go when Phase 3 rewrites dispatch.
 //
 // ---------------------------------------------------------------------------------------
 // SCOPE OF THIS FILE AS A WHOLE — surface, never behaviour.
@@ -309,7 +313,6 @@ import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import sh from "mvdan-sh";
 import { writeAllSync } from "./write-all-sync.mjs";
-import { declaresForwarder } from "./forwarder-shape.mjs";
 import { skillDirByName } from "./lib/skill-dirs.mjs";
 
 // CHECK_DOCS_ROOT points the checker at another tree -- scripts/tests/check-docs.test.mjs
@@ -403,20 +406,9 @@ function liveDocFiles() {
 
 const LIVE_DOCS = liveDocFiles();
 
-// The module a skill's directory belongs to, from that module's own module.yaml `code:`.
-// assets/module.yaml is the target module home; a skill-root module.yaml is a not-yet-migrated
-// module. Read both so a partial migration does not silently count zero modules.
-//
-// A skill with no module.yaml takes its module from the folder it sits in: ADR-0021 lays the
-// repository out as `skills/<code>/<skill>/`, so the folder IS the module code. l3io-pm has no
-// module.yaml since its 6.x setup skill was retired, and without this its skills would belong
-// to no module at all.
+// The module a skill's directory belongs to: the folder it sits in. ADR-0021 lays the
+// repository out as `skills/<code>/<skill>/`, so the folder IS the module code.
 function moduleCodeOf(skill) {
-  for (const rel of [`${skillRel(skill)}/assets/module.yaml`, `${skillRel(skill)}/module.yaml`]) {
-    if (!exists(rel)) continue;
-    const m = read(rel).match(/^code:\s*(\S+)/m);
-    if (m) return m[1];
-  }
   const parts = skillRel(skill).split("/");
   if (parts.length === 3 && parts[1].startsWith("l3io-")) return parts[1];
   return null;
@@ -1807,7 +1799,7 @@ function checkPmStatusInvocations() {
 // §4 names.
 //
 // Adding a second constant would repeat the mistake one path later, so the set is DERIVED:
-//   which modules exist          <- each skill's own module.yaml `code:` (moduleCodeOf)
+//   which modules exist          <- the module folder each skill sits in (moduleCodeOf)
 //   which skills are in a module <- the repo's own naming convention, `<code>` or `<code>-*`,
 //                                   the same one check 19 and check-module.mjs use
 //   which doc is a module's ref  <- docs/<code>-reference.md
@@ -1847,12 +1839,12 @@ function checkModuleReferenceCoverage() {
     if (code) codes.add(code);
   }
   if (codes.size === 0) {
-    failures.push(`no skill's module.yaml declares a \`code:\` — check 4's module-reference ` +
+    failures.push(`no skill sits in an l3io-* module folder — check 4's module-reference ` +
       `arm would examine nothing and pass in silence`);
     return;
   }
 
-  // Direction 1: every module named by a module.yaml has a reference doc among the live docs.
+  // Direction 1: every module folder has a reference doc among the live docs.
   // Direction 2: every docs/l3io-*-reference.md names a module that exists.
   const refDocs = new Map();
   for (const rel of LIVE_DOCS) {
@@ -1860,7 +1852,7 @@ function checkModuleReferenceCoverage() {
     if (!m) continue;
     if (!codes.has(m[1])) {
       failures.push(`${rel}: is a reference doc for module '${m[1]}', which no ` +
-        `skill's module.yaml declares (modules: ${[...codes].sort().join(", ")})`);
+        `module folder under skills/ holds (modules: ${[...codes].sort().join(", ")})`);
       continue;
     }
     refDocs.set(m[1], rel);
@@ -1873,10 +1865,9 @@ function checkModuleReferenceCoverage() {
 
   let checked = 0;
   for (const [code, doc] of [...refDocs].sort()) {
-    // A skill is owned by a module when its module.yaml declares that code (source of truth),
-    // OR when it has no module.yaml and its name follows the `<code>-*` convention (scope-attack
-    // fallback: a brand-new skill directory is bound to its module on arrival, before it
-    // carries a module.yaml). The union is what the header claims and what test 198 pins.
+    // A skill is owned by a module when it sits in that module's folder (source of truth), OR,
+    // for a skill directly under skills/, when its name follows the `<code>-*` convention.
+    // The union is what the header claims and what test 198 pins.
     const owned = dirs.filter((d) => {
       const explicit = moduleCodeOf(d);
       if (explicit !== null) return explicit === code;
@@ -2745,8 +2736,10 @@ function checkDoctorModeCount() {
 // window excused l3io-doctor/SKILL.md:84 because an unrelated routing row nearby said
 // "remove migration backup files". An accidental pass is how a guard starts crying wolf.
 //
-// Scope is derived by walking skills/ markdown and every skills/<dir>/assets/module.yaml, never
-// a list.
+// Scope is derived by walking skills/ markdown, never a list. The 6.x module.yaml files this
+// also read are gone; a bmod.toml names BMad's skills as `skill = "<name>"` beside repository
+// slugs (`bmad-code-org`, `bmad-extensions`) that are not skills, and validate_manifests.py
+// (`check:bmod`) judges those requirements.
 // ---------------------------------------------------------------------------
 const DEP_INVENTORY = `${skillRel("l3io-doctor")}/assets/bmad-dependencies.json`;
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
@@ -2771,8 +2764,8 @@ const DEP_STATUSES = ["required", "optional", "related", "deprecated", "removed"
 // A probe line, in one of two forms. (a) `ls` is the command and a tool-root path is its
 // argument, under either root BMad installs into (.claude/, or .agents/, the cross-tool standard).
 // Token-bounded on `ls` because a bare includes("ls ") is satisfied by "tools " or "controls ".
-// (b) `grep` tests BMad's install record, `skill-manifest.csv` (check 38 requires one beside
-// every tool-directory probe); a manifest test dispatches nothing either. Exported so a test can
+// (b) `grep` tests BMad 6.x's install record, `skill-manifest.csv`, which the step files still
+// carry beside their tool-directory probes; a manifest test dispatches nothing either. Exported so a test can
 // pin it.
 export const PROBE_LINE_RE = /(?:^|[^\w-])(?:ls\s+\S*\.(?:claude|agents)\/|grep\s.*skill-manifest\.csv)/;
 
@@ -2816,10 +2809,6 @@ function checkBmadDependencyInventory() {
   }
 
   const sources = [...walkMarkdown("skills")];
-  for (const dir of SKILL_REL.values()) {
-    const rel = `${dir}/assets/module.yaml`;
-    if (exists(rel)) sources.push(rel);
-  }
 
   let checked = 0;
   for (const rel of sources) {
@@ -3501,11 +3490,10 @@ function checkDocsCheckCount() {
 // skills/ actually has.
 //
 // Modelled on check 15 (doctor-mode-count): derive the counts from the source of truth --
-// the skills/ directory and each skill's own module.yaml -- never type them, and require an
-// unmatched claim sentence to fail rather than silently stop being checked.
+// the skills/ directory and the module folder each skill sits in -- never type them, and
+// require an unmatched claim sentence to fail rather than silently stop being checked.
 //
-// module.yaml lives at each standalone module's home (assets/module.yaml, plus the skill-root
-// copy); a skill without one takes its module from its `skills/<code>/` folder (moduleCodeOf).
+// A skill's module is its `skills/<code>/` folder (moduleCodeOf, ADR-0021).
 // "skills" counts only directories that carry a SKILL.md. "pmSkills" counts l3io-pm's delivery
 // skills, excluding a dedicated *-setup home should one exist, per check-module.mjs's
 // convention that such a home is never one of the module's own skills.
@@ -3569,7 +3557,7 @@ function checkDerivedCounts() {
       const expect = counts[field];
       if (got !== expect) {
         failures.push(`${file}: says "${word}" ${COUNT_FIELD_NOUN[field]}(s), ` +
-          `but the package has ${expect} — derived from skills/ and each skill's module.yaml`);
+          `but the package has ${expect} — derived from skills/ and its module folders`);
       }
     });
   }
@@ -3945,105 +3933,6 @@ function checkReadmeRepoLayout() {
   if (verbose) {
     console.log(`  readme-repo-layout: ${checked} skill row(s) matched against ` +
       `${trackedSkillDirs === null ? "the filesystem (git unavailable)" : "git's tracked tree"}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 23. `.claude-plugin/marketplace.json`'s `dependencies` block agrees with the declared
-// inventory, `skills/l3io-doctor/assets/bmad-dependencies.json`.
-//
-// Why: the marketplace block is the first thing a prospective consumer reads about what this
-// package needs, and nothing read it. Measured at the time this check was written, it
-// declared three DEPRECATED shims (`bmad-create-story`, `bmad-dev-story`,
-// `bmad-review-adversarial-general`) as **required**, omitted two skills that really are
-// required (`bmad-sprint-planning`, `bmad-review`), and listed one skill BMad removed
-// (`bmad-ux-review`) as optional. Check 16 had kept the inventory honest against the runtime
-// directives for a year; the marketplace copy of the same facts drifted beside it, unguarded
-// — a second copy of a surface that nothing verifies, the same shape as M-2(2)'s digest.
-//
-// Both sides are derived. The expected sets come from the inventory's own `status` field, and
-// the actual sets from the marketplace file; neither is typed here. A skill the inventory
-// reclassifies moves in both directions on the next run.
-//
-// One deliberate carve-out: an entry that is not a `bmad-*` name is this package's own
-// intra-package dependency (`l3io-arch-review` — the epic architecture gate and the story
-// technical-AC checklist self-skip without it). The inventory declares BMad's skills, not
-// ours, so those are checked against `skills/` instead of against it.
-const MARKETPLACE = ".claude-plugin/marketplace.json";
-
-function checkMarketplaceDependencies() {
-  if (!exists(MARKETPLACE) || !exists(DEP_INVENTORY)) {
-    failures.push(`${MARKETPLACE} or ${DEP_INVENTORY} is missing — check 23 has nothing to ` +
-      `compare, which is a scope failure, not a pass`);
-    return;
-  }
-
-  let inventory;
-  let marketplace;
-  try {
-    inventory = JSON.parse(read(DEP_INVENTORY));
-    marketplace = JSON.parse(read(MARKETPLACE));
-  } catch (e) {
-    failures.push(`${MARKETPLACE}/${DEP_INVENTORY}: not valid JSON (${e.message})`);
-    return;
-  }
-
-  const declared = Array.isArray(inventory.skills) ? inventory.skills : [];
-  if (declared.length === 0) {
-    failures.push(`${DEP_INVENTORY}: declares no skills — check 23 would compare against an ` +
-      `empty set and pass in silence`);
-    return;
-  }
-  const byStatus = (status) =>
-    new Set(declared.filter((s) => s.status === status).map((s) => s.name));
-  const modules = new Set(declared.map((s) => s.module).filter(Boolean));
-
-  const deps = marketplace.dependencies || {};
-  const ownSkills = new Set(SKILL_REL.keys());
-
-  let checked = 0;
-  for (const [field, status] of [["required-skills", "required"], ["optional-skills", "optional"]]) {
-    const listed = Array.isArray(deps[field]) ? deps[field] : null;
-    if (listed === null) {
-      failures.push(`${MARKETPLACE}: dependencies.${field} is missing or not an array`);
-      continue;
-    }
-    const expected = byStatus(status);
-    const actualBmad = new Set(listed.filter((n) => n.startsWith("bmad-")));
-
-    for (const name of listed) {
-      checked += 1;
-      if (name.startsWith("bmad-")) continue;
-      if (ownSkills.has(name)) continue;
-      failures.push(`${MARKETPLACE}: dependencies.${field} names '${name}', which is neither ` +
-        `a bmad-* skill nor a directory under skills/`);
-    }
-    for (const name of [...expected].sort()) {
-      if (actualBmad.has(name)) continue;
-      const entry = declared.find((s) => s.name === name);
-      failures.push(`${MARKETPLACE}: dependencies.${field} omits '${name}', which ` +
-        `${DEP_INVENTORY} declares '${status}'${entry?.module ? ` (module ${entry.module})` : ""}`);
-    }
-    for (const name of [...actualBmad].sort()) {
-      if (expected.has(name)) continue;
-      const entry = declared.find((s) => s.name === name);
-      failures.push(`${MARKETPLACE}: dependencies.${field} names '${name}', which ` +
-        `${DEP_INVENTORY} declares ` +
-        `${entry ? `'${entry.status}'` : "not at all"} — not '${status}'`);
-    }
-  }
-
-  const declaredModule = deps["bmad-module"];
-  checked += 1;
-  if (!modules.has(declaredModule)) {
-    failures.push(`${MARKETPLACE}: dependencies.bmad-module is '${declaredModule}', which no ` +
-      `entry in ${DEP_INVENTORY} names as its module (inventory uses: ` +
-      `${[...modules].sort().join(", ")})`);
-  }
-
-  if (verbose) {
-    console.log(`  marketplace-deps: ${checked} dependency entr(ies) checked against ` +
-      `${declared.length} declared skill(s)`);
   }
 }
 
@@ -4820,60 +4709,6 @@ export function probeToolRootParity(opts = {}) {
   return { violations, scanned };
 }
 
-// --- check 38: probe-manifest-parity ------------------------------------------------ //
-// A dependency probe through a tool directory also tests BMad's install record for the same
-// name, IN THE SAME FILE.
-//
-// BMad 6.12.4 installs skills for 48 platforms into 22 distinct project directories:
-// `.agents/skills` for 27, `.claude/skills` for one, and a tool-specific directory for the
-// other 20 (`.cline/skills`, `.kiro/skills`, `.junie/skills`, ...). Step files probe .claude/
-// and .agents/ by path; listing the other 20 in every chain is not maintainable, and a chain
-// missing them reports every dependency absent on that tool. Measured on a real 6.12.4
-// `--tools cline` install: all eight step-file probes found nothing and check-deps reported
-// every skill missing. `_bmad/_config/skill-manifest.csv` is written on every 6.x install
-// whatever the tool, one row per skill, first field the quoted canonical id -- so a line
-// testing it for '^"<n>",' covers all 22.
-//
-// The matched text is the grep pattern on a line naming `skill-manifest.csv`, in either
-// quoting: '^"bmad-review",' or "^\"$n\"," (the loop form). Prose naming the manifest does
-// not satisfy it.
-//
-// Scope is derived: every .md under skills/. A file with no tool-directory probe is out.
-// KNOWN GAP: file-scoped, not block-scoped, exactly as checks 29 and 37.
-const MANIFEST_PROBE_RE = /\^\\?"([$\w.:-]+)\\?",/g;
-
-export function probeManifestParity(opts = {}) {
-  const violations = [];
-  const scanned = [];
-  const sources = [
-    ...walkSkillFiles([".md"]).map((f) => ({ file: f, text: read(f) })),
-    ...(opts.extraSources || []),
-  ];
-  for (const { file, text } of sources) {
-    scanned.push(file);
-    const probed = new Set([
-      ...[...text.matchAll(PROBE_CLAUDE_SKILLS_RE)].map((m) => m[1]),
-      ...[...text.matchAll(PROBE_AGENTS_SKILLS_RE)].map((m) => m[1]),
-    ]);
-    if (!probed.size) continue;
-    const viaManifest = new Set();
-    for (const line of text.split("\n")) {
-      if (!line.includes("skill-manifest.csv")) continue;
-      for (const m of line.matchAll(MANIFEST_PROBE_RE)) viaManifest.add(m[1]);
-    }
-    for (const name of probed) {
-      if (!viaManifest.has(name)) {
-        violations.push(
-          `${file}: probes \`${name}\` through a tool directory but never tests ` +
-          `\`_bmad/_config/skill-manifest.csv\` for it — 20 of BMad 6.12.4's platforms ` +
-          `install to a tool-specific directory only the manifest covers, so there the ` +
-          `phase self-skips silently`);
-      }
-    }
-  }
-  return { violations, scanned };
-}
-
 // --- check 30: subcommand-required -------------------------------------------------- //
 // Every documented invocation of a script that registers subparsers must name one.
 //
@@ -5184,93 +5019,6 @@ function checkNoHandEditDirectives() {
   }
 }
 
-// 35. A forwarder's RENAME version must name a release that was actually cut.
-//
-// A forwarder states two versions: the release that renamed it, and the release that will
-// remove it. Every existing guard over them compares the file to ITSELF -- check-module's
-// rule 13 asks whether the frontmatter, the body and the stderr notice agree -- and three
-// copies of a wrong version agree perfectly. The oracle has to sit outside the file, and the
-// only fact outside it that cannot drift is which releases exist.
-//
-// WHY NOT THE TAG LIST, which is the obvious oracle. Two independent reasons, either fatal:
-// CHANGELOG.md covers 82 of this repo's 88 tags, so a forwarder naming one of the other six
-// would read as fictional; and `actions/checkout` runs at its default depth, which fetches no
-// tags at all, so the git arm would be empty exactly where the gate runs. A gate whose oracle
-// is empty in CI passes everything -- the shape that let check:bmb report clean over ~12,000
-// unlinted lines.
-//
-// package.json needs no oracle and cannot be unavailable or shallow. The rename already
-// happened, so its version must be <= the current one; a rename dated in the future tells
-// every user on every shipped version that it is still ahead of them.
-//
-// THE REMOVAL VERSION IS NOT CHECKED HERE. check-module.mjs rule 13 already fails a forwarder
-// whose promised removal version the package has reached, which is the same comparison, and
-// two gates asserting one fact is how they drift into disagreeing. Rule 13 owns the forwarder
-// contract -- target, body, notice, payload, and that the two copies of each version agree.
-// This check owns the one question rule 13 cannot answer from inside the file: whether the
-// rename version names a release that was ever cut.
-//
-// KNOWN GAP: a past-but-never-cut version (naming 3.0.5 when the rename was 3.0.4) is not
-// caught. It misdirects a reader by one release, where the half this does catch points users
-// at a release newer than the one they are running.
-//
-// AND WHY THE SCOPE STAYS ON FORWARDERS, measured rather than assumed. The obvious widening
-// -- "every version-shaped string in tracked prose must name a release this package cut" --
-// was run over this tree as a one-off: 167 occurrences across 210 tracked .md files, of which
-// only 115 are real tags. The other 52 are ALL legitimate: 17 are the forwarders' own future
-// removal version, 13 are BMad's (6.11/6.12/6.13), 6 are npm dependency versions argued in
-// ADR-0007, one is a `§5.3.1` section reference the regex cannot tell from a version, one is
-// pm-status.py's former independent version line, and two are upgrading.md entries written
-// ahead of their release. Zero were wrong. So that gate fires 52 times on a clean tree and
-// would need an allowlist a third the size of its own input -- the hand-kept list this
-// package keeps deleting.
-//
-// The discriminator is not "is this string a tag" but "is this claim ABOUT this package's
-// release history", which is semantic, not lexical. A forwarder's claim has a fixed parseable
-// shape and that is the entire reason this check can be sound; a prose claim does not, and
-// "has existed since X" / "shipped in X" / "renamed in X" are three phrasings already in use
-// across the two trees. Do not widen this to prose without solving that first.
-const RENAME_VERSION_RE = /\brenamed\b[^.\n]{0,40}?\bin\s+v?(\d+\.\d+\.\d+)/gi;
-
-function semverCmp(a, b) {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
-  return 0;
-}
-
-function checkForwarderVersionOracle() {
-  const current = JSON.parse(read("package.json")).version;
-  const violations = [];
-  let claims = 0;
-  for (const rel of allSkillDocs()) {
-    if (!/\/SKILL\.md$/.test(rel)) continue;
-    // Forwarders only, through forwarder-shape.mjs. Re-deriving "is this a forwarder" here
-    // would be a second definition of the thing that file exists to be the only one of.
-    if (!declaresForwarder(path.dirname(path.join(repoRoot, rel)))) continue;
-    const text = read(rel);
-    RENAME_VERSION_RE.lastIndex = 0;
-    let m;
-    while ((m = RENAME_VERSION_RE.exec(text)) !== null) {
-      claims++;
-      if (semverCmp(m[1], current) > 0) {
-        violations.push(`${rel}: says it was renamed in ${m[1]}, which is newer than the `
-          + `current version ${current} -- it names a release that has not happened. A user `
-          + `on any shipped version is told the rename is in their future.`);
-      }
-    }
-  }
-  // One line per (file, version), not per occurrence: a forwarder states each version three
-  // times by design and rule 13 keeps them in step, so a wrong one is wrong in triplicate.
-  // Three identical failures describe one defect and one fix.
-  const unique = [...new Set(violations)];
-  for (const v of unique) failures.push(`[check 35] ${v}`);
-  if (verbose) {
-    console.log(`  forwarder-version-oracle: ${claims} version claim(s) against ${current}, `
-                + `${unique.length} violation(s)`);
-  }
-}
-
 // 36. Every `BLOCKED:` site is classified, and every declared remedy is present.
 //
 // This gates CLASSIFICATION. A Remediable row's remedy must appear within 40 lines of its halt
@@ -5429,12 +5177,6 @@ function checkProbeToolRootParity() {
   if (verbose) console.log(`  probe-tool-root-parity: ${violations.length} violation(s)`);
 }
 
-function checkProbeManifestParity() {
-  const { violations } = probeManifestParity();
-  for (const v of violations) failures.push(`[check 38] ${v}`);
-  if (verbose) console.log(`  probe-manifest-parity: ${violations.length} violation(s)`);
-}
-
 function checkResolverInvariant() {
 
 
@@ -5467,17 +5209,14 @@ checkDerivedCounts();
 checkSharedFilesTable();
 checkSkillFrontmatter();
 checkReadmeRepoLayout();
-checkMarketplaceDependencies();
 checkSharedPointerResolution();
 checkDoctorModeKeywords();
 checkResolverInvariant();
 checkChoiceEnumerations();
 checkGateImports();
 checkNoHandEditDirectives();
-checkForwarderVersionOracle();
 checkProbePathParity();
 checkProbeToolRootParity();
-checkProbeManifestParity();
 checkSubcommandRequired();
 checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();

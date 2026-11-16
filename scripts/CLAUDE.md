@@ -7,7 +7,7 @@ script, never hand-edit a manifest, never move `pm-status`'s version backwards �
 root `CLAUDE.md`. This file carries the mechanics behind them.
 
 Each checker's own header comment is the authoritative description of what it asserts;
-`scripts/check-docs.mjs` numbers its thirty-eight checks there.
+`scripts/check-docs.mjs` numbers its thirty-five checks there.
 
 **Every tool finds skills through `scripts/lib/skill-dirs.mjs`, never a `skills/*/` glob.** The
 repository is laid out one folder per module (ADR-0021): `skills/<module>/<skill>/`, with
@@ -20,74 +20,46 @@ half: a file under `skills/` that no skill and no module record owns — a per-s
 an old flat path — is invisible to everything that walks skills, so `check:scripts` and
 `check:manifest` both fail on it by name (`STRAY:`).
 
-**`module.yaml` lives in more than one place, on purpose.** BMad reads it with two different
-tools that disagree about where it is: `validate-module.py` reads `assets/module.yaml`, and
-`tools/installer/project-root.js` — the one that decides which `[modules.<code>]` a module's
-settings land under — reads a **skill-root** `module.yaml` for any skill whose directory name
-does not end in `-setup`. So a standalone module home carries both, byte-identical, and
-`skills/module.yaml` is a marker declaring no `code:`/`name:`/`agents:`. `check:module` rule 1
-enforces all of it; `docs/bmad-module-yaml-discovery.md` has the measured contract. Do not
-"tidy up" the duplicate — a branch that did exactly that shipped an install whose
-`_bmad/config.toml` BMad's own resolver refused to parse.
+**`check:bmod` is the v7 packaging gate; `check:module` keeps what it does not assert.**
+`scripts/check-bmod.mjs` runs BMad's `validate_manifests.py` (ADR-0014) over a temp-dir view of
+`skills/` without `_shared/` — the validator otherwise reports `skills/_shared: missing
+bmod.toml`. The view is named `l3io-check-bmod-*`; a passing run removes it, a failing run keeps
+it and prints its path. The validator and the three files it loads from its own directory
+(`setup.py`, `knowledge.py`, `list_templates.py`) come from `scripts/fetch-bmad-tool.mjs <pin>
+<path>`: raw.githubusercontent.com at a full commit SHA, each file verified against a SHA-256
+recorded in that script's `KNOWN_TOOLS`, cached outside the repository
+(`$BMAD_TOOL_CACHE`, else `$XDG_CACHE_HOME/l3io-bmad-tools`, else `~/.cache/l3io-bmad-tools`). A
+(pin, path) with no recorded hash is refused before any network call; moving the pin means
+reading the new files and recording their hashes in the same diff.
 
-**A plugin's `skills` array decides whether its authored `module-help.csv` is used at all.**
-BMad's `PluginResolver` tries five strategies per plugin in `.claude-plugin/marketplace.json`;
-the fifth **synthesizes** a stub catalog from `SKILL.md` frontmatter and the install still exits
-0, with no warning, ignoring every authored CSV. The three single-skill modules reach strategy
-3 only because `_trySingleStandalone` requires **exactly one** existing skill. Adding a second
-skill to any of those plugins — nothing deleted, every file where it was — drops that module to
-synthesis. `l3io-pm` carries a v7 record (`skills/l3io-pm/bmod-l3io-pm/`), so rules 8 and 9
-skip it: v7 installs it without PluginResolver and its menu is not a CSV. `check:module` rule 8 mirrors the resolver's conditions and fails on
-anything that would land on strategy 5; run it with `-v` to see the strategy it derived per
-plugin.
+`check:module` has two rules. **pm-status-singleton**: one `pm_status` payload copy per module
+(the folder under `skills/` a skill sits in). **help-registration**: every keyword a skill's
+routing table marks `registered` is named, in backticks, in its module's `help/help.md` (alone,
+or after the skill's name), and a `default` keyword's help.md names the skill. The Menu column
+(`registered` · `default` · `health-check` · `not-a-capability`) is the source of truth, read
+from the table; an unrecognised value fails, a missing column makes every keyword required, and a
+skill with mode files under `steps/` but no table fails. The doctor's menu rows are mirrored in
+`help/help.md` by hand, so this rule is what keeps them honest. The 6.x rules it used to carry —
+two-location `module.yaml`, module-home payload, PluginResolver strategies, the agent roster,
+`*-setup` singleton, `module-help.csv` rows and menu codes, forwarder shape — modelled an installer
+v7 does not have and retired with it; they stay on `main` for 3.x.
 
-**An agent is declared twice, and the two copies are read by different things.** A module's
-`agents:` roster is what the installer writes into `_bmad/config.toml` as `[agents.<code>]`;
-the skill's own `customize.toml` `[agent]` block is what it reads at activation. `check:module`
-rule 10 requires them equal on `title`, `icon` and `description`, with `name` present on both
-(empty is valid — a First-Breath agent fills it) — and checks the pair both ways, because a
-`[agent]` block no roster lists never reaches `config.toml` at all while the skill still
-activates. The entry is tied to its skill through the `[agent] code`, **not** the directory
-name: `l3io-sec-redteam` declares `code: redteam`, which the installer uses only as the TOML
-section key (`manifest-generator.js:608`). `skills/l3io-sec/l3io-sec-redteam/assets/module.yaml` records
-why beside the field.
+**`smoke:install` installs the modules into a real v7 project.** `scripts/smoke-install.sh`
+builds one with `tests/fixtures/v7/make-fixture.sh` at the same pin, copies it untouched for the
+"only l3io-pm" case, `npx skills add`s each module folder (repeated `-a` flags) and runs v7's
+`setup.py` headlessly, answering each question with its default. It asserts: every skill lands
+in both tool roots; setup lists `lane_count`; no `problems`, no unmet requirement, every record
+found and registered at the package version; a `lane_count` in `_bmad/custom/config.toml`
+resolves; with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
+it with `--skill`, and following that hint against this checkout satisfies it. Setup's update
+check (`--source-record`, which reads `bmod.toml` from `main` on GitHub) is reported, not judged:
+it says `could-not-check` while `main` ships 3.x. It needs GitHub and npm, takes about 30 s, and
+is not a CI gate.
 
-**A mode keyword with no `module-help.csv` row is unreachable from BMad's menu.** The routing
-table in a skill's `SKILL.md` and the module's CSV are two copies of the same fact, and they
-drifted: the doctor advertised twenty-one modes and registered one. `check:module` rule 9
-requires every keyword in a routing table to carry a row or to be marked excluded in that
-table's own **Menu** column (`registered` · `default` · `health-check` · `not-a-capability`)
-— the exclusion set is read from the table, never kept in the checker, and an unrecognized
-value fails rather than quietly exempting a keyword. The expectation is anchored outside the
-table too, so deleting a table fails instead of passing over an empty set: a top-level
-`steps/<name>.md` that is not part of a numbered `step-NN-*.md` sequence is a mode, and a
-skill with mode files (or a "Recognized keywords" section) owes a table.
-
-**Having a row is not the same as having a reachable one.** Rule 9 asks whether a keyword HAS a
-row; rule 7 asks whether a row's `skill` names a real directory. Both compare a row to something
-*outside* the file, so neither could see two rows claiming one `menu-code` — the selector a user
-types at BMad's menu — which is what shipped in 3.1.3 when `/l3io-help catalog` was given `LPC`,
-already held by `/l3io-sync sync`. `check:module` rule 12 compares rows to each other, within
-one CSV, case-insensitively. Cross-module reuse is deliberately out of scope: each module
-assembles its own menu, and nothing measured says those collide.
-
-**`smoke:install` judges the validator's findings, not its verdict.** `validate-module.py` does
-not implement two conventions `bmad-help` documents and BMad's own modules ship — the `_meta`
-documentation row, and cross-module `skill:action` relationships — so it returns `fail` for all
-four of this package's modules, and for BMad's own `bmm` CSV when that is put in a shape it can
-read. `scripts/smoke-install.sh` therefore pipes each run through
-`scripts/check-module-view.mjs`, which exempts exactly those two classes, evidenced against the
-module's own CSV, and fails on anything else — including a `medium`, which the validator's own
-`status` tolerates, so the bar is stricter than the one it replaces. The script's header states
-each exemption and the condition that switches it off; `scripts/tests/check-module-view.test.mjs`
-attacks all of them and runs in CI, which `smoke:install` does not. ADR-0008 Decision 7's
-2026-09-23 amendment has the measurements.
-
-**`smoke:install` now cleans up after itself, and only after itself.** The script took its
+**`smoke:install` cleans up after itself, and only after itself.** An earlier version took its
 workdir from `work="${1:-$(mktemp -d)}"` and never removed it: eleven full BMad installs,
-85 MB, leaked into a tmpfs `/tmp` where every byte is resident RAM. It also broke a rule this
-package publishes — `standards-shell.md` requires the `trap` on the line after `mktemp` — in
-the only shell script the repo ships.
+85 MB, leaked into a tmpfs `/tmp` where every byte is resident RAM. `standards-shell.md`, which
+this package ships, requires the `trap` on the line after `mktemp`.
 
 Two properties the trap deliberately keeps:
 
@@ -108,8 +80,7 @@ queued writes, not the payload size** — a single 128 KB write is intact 20/20,
 5000. `scripts/write-all-sync.mjs` has the measured curve. Two rules, both load-bearing:
 assemble the whole report as one string and write it through the helper, and set
 `process.exitCode` rather than calling `process.exit()`. Where a script genuinely must
-terminate — `check-module-view.mjs`'s `die()`, whose callers use it as control flow — the exit
-is fine *after* a completed `writeAllSync`, because nothing is left queued.
+terminate, the exit is fine *after* a completed `writeAllSync`, because nothing is left queued.
 `scripts/tests/write-all-sync.test.mjs` enforces this, scope derived rather than listed, since
 the file that needs the rule is the next one somebody writes.
 
@@ -119,8 +90,8 @@ missed two live gates for as long as the rule existed: `check:manifest` is
 `write-payload-manifest.mjs` and `check:scripts` is `sync-shared-scripts.mjs`, both of which
 report one finding per file in a loop and then exit — the manifest one emits a `STALE:` line
 per drifted payload file across 8 skills, which after any `skills/_shared/steps/**` edit is
-well past the 300-line onset. The npm side alone would equally have missed
-`check-module-view.mjs`, which `smoke-install.sh` invokes rather than npm. Both halves are
+well past the 300-line onset. The npm side alone would equally miss a `check-*.mjs` that a
+shell script invokes rather than npm. Both halves are
 anchored separately, not just the union, because a union stays plausibly sized while one of its
 derivations has quietly gone to zero.
 
@@ -169,7 +140,8 @@ classes only. Its header carries the full argument; three things to know before 
 
 It spawns mypy through `uv`, like every other Python entry point here, so there is no
 dependency to declare and no interpreter to install. A `uv` that cannot spawn **fails** the
-gate rather than skipping it — the `check:bmb`-over-unlinted-Python lesson.
+gate rather than skipping it — the lesson of a retired scanner gate that reported clean over
+Python it had never linted.
 
 ## Dependencies
 
@@ -184,13 +156,8 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 
 | Where | Parses | With |
 |---|---|---|
-| `check-module.mjs` | `skills/module.yaml`, each skill's `module.yaml` and `assets/module.yaml` | `yaml` |
-| `check-module.mjs` | each skill's `assets/module-help.csv` | `csv-parse` |
-| `check-module-view.mjs` | the assembled view's `<skill>/assets/module-help.csv` | `csv-parse` |
-| `check-module.mjs` check 9 | each skill's `SKILL.md` routing table, split on `\|` | `csv-parse` |
-| `check-module.mjs` check 10 | each skill's `customize.toml` | `smol-toml` |
-| `check-module.mjs` check 8 | `.claude-plugin/marketplace.json` | `JSON.parse` |
-| `module-config-keys.mjs` | each skill's `assets/module.yaml` | `yaml` |
+| `check-module.mjs` help-registration | each skill's `SKILL.md` routing table, split on `\|` | `csv-parse` |
+| `check-module.mjs` | each skill's `bmod.toml`, to find its module's record | `smol-toml` |
 | `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |
 | `check-docs.mjs` check 21 | each skill's `SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |
@@ -266,13 +233,9 @@ and `__pycache__/`. **Never hand-edit a manifest, and regenerate it whenever a p
 changes** — `npm run sync:scripts` does not do it for you.
 
 A skill is a directory with a `SKILL.md`, at any depth under `skills/` (`skillDirs()`). That is
-what BMad installs and what the marketplace declares, and it excludes `skills/_shared/`, which
-ships nothing. Every skill has a manifest: a `SKILL.md` is payload, and `clean-payload.py`
-cannot see a directory that has no manifest. `check:module`'s
-bare-forwarder rule therefore allows `payload-manifest.json` as a third file — it is a
-*description* of payload rather than payload, and a second module home is made by
-`module.yaml`/`module-help.csv`, which BMad's PluginResolver reads, never by a checksum file
-nothing in BMad reads at all.
+what `npx skills add` installs, and it excludes `skills/_shared/`, which ships nothing. Every
+skill has a manifest: a `SKILL.md` is payload, and `clean-payload.py` cannot see a directory
+that has no manifest.
 
 **This scope was wrong until 2026-10-10, and the way it was wrong is worth keeping.** It
 imported `PAYLOAD_TARGETS` from the sync script, making the scope "files that arrived here by
@@ -314,13 +277,16 @@ npm run check:scripts   # verify payload copies match source (CI also runs this)
 npm run check:docs      # verify docs match the code they describe (CI + release gate)
 npm run check:manifest  # verify per-skill payload-manifest.json matches the payload (CI + release gate)
 npm run check:types     # scoped mypy over the pm_status package: accessor contracts only (CI)
+npm run check:module    # one pm_status copy per module; every registered mode in help/help.md (CI)
+npm run check:bmod      # BMad v7's validate_manifests.py at the pin, over skills/ without _shared (CI; network)
+npm run smoke:install   # a real v7 install of all four modules (network; by hand, not CI)
 npm run check:lock      # verify package.json and package-lock.json agree (CI + release gate)
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
 ## Release
 
-The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and every `bmod.toml` module record — do not manually bump those files.
+The `postbump` hook auto-syncs the new version into every `bmod.toml` module record — do not manually bump those files.
 
 > **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/`, a `payload-manifest.json` is stale, or `package-lock.json` no longer matches `package.json` (runs `sync-shared-scripts.mjs --check`, `write-payload-manifest.mjs --check`, `check-docs.mjs`, `check-pm-status-version.mjs`, and `npm ls --package-lock-only` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
 

@@ -20,20 +20,16 @@
 //   status-files.md / metrics-contract.md → references/ in PM skills
 //   auto-remediation.md → references/ in l3io-execute, l3io-plan
 //   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
-//   merge-config.py / merge-help-csv.py / write-module-config.py / module-setup.md →
-//   scripts/ and assets/ in each standalone module's HOME only (the skill itself) -- only the
-//   module home performs setup. l3io-pm has no 6.x setup home: v7's bmod.toml config
-//   questions replace it.
-//   merge-config.py / merge-help-csv.py are the two scripts BMad's module validator
-//   requires by name; see their own docstrings for why they are not the scaffolder's
-//   versions.
+//   write-module-config.py / module-setup.md → scripts/ and assets/ in each standalone
+//   module's HOME only (the skill itself) -- the 6.x setup procedure, still loaded by the
+//   `setup`/`configure` keyword until Phase 3 replaces it with v7's bmod.toml config
+//   questions. l3io-pm has no 6.x setup home.
 //
 // Not shared, deliberately: resolve_config.py, resolve_customization.py and memlog.py are
 // installed by BMad core at {project-root}/_bmad/scripts/ and are never bundled by a skill.
 // Vendoring them shipped a stale duplicate of a core script that nothing invoked.
 //
-// Also not shared, deliberately: test-pm-status.py, test-write-module-config.py,
-// test-merge-help-csv.py and test-merge-config-wrapper.py. A consumer never runs a skill's
+// Also not shared, deliberately: test-pm-status.py and test-write-module-config.py. A consumer never runs a skill's
 // shipped tests, CI runs every suite straight from skills/_shared/tests/
 // (.github/workflows/checks.yml), and shipping them into every consumer's install was
 // ~842 KB of dead payload — the same category this package removed when it stopped
@@ -48,7 +44,6 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { writeAllSync } from "./write-all-sync.mjs";
-import { declaresForwarder } from "./forwarder-shape.mjs";
 import { skillDirs, skillDirByName, strayFiles } from "./lib/skill-dirs.mjs";
 
 const repoRoot = process.cwd();
@@ -126,17 +121,14 @@ const allSkillFiles = [
   { src: path.join(sharedDir, "config-resolution.md"), rel: path.join("references", "config-resolution.md") },
 ];
 
-// The two merge scripts BMad's validator requires, module-setup.md, and the config writer
-// setup runs, belong in each module's HOME -- the setup skill for multi-skill modules, the
-// skill itself for standalone ones. Syncing them into every operational skill would ship
+// module-setup.md and the config writer setup runs belong in each standalone module's HOME --
+// the skill itself. Syncing them into every operational skill would ship
 // four copies of a procedure only one of them runs.
 const moduleHomeDirs = [
   "l3io-doctor", "l3io-sec-redteam", "l3io-arch-review",
 ].map(skillDir);
 
 const moduleHomeFiles = [
-  { src: path.join(sharedDir, "merge-config.py"), rel: path.join("scripts", "merge-config.py") },
-  { src: path.join(sharedDir, "merge-help-csv.py"), rel: path.join("scripts", "merge-help-csv.py") },
   { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
   { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
 ];
@@ -199,24 +191,12 @@ const newUtilDoctorDirs = [
 // module-home concern (moduleHomeFiles). Derived through skillDirs(), never hand-enumerated:
 // a hand-kept list here drifts silently, and a skill missing from it is missing from the
 // check:scripts comparison too.
-// A forwarder skill is a minimal dispatcher that carries only SKILL.md + customize.toml and
-// exists to keep an old skill name working through a rename cycle. Its SKILL.md frontmatter
-// description starts with "DEPRECATED forwarder" — that is the derived signal, so a forwarder
-// added later (or removed at 4.0.0) is picked up without a hand-kept list. Excluding
-// forwarders from allSkillDirs keeps config-resolution.md and other "every skill" payloads out
-// of them; a forwarder does not resolve config, it just dispatches.
-// The bare declaration, from scripts/forwarder-shape.mjs -- the one place that decides what a
-// forwarder is. Deliberately the LOOSEST of the three questions asked of that declaration:
-// tightening it to also demand `for /<target>` would silently start syncing shared payload INTO
-// a forwarder whose sentence was worded differently, which is a change to what ships triggered
-// by a reworded sentence. The line-matched frontmatter read it used to do is gone with it: a
-// quoted or folded description now parses the same as a plain one.
 // A v7 module record (`bmod-<code>/`, ADR-0014) carries a SKILL.md only because BMad's
 // validator requires one; it redirects to `bmad setup` and resolves no config, so it is not a
 // skill any shared payload is for.
 const allSkillDirs = skillDirs(repoRoot)
   .map((rel) => path.join(repoRoot, rel))
-  .filter((dir) => !declaresForwarder(dir) && !path.basename(dir).startsWith("bmod-"));
+  .filter((dir) => !path.basename(dir).startsWith("bmod-"));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir
 const sharedStepFiles = [

@@ -62,8 +62,6 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **every skill** — every skill resolves config |
 | `skills/_shared/module-setup.md` | `assets/module-setup.md` | each standalone module's HOME only: `l3io-doctor`, `l3io-sec-redteam`, `l3io-arch-review` (l3io-pm's 6.x setup machinery retired with `l3io-setup`; Phase 3 retires these) |
 | `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | each standalone module's HOME only: `l3io-doctor`, `l3io-sec-redteam`, `l3io-arch-review` (l3io-pm's 6.x setup machinery retired with `l3io-setup`; Phase 3 retires these) |
-| `skills/_shared/merge-config.py` | `scripts/merge-config.py` | each standalone module's HOME only: `l3io-doctor`, `l3io-sec-redteam`, `l3io-arch-review` (l3io-pm's 6.x setup machinery retired with `l3io-setup`; Phase 3 retires these) |
-| `skills/_shared/merge-help-csv.py` | `scripts/merge-help-csv.py` | each standalone module's HOME only: `l3io-doctor`, `l3io-sec-redteam`, `l3io-arch-review` (l3io-pm's 6.x setup machinery retired with `l3io-setup`; Phase 3 retires these) |
 
 **A skill-local pointer is only valid if that skill carries the file.** `l3io-doctor` named
 `references/status-files.md` in six runtime directives — `SKILL.md` calls it "the canonical
@@ -113,10 +111,9 @@ discovery rather than reporting success over nothing.
 **`check:lint:py` runs ruff over every Python file in `skills/`.** `ruff.toml` carries no
 `select` list on purpose: the rule set is whatever the pinned ruff enables, so it cannot drift
 from a hand-kept list, and the pin lives in the npm script so a bump is a visible diff. Before
-this existed nothing linted ~12,000 lines of Python — and `check:bmb` was reporting clean over
-them, because bmb's `scan-scripts.py` shells to `uv run ruff`, which fails to spawn when ruff
-is absent and is swallowed (it reports a `lint-setup` finding for a missing **uv**, not a
-missing ruff). Deliberate violations are marked inline with `# noqa: RULE -- reason`, never
+this existed nothing linted ~12,000 lines of Python — and the since-retired `check:bmb` was
+reporting clean over them, because bmb's `scan-scripts.py` shells to `uv run ruff`, which fails
+to spawn when ruff is absent and is swallowed. Deliberate violations are marked inline with `# noqa: RULE -- reason`, never
 ignored wholesale; `ruff.toml` states the only two exemptions and why each cannot be inline.
 
 **`check:types` is a SCOPED type check over the package `skills/_shared/pm_status/` — two error
@@ -142,16 +139,27 @@ asserts the rest stay ungated (as a property; it does not pin the count, which i
 test is the one place here that cannot go stale). Found by the downstream package doing the annotation
 follow-up and hitting the inert state.
 
-**`check:bmb` runs BMad Builder's own scanners over this package's skills.** bmb ships them
-in the `bmad-builder` npm package, a devDependency, so `npm ci` is the whole setup — a real
-BMad install is not available to CI, because `.claude/skills/` is gitignored. Both the
-scanner set (every `scan-*.py` bmb ships) and the skill set are derived, not listed.
-`scripts/check-bmb.mjs` carries an exemption per BMad-core convention this package rejects,
-each with a stated reason and a test that plants a violation it must **not** swallow;
-`relative-prefix` is deliberately *not* exempt, because that is the rule that caught a live
-defect (`uv run ./scripts/merge-config.py`, which only resolved when the working directory
-happened to be the skill root). `validate-module.py` is a different tool and stays in
-`smoke:install`, which needs a real install to build a module view.
+**`check:bmod` runs BMad v7's own manifest validator, `validate_manifests.py`, over this
+package's skills** — every `bmod.toml`, each module record, `retired.toml`, `roster.toml`,
+`help/help.md`, one version across every record, and a dry run of setup's module discovery
+(ADR-0014). It is never bundled: `scripts/fetch-bmad-tool.mjs <pin> <path>` fetches it, and the
+three files it loads beside it, from BMAD-METHOD at the pin over raw.githubusercontent.com,
+verifies each against a SHA-256 recorded in that script, and caches it outside the repository —
+so the CI step needs network, and a tampered fetch fails it. It validates a temp-dir view of
+`skills/` without `_shared/`, which the validator would otherwise report as a skill missing
+`bmod.toml`; a failing run keeps that view and prints its path. It replaced `check:bmb` (BMad
+Builder's 6.x scanners, and the `bmad-builder` devDependency) and the twelve 6.x installer rules
+`check:module` used to model by hand. `check:module` keeps two package rules the validator does
+not assert: one `pm_status` payload copy per module, and every routing keyword marked
+`registered` named in its module's `help/help.md` — the doctor's menu rows are mirrored there by
+hand, and that rule is what keeps them honest.
+
+**`smoke:install` installs the four modules into a real v7 project** —
+`tests/fixtures/v7/make-fixture.sh` at the pin, `npx skills add` of each module folder, then
+v7's `setup.py` headlessly — and asserts what setup reports: no problems, `lane_count` asked,
+and `l3io-doctor` an unmet requirement when only `l3io-pm` is installed. It needs network
+(GitHub and npm) and is not a CI gate. Trap rules: a failing run keeps its tree, a workdir
+passed as `$1` is never removed.
 
 **Never bundle a BMad core script.** `resolve_config.py`, `resolve_customization.py`, and
 `memlog.py` are installed by BMad core at `{project-root}/_bmad/scripts/` and must be invoked
@@ -191,7 +199,7 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs thirty-eight checks asserting facts that have each drifted in this repo's history. **They compare documented CLI *surface* to the code — flag names, `choices`, subcommand names, counts, paths, versions — and never documented *behaviour*.** A reference row can name every flag correctly, describe the wrong semantics, and pass forever; both reference docs did exactly that for `sync-agent-instructions` until 2026-10-12. The scope statement at the top of `scripts/check-docs.mjs` has the measured case.
+`check:docs` runs thirty-five checks asserting facts that have each drifted in this repo's history. **They compare documented CLI *surface* to the code — flag names, `choices`, subcommand names, counts, paths, versions — and never documented *behaviour*.** A reference row can name every flag correctly, describe the wrong semantics, and pass forever; both reference docs did exactly that for `sync-agent-instructions` until 2026-10-12. The scope statement at the top of `scripts/check-docs.mjs` has the measured case.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
 states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's
@@ -206,13 +214,12 @@ Three things that header does not tell you:
   requires any name probed through `.claude/commands/` to be probed through
   `.claude/skills/<name>/SKILL.md` in the same file. `/l3io-doctor check-deps` remains the
   runtime verification against a real install; check 29 catches the reversion, not the install.
-  Checks 37 and 38 are the same guard on two more axes: a `.claude/skills` probe must also
-  probe `.agents/skills`, and any tool-directory probe must also test
-  `_bmad/_config/skill-manifest.csv` for the name. BMad 6.12.4 installs into 22 tool
-  directories (`.cline/skills`, `.kiro/skills`, …) and only the manifest covers all of them;
-  `bmad-deps.py` derives the same set from `manifest.yaml` `ides:` via
-  `skills/l3io-util/l3io-doctor/assets/bmad-install-targets.json`. l3io 3.x targets BMad 6.x only, so a
-  bare `<project>/skills` root (v7's) is deliberately not probed.
+  Check 37 is the same guard on a second axis: a `.claude/skills` probe must also probe
+  `.agents/skills`, the root v7's setup reads first. Check 38 (every tool-directory probe also
+  tests `_bmad/_config/skill-manifest.csv`) is **retired on this branch**: v7 writes no such
+  file, and the rule would force a 6.x-only probe into every new one. Checks 23 and 35 retired
+  with `marketplace.json` and the forwarders; the header of `scripts/check-docs.mjs` states each
+  ruling, and the numbers are not reused.
 - Check 1 deliberately allows a doc to name a removed skill when mapping it to its replacement or
   explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
   `/l3io-execute`. Docs are allowed to quote values inline; they are not allowed to quote them
@@ -234,8 +241,7 @@ The `postbump` hook chains sync automatically, so every release keeps the payloa
 
 ## Commands
 
-The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and every
-`bmod.toml` module record — do not manually bump those files. The release gates and the rest of the
+The `postbump` hook auto-syncs the new version into every `bmod.toml` module record — do not manually bump those files. The release gates and the rest of the
 build tooling are documented in `scripts/CLAUDE.md`.
 
 ## Skill Authoring Conventions
@@ -300,7 +306,7 @@ Story statuses: `backlog → ready-for-dev → in-progress → review → done`.
 
 **Status writes go through the shared `pm-status.py`** (run via `uv run`; deps auto-provisioned from its PEP-723 header). It performs every single-node status transition, `actual`-block write, event-log append, and read-back `verify` as one atomic, `ruamel`-round-trip-safe operation (preserves comments + key order) — this replaced free-form YAML edits that were dropped/malformed under load and parallelism. All node operations address state via `--state-root` plus node keys (`--epic`, `--sprint`, `--story`) — never a hand-built path. Skills never construct state paths themselves; `pm-status.py` is the only place that resolves a key to a file location, so a future layout change touches only that script. Directory moves between `planned/`, `active/`, and `archived/` go through `move-epic`/`archive-epic`, still following `references/status-files.md`. Each PM skill activates it in a *Load the Status Helper* step. Subagents do **not** load `status-files.md` or `metrics-contract.md` at activation; `steps/shared/step-00-digest.md` carries an operative digest, loaded on its own by dispatched subagents (keys, subcommand signatures, exit codes, the estimates hard rule) and a routing table to the section of each reference that a given question needs. Those references remain canonical — script > reference > digest. Every status and actuals write also appends to `{implementation_artifacts}/state/events.jsonl` automatically (opt out per call with `--no-events`, stamp a session with `--session-id`); this replaced an optional `--ledger` flag and `progress` subcommand (both removed) that no step file ever passed, so no progress trail was ever actually written. `pm-status.py report` renders that log plus the state tree as a plan-aware progress view (`--format tree|json|md`, `--watch SECS`, `--all`), read-only unless `--out` is given. Under `--runtime claude`, `set-actual`/`verify` **reject** an `N/A` tokens/cost (enforces the estimates-&-actuals HARD RULE at write time). Four subcommands beyond the status/actuals core: **`sync-story-doc`** mirrors a status into the story markdown's frontmatter (called after every `set-status` on a story; a missing or frontmatter-less document warns on stderr and returns 0, because the state transition it follows is already durable); **`add-test-run --command CMD --exit-code N`** appends one executed test command to `completion_evidence.test_runs` and **derives** `completion_evidence.tests_passing` from it — `all(exit_code == 0)` over the **last run of each distinct command**, so the ordinary fix-then-rerun cycle closes green while the failed run stays in the record; `set-field` now **refuses** `completion_evidence.tests_passing` outright (exit 2), since an agent asserting its own tests passed is not falsifiable and once shipped `true` over a suite it never ran. **`adr-reserve`** allocates ADR numbers from `state/adr-register.yaml` (above). **`dump-plan`** emits the planned tree as JSON — **compact by default** (`--pretty` restores indentation), because every consumer is a script that parses it and it is piped on every plan run; indented it measured 2.09x the raw YAML it came from. **`import-node`** creates a node that does not exist yet, from a migration record — it is `cmd_set_status` with `ensure_node_path` where that verb calls `_load_checked`, so a migrated node lands under the same epic write lock, event log and status validation as any other write. It is idempotent by skip, never by overwrite. `set-status` is unchanged and still exits 3 on a missing node.
 
-`pm-status.py` is a **shared runtime utility** authored once in `skills/_shared/` (with its `tests/`); `npm run sync:scripts` (also chained into `postbump`) generates the per-skill `scripts/` payload copies — **never hand-edit those**. It ships as a payload copy in exactly **one skill per module**, not in every skill that invokes `{pm_status}`: `l3io-execute` for `l3io-pm`, `l3io-doctor` for the standalone `l3io-util` module (`check:module` guards against a second copy reappearing inside one module). `l3io-execute` and `l3io-plan` each self-install by running `l3io-execute`'s copy — `{skill-root}/../l3io-execute/scripts/pm_status/__main__.py self-install --dest {project-root}/_bmad/scripts/pm-status.py` — at activation (`steps/shared/step-00-activate.md` §2; the sibling path resolves to its own copy inside `l3io-execute`), reading it as a sibling skill installed alongside because the `l3io-pm` module installs as one unit; a missing sibling halts loudly, naming `l3io-execute`. Phase 3 of the v7 plan replaces self-install with declared scripts. `l3io-doctor` runs the same self-install from its own copy **at activation**, before dispatching to any mode (not gated on `setup`/`configure`) — it is the documented post-upgrade entry point and invokes `{pm_status}` in seven of its `steps/` mode files, plus `assets/migrate-state.md`, which the `migrate-state` mode loads, so it cannot assume some other skill already refreshed the installed copy; it is a different, standalone module with no sibling `*-setup` skill to read from instead. Self-install is **content-guarded**, self-healing on first use, so there is exactly **one runtime copy per project**, referenced by all these skills as `{project-root}/_bmad/scripts/pm-status/__main__.py`. **`_bmad/scripts/` is BMad's directory, not ours, and BMad deletes and recreates it on every install or update** — 6.12.4's `_installSharedScripts()` does `fs.remove(scriptsDir)` before copying its own `src/scripts/*`, and the v7 preview's `ensure_scripts()` does `rmtree` whenever the tree is not exactly its declared set (ADR-0001, 2026-10-23 amendment). So **the self-install at every activation is load-bearing, not belt-and-braces**: a BMad install between two runs removes the copy, and the next activation is what restores it. Do not optimise it to run once or gate it behind a first-run check, and never let anything of ours be the only copy of itself there — a user's local patch to the installed file is destroyed by BMad, not by us. The guard compares a SHA-256 of the bytes, not the version marker: it reinstalls whenever the installed copy differs, and skips only when it is byte-identical. A strictly newer installed copy is still refused as a downgrade — that is the one thing content cannot express. Comparing versions alone was a live defect: the marker is hand-maintained and drifted twice, leaving projects pinned to a copy 920 lines stale that self-install kept reporting as current. **`pm-status.py` shares the package's release line** — its top-of-file marker and `PM_STATUS_VERSION` are written from `package.json` by `sync-bmad-versions.mjs` at `postbump`, alongside `marketplace.json` and every `module.yaml`. Never hand-edit either, and **never move the version backwards**: `self-install` refuses to overwrite a strictly newer installed copy, so a lowered version strands every project already on the higher one. The two lines were merged at 2.4.2, jumping the package up past the script's 2.4.1 for exactly that reason. CI runs `npm run check:scripts` to fail on payload drift from the `skills/_shared/` source, and `npm run check:version` (also chained into `prerelease`) to assert `marker == PM_STATUS_VERSION == package.json version` — an invariant that holds at every commit, not only at release.
+`pm-status.py` is a **shared runtime utility** authored once in `skills/_shared/` (with its `tests/`); `npm run sync:scripts` (also chained into `postbump`) generates the per-skill `scripts/` payload copies — **never hand-edit those**. It ships as a payload copy in exactly **one skill per module**, not in every skill that invokes `{pm_status}`: `l3io-execute` for `l3io-pm`, `l3io-doctor` for the standalone `l3io-util` module (`check:module` guards against a second copy reappearing inside one module). `l3io-execute` and `l3io-plan` each self-install by running `l3io-execute`'s copy — `{skill-root}/../l3io-execute/scripts/pm_status/__main__.py self-install --dest {project-root}/_bmad/scripts/pm-status.py` — at activation (`steps/shared/step-00-activate.md` §2; the sibling path resolves to its own copy inside `l3io-execute`), reading it as a sibling skill installed alongside because the `l3io-pm` module installs as one unit; a missing sibling halts loudly, naming `l3io-execute`. Phase 3 of the v7 plan replaces self-install with declared scripts. `l3io-doctor` runs the same self-install from its own copy **at activation**, before dispatching to any mode (not gated on `setup`/`configure`) — it is the documented post-upgrade entry point and invokes `{pm_status}` in seven of its `steps/` mode files, plus `assets/migrate-state.md`, which the `migrate-state` mode loads, so it cannot assume some other skill already refreshed the installed copy; it is a different, standalone module with no sibling `*-setup` skill to read from instead. Self-install is **content-guarded**, self-healing on first use, so there is exactly **one runtime copy per project**, referenced by all these skills as `{project-root}/_bmad/scripts/pm-status/__main__.py`. **`_bmad/scripts/` is BMad's directory, not ours, and BMad deletes and recreates it on every install or update** — 6.12.4's `_installSharedScripts()` does `fs.remove(scriptsDir)` before copying its own `src/scripts/*`, and the v7 preview's `ensure_scripts()` does `rmtree` whenever the tree is not exactly its declared set (ADR-0001, 2026-10-23 amendment). So **the self-install at every activation is load-bearing, not belt-and-braces**: a BMad install between two runs removes the copy, and the next activation is what restores it. Do not optimise it to run once or gate it behind a first-run check, and never let anything of ours be the only copy of itself there — a user's local patch to the installed file is destroyed by BMad, not by us. The guard compares a SHA-256 of the bytes, not the version marker: it reinstalls whenever the installed copy differs, and skips only when it is byte-identical. A strictly newer installed copy is still refused as a downgrade — that is the one thing content cannot express. Comparing versions alone was a live defect: the marker is hand-maintained and drifted twice, leaving projects pinned to a copy 920 lines stale that self-install kept reporting as current. **`pm-status.py` shares the package's release line** — its top-of-file marker and `PM_STATUS_VERSION` are written from `package.json` by `sync-bmad-versions.mjs` at `postbump`, alongside every `bmod.toml` module record. Never hand-edit either, and **never move the version backwards**: `self-install` refuses to overwrite a strictly newer installed copy, so a lowered version strands every project already on the higher one. The two lines were merged at 2.4.2, jumping the package up past the script's 2.4.1 for exactly that reason. CI runs `npm run check:scripts` to fail on payload drift from the `skills/_shared/` source, and `npm run check:version` (also chained into `prerelease`) to assert `marker == PM_STATUS_VERSION == package.json version` — an invariant that holds at every commit, not only at release.
 
 `status-files.md` is also shared from `skills/_shared/` — it is the canonical state-layout contract (placement rules, `depends_on` schema, read/auto-fallback). `npm run sync:scripts` keeps all PM skill `references/status-files.md` copies in sync. Never edit per-skill copies directly.
 
@@ -368,9 +374,9 @@ Required intra-package: `l3io-util` (this package's utilities module — provide
 `l3io-doctor`). The PM skills forward migrations, health checks and the progress dashboard
 (`/l3io-doctor stats`) to it, so they would fail without the doctor installed. The 6.x
 `dependencies:` declaration lived in the retired `l3io-setup`'s `module.yaml`; on v7 it becomes
-a `required_skills` entry in `bmod-l3io-pm/bmod.toml` (Task 2.3 of the Phase 2 plan). The marketplace bundle in
-`.claude-plugin/marketplace.json` ships all four LiquidLogicLabs modules together, so a
-standard install carries `l3io-util`; installs that manually strip it are unsupported.
+a `required_skills` entry in `bmod-l3io-pm/bmod.toml` (Task 2.3 of the Phase 2 plan), so `bmad
+setup` names `l3io-doctor` as an unmet requirement, with an install command, when only `l3io-pm`
+is installed. `.claude-plugin/marketplace.json` is gone on this branch; v7 does not read it.
 
 Optional intra-package: `l3io-arch-review` (this package's `l3io-arch` module) — enables the
 epic architecture gate and drives the story technical-AC gate's checklist, and can wire the

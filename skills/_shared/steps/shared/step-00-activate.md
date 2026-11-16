@@ -217,8 +217,9 @@ and both are worse than an honest N/A.
 ## 2.5. Verify the l3io-doctor sibling module is installed
 
 `l3io-doctor` is a required intra-package module (CLAUDE.md "Dependencies") — the PM
-skills forward migrations, health checks, and the plan-aware progress dashboard to it. A
-standard install carries the whole marketplace bundle so this is only false when someone has manually stripped the module.
+skills forward migrations, health checks, and the plan-aware progress dashboard to it. `l3io-pm`'s
+module record requires it, so `bmad setup` reports it as an unmet requirement until it is
+installed.
 
 The check probes `.claude/skills`, `.claude/commands/` (pre-6.12) and `.agents/skills`, in the
 project and then in the home directory, and finally BMad 6.x's own install record,
@@ -253,11 +254,11 @@ When `doctor=absent`, print exactly once at activation (do not repeat later):
 
 ```
 ⚠️  l3io-doctor is not installed — this is a required module of the LiquidLogicLabs
-    extension. The marketplace bundle in .claude-plugin/marketplace.json ships it alongside
-    l3io-pm, so this state is an install anomaly. Some steps below (state-layout migrations,
-    the progress dashboard, and `check-pm-status`) will fail if reached. Reinstall
-    the extension with `--modules ...,l3io-util,...` or reinstall the plugin bundle whole to
-    restore it.
+    extension, and `bmad setup` lists it as an unmet requirement of l3io-pm. Some steps
+    below (state-layout migrations, the progress dashboard, and `check-pm-status`) will fail
+    if reached. Install it with
+    `npx skills add LiquidLogicLabs/bmad-extensions/skills/l3io-util`, then run
+    `bmad setup`.
 ```
 
 Continue to section 3 either way.

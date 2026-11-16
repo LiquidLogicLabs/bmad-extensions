@@ -35,7 +35,7 @@ replacement and stop; propose nothing.
 > and `issues` are deliberately NOT here: they are live aliases for `stats`.
 >
 > This table duplicates `docs/upgrading.md`'s removed-keyword mapping, which is the
-> user-facing copy. **No check enforces that the two agree** — `check:module` rule 9 reads
+> user-facing copy. **No check enforces that the two agree** — `check:module`'s help-registration rule reads
 > the Menu column of the routing table below, not this one. Stated rather than implied,
 > per `CLAUDE.md` §3: if you remove a keyword, edit both.
 
@@ -90,17 +90,16 @@ one file, and follow it.
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
 file and follow it:
 
-The **Menu** column records whether that keyword carries its own row in
-`assets/module-help.csv`, and is the source of truth for that decision — it is not kept
-anywhere else; `check:module` rule 9 reads this column and fails on a keyword that is
-neither registered nor excluded here, so an unrecognized value fails rather than quietly
-excluding a mode. `registered` means it has a row whose `action` column is the keyword.
-`default` means it is served by the module's bare-invocation row — the one with an empty
-`action`, which is BMad's convention for a default invocation. `health-check` means it
-deliberately does not: Step HC6 of `steps/health-check.md` already proposes it and fixes its place in the
-execution order, so a global menu entry would invite running a migration or a repair
-*without* the diagnosis that decides whether it is needed. `not-a-capability` is help output
-or module setup.
+The **Menu** column records whether that keyword is listed in this module's `help/help.md`,
+which is what BMad's `bmad` skill recommends from, and is the source of truth for that
+decision — it is not kept anywhere else; `check:module`'s help-registration rule reads this
+column and fails on a keyword that is neither listed nor excluded here, so an unrecognized
+value fails rather than quietly excluding a mode. `registered` means `help/help.md` names the
+keyword. `default` means it is the bare invocation, which `help/help.md` covers by naming the
+skill. `health-check` means it deliberately does not: Step HC6 of `steps/health-check.md`
+already proposes it and fixes its place in the execution order, so a menu entry would invite
+running a migration or a repair *without* the diagnosis that decides whether it is needed.
+`not-a-capability` is help output or module setup.
 
 | Keyword | Load | Menu | Notes |
 |---|---|---|---|

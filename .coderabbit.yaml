@@ -35,9 +35,9 @@ reviews:
         x rates, never entered.
     - path: "skills/**/*.md"
       instructions: >-
-        Probes for an installed skill must cover .claude/skills, .agents/skills and BMad's
-        install record _bmad/_config/skill-manifest.csv (checks 29, 37 and 38). l3io 3.x on
-        main supports BMad 6.x only; v7-specific behaviour belongs on the v7 branch.
+        Probes for an installed skill must cover .claude/skills and .agents/skills (checks 29
+        and 37). On this v7 branch the 6.x install record _bmad/_config/skill-manifest.csv is
+        no longer required (check 38 is retired); v7 writes no such file.
     - path: ".github/workflows/**"
       instructions: >-
         Pin actions/* by a maintained major tag, everything else by an exact release tag or

@@ -140,7 +140,6 @@ test("sync-bmad-versions.mjs stamps every bmod.toml from package.json", (t) => {
     fs.writeFileSync(path.join(dir, rel), text);
   };
   put("package.json", JSON.stringify({ version: "4.5.6" }));
-  put(".claude-plugin/marketplace.json", JSON.stringify({ plugins: [{ name: "acme", version: "1.0.0" }] }));
   put("skills/_shared/pm_status/__main__.py", "# pm-status-version: 1.0.0\n");
   put("skills/_shared/pm_status/core/__init__.py", 'PM_STATUS_VERSION = "1.0.0"\n');
   put("skills/acme/bmod-acme/bmod.toml", RECORD);

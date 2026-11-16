@@ -20,8 +20,6 @@
     "references/standards-powershell.md": "bc70d154cb231a43f7ff14d6b61f1bc7283a66134217dbc03371f4cb277f542b",
     "references/standards-python.md": "b6c0c020d18fde60f5fac87202b29d9cb10fe6e6db47e87898a66c94a29b4261",
     "references/standards-shell.md": "4e13744a81e2f097fadf30d739208c0680f9b761a35d71a9d4d6ed32dfd4b9f3",
-    "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
-    "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f"
   }
 }

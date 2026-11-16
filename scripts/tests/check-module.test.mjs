@@ -1,8 +1,7 @@
 // Tests for scripts/check-module.mjs.
 // Run: npm run test:scripts
 // Each test runs the REAL checker (via CHECK_MODULE_ROOT) against a fixture built from an
-// EMPTY skills/ tree -- unlike check-docs.test.mjs's fixture(t), this does not copy the repo,
-// because these tests construct modules from nothing rather than mutating real ones.
+// empty skills/ tree, laid out one folder per module (ADR-0021).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -10,28 +9,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { skillDirs } from "../lib/skill-dirs.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-module.mjs");
 
-// Every fixture carries the multi-module marker skills/module.yaml, because check 1 requires
-// it of any tree with a skills/ directory. Tests that are about the marker itself overwrite or
-// delete it explicitly.
-const MARKER = "multi_module_marketplace: true\n";
-
-// Every fixture also carries a .claude-plugin/marketplace.json, because check 8 derives its
-// scope from that file and fails closed when it is absent -- a checker that skipped a missing
-// marketplace would report success over the empty set (root CLAUDE.md §4). The synthetic
-// fixtures declare no plugins; the tests that are about check 8 write their own plugins array.
-const EMPTY_MARKETPLACE = JSON.stringify({ name: "fixture", plugins: [] }, null, 2) + "\n";
-
 function fixture(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-module-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "l3io-check-module-"));
   fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
-  fs.writeFileSync(path.join(dir, "skills", "module.yaml"), MARKER);
-  fs.mkdirSync(path.join(dir, ".claude-plugin"), { recursive: true });
-  fs.writeFileSync(path.join(dir, ".claude-plugin", "marketplace.json"), EMPTY_MARKETPLACE);
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -44,226 +28,59 @@ function run(root, args = []) {
   });
 }
 
-// A file written under skills/<dir>/ makes <dir> a skill: the checker finds skills through
-// scripts/lib/skill-dirs.mjs, which requires a SKILL.md, so the fixture supplies an empty one
-// unless the test writes its own.
 function write(root, rel, text) {
   const p = path.join(root, rel);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, text);
-  const m = /^skills\/([^/_][^/]*)\/./.exec(rel);
-  const skillMd = m && path.join(root, "skills", m[1], "SKILL.md");
-  if (skillMd && !fs.existsSync(skillMd)) fs.writeFileSync(skillMd, "");
 }
 
-function writeModuleHome(root, dir, code) {
-  const moduleYaml = `code: ${code}\nname: "${dir}"\ndescription: "test module"\n`;
-  write(root, `skills/${dir}/assets/module.yaml`, moduleYaml);
-  // A standalone (non-*-setup) module home must also carry the byte-identical skill-root copy
-  // BMad's installer discovers -- check 1(a). A *-setup home must not.
-  if (!dir.endsWith("-setup")) write(root, `skills/${dir}/module.yaml`, moduleYaml);
-  write(root, `skills/${dir}/assets/module-setup.md`, "# setup\n");
-  write(root, `skills/${dir}/assets/module-help.csv`, `skill,module,description\n${dir},${code},test skill\n`);
-  write(root, `skills/${dir}/scripts/merge-config.py`, "# merge-config\n");
-  write(root, `skills/${dir}/scripts/merge-help-csv.py`, "# merge-help-csv\n");
+// A skill at skills/<code>/<name>/, with a SKILL.md unless the test writes its own.
+function skill(root, code, name, files = {}) {
+  const dir = `skills/${code}/${name}`;
+  if (!files["SKILL.md"]) write(root, `${dir}/SKILL.md`, `---\nname: ${name}\n---\n`);
+  for (const [rel, text] of Object.entries(files)) write(root, `${dir}/${rel}`, text);
+  return dir;
 }
 
-// Register a plugin in marketplace.json so checks that derive skill-membership from the
-// marketplace (not just the `<code>-*` naming convention) can find the sibling skills. Used by
-// the check-5 tests, where the 3.1.3 rename replaced l3io-pm-execute/l3io-pm-plan with
-// l3io-execute/l3io-plan — names that no longer follow the convention.
-function registerPlugin(root, name, skills) {
-  const rel = ".claude-plugin/marketplace.json";
-  const existing = JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
-  existing.plugins = existing.plugins.filter((p) => p.name !== name);
-  existing.plugins.push({ name, skills: skills.map((s) => `./skills/${s}`) });
-  fs.writeFileSync(path.join(root, rel), JSON.stringify(existing, null, 2) + "\n");
-}
-
-// ---- check 1 (discovery-layout) ----
-//
-// This rule is the one the whole-branch review's C-1/H-1 landed on, and it replaced its own
-// inverse: `no-root-module-yaml` forbade exactly the file BMad's installer discovers for a
-// non-*-setup skill. Every assertion below was reproduced against bmad-method 6.12.0's
-// tools/installer/project-root.js before being written here.
-
-test("check:module rejects a module.yaml at a skill root that is not a standalone module home", (t) => {
-  const root = fixture(t);
-  write(root, "skills/l3io-execute/module.yaml", "code: l3io-pm\n");
-  const r = run(root);
+test("check:module fails over a tree with no skills rather than passing over nothing", (t) => {
+  const r = run(fixture(t));
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /module\.yaml at a skill root that is not a standalone module home/);
+  assert.match(r.stderr, /no skill/);
 });
 
-test("check:module rejects a standalone module home with no skill-root module.yaml", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  fs.rmSync(path.join(root, "skills/solo/module.yaml"));
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /standalone module home skills\/solo has no skills\/solo\/module\.yaml/);
-});
+// ---- rule 1 (pm-status-singleton) ----
 
-test("check:module rejects a skill-root module.yaml that has drifted from its assets copy", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/module.yaml", "code: solo\nname: S\ndescription: drifted\n");
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /skills\/solo\/module\.yaml and skills\/solo\/assets\/module\.yaml differ/);
-});
-
-test("check:module rejects a *-setup module home carrying a skill-root module.yaml", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "pm-setup", "pm");
-  write(root, "skills/pm-setup/module.yaml", "code: pm\n");
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /module\.yaml at a skill root that is not a standalone module home/);
-});
-
-test("check:module rejects a missing skills/module.yaml marker", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  fs.rmSync(path.join(root, "skills/module.yaml"));
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /skills\/module\.yaml is missing/);
-});
-
-// The scope attack, not just the rule: the marker being PRESENT is not the property that
-// matters -- what matters is that it declares no code, no name and no agents. A marker that
-// grew a `code:` would make every module's settings land under that one code, and a marker
-// that grew an `agents:` array would emit one agent block per installed module. Both are
-// duplicate TOML tables, which is a config layer no skill can read.
-for (const [field, yaml] of [
-  ["code", "code: l3io-pm\nmulti_module_marketplace: true\n"],
-  ["name", "name: Everything\nmulti_module_marketplace: true\n"],
-  ["agents", "multi_module_marketplace: true\nagents:\n  - code: redteam\n"],
-]) {
-  test(`check:module rejects a skills/module.yaml marker declaring '${field}'`, (t) => {
-    const root = fixture(t);
-    writeModuleHome(root, "solo", "solo");
-    write(root, "skills/module.yaml", yaml);
-    const r = run(root);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, new RegExp(`skills/module\\.yaml declares '${field}'`));
-  });
-}
-
-test("check:module rejects a skills/module-help.csv beside the marker", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/module-help.csv", "module,skill,display-name\n");
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /skills\/module-help\.csv exists/);
-});
-
-test("check:module rejects two assets/module.yaml sharing one code", (t) => {
-  const root = fixture(t);
-  write(root, "skills/a/assets/module.yaml", "code: dup\nname: A\ndescription: d\n");
-  write(root, "skills/b/assets/module.yaml", "code: dup\nname: B\ndescription: d\n");
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /code 'dup' is declared by 2 module\.yaml files/);
-});
-
-test("check:module rejects a module home missing a merge script", (t) => {
-  const root = fixture(t);
-  write(root, "skills/solo/assets/module.yaml", "code: solo\nname: S\ndescription: d\n");
-  write(root, "skills/solo/assets/module-setup.md", "x\n");
-  write(root, "skills/solo/assets/module-help.csv", "skill,module,description\n");
-  write(root, "skills/solo/scripts/merge-config.py", "x\n");
-  // merge-help-csv.py deliberately absent
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /missing scripts\/merge-help-csv\.py/);
-});
-
-test("check:module passes on a well-formed standalone module", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// ---- check 5 (home-placement) ----
-//
-// This is the rule l3io-setup itself exists to satisfy: a module home shared by more than
-// one skill must be a dedicated *-setup skill, never one of the module's own operational
-// skills. Untested before this task added the first real multi-skill module home
-// (l3io-setup) -- a check with no test for its own branch is worse than no check, because
-// it reads as covering something it has never actually been proven to catch.
-test("check:module rejects a multi-skill module whose home is not a *-setup skill", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "l3io-execute", "l3io-pm"); // home lacks a -setup suffix
-  write(root, "skills/l3io-plan/SKILL.md", "# plan\n"); // second sibling under the same code
-  // Post-3.1.3 rename: neither l3io-execute nor l3io-plan follows the `l3io-pm-*` naming
-  // convention, so sibling membership derives from the plugin's marketplace.json `skills[]`
-  // list rather than the name pattern.
-  registerPlugin(root, "l3io-pm", ["l3io-execute", "l3io-plan"]);
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /is not a \*-setup directory/);
-});
-
-test("check:module passes when a multi-skill module's home is a *-setup skill", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "l3io-setup", "l3io-pm");
-  write(root, "skills/l3io-execute/SKILL.md", "# execute\n");
-  write(root, "skills/l3io-plan/SKILL.md", "# plan\n");
-  registerPlugin(root, "l3io-pm", ["l3io-setup", "l3io-execute", "l3io-plan"]);
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// ---- pm-status.py singleton per module ----
-//
-// Task 11A: pm-status.py used to ship four times (execute/plan/sync/util-doctor), three of
-// them in one module self-installing identical bytes to the identical destination. The end
-// state is one payload copy per module that self-installs it -- l3io-setup for l3io-pm,
-// l3io-doctor for l3io-util. This guards the invariant mechanically so a future sync-group
-// edit can't silently reintroduce a second copy inside one module.
 test("check:module rejects a second pm-status.py payload within one module", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "l3io-setup", "l3io-pm");
-  write(root, "skills/l3io-setup/scripts/pm-status.py", "# x\n");
-  write(root, "skills/l3io-execute/scripts/pm-status.py", "# x\n");
-  registerPlugin(root, "l3io-pm", ["l3io-setup", "l3io-execute"]);
+  skill(root, "pm", "a", { "scripts/pm-status.py": "# x\n" });
+  skill(root, "pm", "b", { "scripts/pm-status.py": "# x\n" });
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
-});
-
-test("check:module passes when only one skill in a module carries pm-status.py", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "l3io-setup", "l3io-pm");
-  write(root, "skills/l3io-setup/scripts/pm-status.py", "# x\n");
-  write(root, "skills/l3io-execute/SKILL.md", "# execute\n");
-  write(root, "skills/l3io-plan/SKILL.md", "# plan\n");
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'pm'/);
 });
 
 test("check:module rejects a second pm-status payload in the package layout", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "l3io-setup", "l3io-pm");
-  write(root, "skills/l3io-setup/scripts/pm_status/__main__.py", "# x\n");
-  write(root, "skills/l3io-execute/scripts/pm_status/__main__.py", "# x\n");
-  registerPlugin(root, "l3io-pm", ["l3io-setup", "l3io-execute"]);
+  skill(root, "pm", "a", { "scripts/pm_status/__main__.py": "# x\n" });
+  skill(root, "pm", "b", { "scripts/pm_status/__main__.py": "# x\n" });
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
+  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'pm'/);
 });
 
-// `scripts/CLAUDE.md` makes each checker's own header the AUTHORITATIVE description of what
-// it asserts. Both of rule 6's prose sites said "at most one `scripts/pm-status.py` payload
-// copy" while the code had checked two shapes since the package landed -- so the authority
-// described a gate narrower than the one that runs, and nothing could tell. Derived from the
-// declaration, never from a list here, so adding a third payload shape fails until both
-// descriptions name it.
-test("check:module's rule 6 prose names every payload shape PM_STATUS_PAYLOADS checks", () => {
+test("check:module passes one pm-status payload in each of two modules", (t) => {
+  const root = fixture(t);
+  skill(root, "pm", "a", { "scripts/pm_status/__main__.py": "# x\n" });
+  skill(root, "pm", "b");
+  skill(root, "util", "doctor", { "scripts/pm_status/__main__.py": "# x\n" });
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// scripts/CLAUDE.md makes each checker's own header the authoritative description of what it
+// asserts, so both of rule 1's prose sites must name every payload shape it checks. Derived from
+// the declaration, so adding a third shape fails until both descriptions name it.
+test("check:module's rule 1 prose names every payload shape PM_STATUS_PAYLOADS checks", () => {
   const src = fs.readFileSync(CHECK, "utf8");
   const decl = src.match(/const PM_STATUS_PAYLOADS = (\[[^\]]*\])/);
   assert.ok(decl, "PM_STATUS_PAYLOADS must stay a readable array literal");
@@ -275,939 +92,156 @@ test("check:module's rule 6 prose names every payload shape PM_STATUS_PAYLOADS c
     return src.slice(a, b);
   };
   const sites = {
-    "the numbered header entry": slice("//   6. pm-status-singleton", "//   7. csv-skill-exists"),
-    "the section comment": slice("// 6. pm-status-singleton:", "const PM_STATUS_PAYLOADS"),
+    "the numbered header entry": slice("//   1. pm-status-singleton", "//   2. help-registration"),
+    "the section comment": slice("// 1. pm-status-singleton:", "const PM_STATUS_PAYLOADS"),
   };
   for (const [where, text] of Object.entries(sites)) {
-    for (const p of paths) {
-      assert.ok(text.includes(p), `${where} must name the payload shape '${p}' that rule 6 checks`);
-    }
+    for (const p of paths) assert.ok(text.includes(p), `${where} must name '${p}'`);
   }
 });
 
-// ---- check 7 (csv-skill-exists) ----
+// ---- rule 2 (help-registration) ----
 //
-// Fix round 1, F-4: three real module-help.csv files each carried a phantom row for a
-// "*-setup" skill that never existed and, by design, never will (three of the four modules
-// are standalone). validate-module.py (BMad-installed, gitignored, can't run in CI) calls
-// this an "orphan-entry" finding; check:module had no repo-side equivalent because check 4
-// only asserts the CSV file exists, never parses it. These tests exercise the new check
-// against the real CSV format (quoted, comma-bearing description fields), not the
-// writeModuleHome() helper's minimal 3-column stand-in.
-test("check:module rejects a module-help.csv row naming a skill that does not exist", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv",
-    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
-    'Solo,solo,Solo,SOL,"Real skill, real row.",run,,anytime,,,false,,report\n' +
-    'Solo,solo-setup,Setup,SST,"Phantom row for a skill that was never built.",configure,,anytime,,,false,,config\n');
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /row names skill 'solo-setup', which is not a directory under skills\//);
-});
+// Every keyword a routing table marks `registered` must be named in the module's help/help.md,
+// and a `default` keyword needs help.md to name the skill. The exclusion set is read from the
+// table's own Menu column, and the rule's scope is attacked as hard as the rule.
 
-test("check:module passes a module-help.csv whose rows all name real skills", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "multi-setup", "multi");
-  write(root, "skills/multi-a/SKILL.md", "# a\n");
-  write(root, "skills/multi-b/SKILL.md", "# b\n");
-  write(root, "skills/multi-setup/assets/module-help.csv",
-    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
-    'Multi,multi-a,A,MA,"Does A, and does it well.",run,,anytime,,,false,,report\n' +
-    'Multi,multi-b,B,MB,"Does B.",run,,anytime,,,false,,report\n');
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
+const BMOD = '[bmod]\ncode = "util"\n\n[skill]\nbmod = "util"\n';
 
-// `_meta` is the one reserved value in the `skill` column that is not a skill:
-// bmad-help/SKILL.md ("Module docs") defines it as the row carrying a module's documentation
-// URL, and both of BMad 6.12.0's own catalogs ship one. Before this exemption, adding the row
-// BMad's own format prescribes failed check 7 as an "orphan capability entry".
-test("check:module accepts the reserved _meta documentation row", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv",
-    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
-    "Solo,_meta,,,,,,,,,false,https://example.invalid/docs/solo.md,\n" +
-    'Solo,solo,Solo,SOL,"Real skill, real row.",,,anytime,,,false,,report\n');
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// THE SCOPE ATTACK on that exemption: it must cover the one literal `_meta` and nothing more.
-// A rule that skipped every underscore-prefixed value, or every row with an empty
-// display-name, would pass this file too -- and then no phantom row would ever be caught
-// again, because a phantom is exactly a row whose skill column names nothing on disk.
-test("check:module still rejects a non-_meta phantom row beside a real _meta row", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv",
-    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
-    "Solo,_meta,,,,,,,,,false,https://example.invalid/docs/solo.md,\n" +
-    "Solo,__meta,,,,,,,,,false,https://example.invalid/docs/nope.md,\n" +
-    'Solo,solo-setup,Setup,SST,"Phantom row for a skill that was never built.",configure,,anytime,,,false,,config\n');
-  const r = run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /row names skill 'solo-setup', which is not a directory under skills\//);
-  assert.match(r.stderr, /row names skill '__meta', which is not a directory under skills\//);
-});
-
-// ---- parsers, not hand-written readers (Task 17) ----
-//
-// `parseModuleYaml()` was a per-line `key: value` regex plus a hand-written block-scalar
-// rule, and `splitCsvLine()` was a character loop; both existed only because CI ran no
-// `npm install`. They are now `yaml` and `csv-parse` (see
-// docs/adr/0007-ci-installs-npm-dependencies.md). These tests pin what that changes: both
-// parsers fail CLOSED on input they cannot read, and the CSV shape the splitter got WRONG
-// now parses correctly.
-
-// A quoted field spanning two physical lines is one field. The old splitter worked line by
-// line, so the continuation line became a row of its own, and check 7 read its first column
-// as a skill name -- a phantom "orphan capability entry" failure on a perfectly valid file.
-test("check:module reads a quoted CSV field that spans two lines as one field", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv",
-    "skill,module,description\n" +
-    'solo,solo,"Validate readiness, elaborate stories,\nand build the dependency graph."\n');
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// A CRLF file is not a file whose last column ends in a stray carriage return.
-test("check:module reads a CRLF module-help.csv without a trailing carriage return", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv",
-    "module,description,skill\r\nsolo,a skill,solo\r\n");
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// Fail closed: a module.yaml that is not YAML used to read as an empty field set, which check
-// 2 reported as three missing fields and check 3 never saw at all (no `code`). It is now
-// reported as what it is.
-test("check:module reports a module.yaml that is not valid YAML", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module.yaml",
-    "code: solo\nname: Broken: unquoted colon\ndescription: d\n");
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /skills\/solo\/assets\/module\.yaml: is not valid YAML/);
-});
-
-// Fail closed: a module-help.csv the parser cannot read is reported, never silently treated
-// as zero rows -- which would make check 7 pass over a file it never examined (CLAUDE.md §4).
-test("check:module reports a module-help.csv that is not valid CSV", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv",
-    'skill,module,description\nsolo,solo,"unterminated quote\n');
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /skills\/solo\/assets\/module-help\.csv: is not valid CSV/);
-});
-
-// A quoted scalar is its unquoted value. The old reader kept the quote characters in the
-// field, so `name: "X"` was the five-character string `"X"` -- harmless for the emptiness
-// test it fed, and wrong for anything that ever compares the value.
-test("check:module reads a quoted module.yaml scalar as its unquoted value", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module.yaml",
-    'code: "solo"\nname: "LiquidLogicLabs Solo"\ndescription: "A solo module."\n');
-  write(root, "skills/solo-extra/assets/module.yaml",
-    "code: solo\nname: Duplicate\ndescription: d\n");
-  const r = run(root);
-  // The two files declare the SAME code once unquoted; if the quotes were kept, `"solo"` and
-  // `solo` would be different codes and check 3 would see one home each.
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /code 'solo' is declared by 2 module\.yaml files/);
-});
-
-// ---- real repository integration ----
-//
-// Everything above exercises the checker against synthetic fixtures. This is the one test
-// that runs it against this actual repo's skills/ tree, copied to a temp dir so the real
-// checker (CHECK_MODULE_ROOT) is what CI runs -- not an extracted function. The baseline
-// count is derived HERE, with its own readdirSync over the copy, never by importing or
-// reusing check-docs.mjs's derivedCounts(): two derivations from the same function would
-// agree by construction and test nothing.
-//
-// Fix round 1, F-7: a prior version compared the module-home count to a hand-typed literal
-// (`const baseline = 4`) with a +/-1 tolerance -- exactly the hand-enumeration class this
-// plan exists to remove, and loose enough that a module home silently disappearing (4->3)
-// would still pass. Compared instead against .claude-plugin/marketplace.json's own `plugins`
-// array length: a second, genuinely independent fact about the package (what the installer
-// registers) that must agree with the first (what skills/ actually contains) by construction
-// -- no module should ever exist as one without the other -- so the comparison is exact, not
-// approximate, and needs no maintenance as modules are added or removed.
-function fixtureFromRepo(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-module-real-"));
-  fs.cpSync(REPO, dir, {
-    recursive: true,
-    filter: (src) =>
-      !path.relative(REPO, src).split(path.sep).some((p) => p === ".git" || p === "node_modules"),
-  });
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
-
-test("the real repository passes check:module with the expected module-home shape", (t) => {
-  const root = fixtureFromRepo(t);
-  const moduleHomes = skillDirs(root)
-    .filter((rel) => fs.existsSync(path.join(root, rel, "assets", "module.yaml")));
-
-  // A v7 module (a [bmod] record under skills/<code>/) has no 6.x module home, so it is not counted.
-  const marketplace = JSON.parse(
-    fs.readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"),
-  );
-  const isV7 = (code) => fs.existsSync(path.join(root, "skills", code, `bmod-${code}`)) ||
-    skillDirs(root).some((rel) => rel.startsWith(`skills/${code}/`) &&
-      /^\[bmod\]/m.test(fs.existsSync(path.join(root, rel, "bmod.toml"))
-        ? fs.readFileSync(path.join(root, rel, "bmod.toml"), "utf8") : ""));
-  const declaredPluginCount = marketplace.plugins.filter((p) => !isV7(p.name)).length;
-  assert.equal(
-    moduleHomes.length,
-    declaredPluginCount,
-    `found ${moduleHomes.length} module home(s) under skills/ (${moduleHomes.join(", ")}) ` +
-      `but .claude-plugin/marketplace.json declares ${declaredPluginCount} plugin(s)`,
-  );
-
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// ---- check 8 (plugin-resolver-strategy) ----
-//
-// BMad's installer resolves every plugin in .claude-plugin/marketplace.json through
-// PluginResolver's five strategies. Strategies 1-4 use the authored module.yaml +
-// module-help.csv; strategy 5 SYNTHESIZES a stub catalog from SKILL.md frontmatter --
-// `action: activate` on every row, title-cased display names, generated menu codes, no
-// relationships, no output-location -- and the install still exits 0. Nothing warns. The
-// authored CSVs are simply not used.
-//
-// This package has already shipped that: the gitignored _bmad/ tree from the 2026-09-14
-// install holds exactly those stub rows, including one for `l3io-util-cleanup`, a skill that
-// no longer exists.
-//
-// Every assertion below was reproduced against bmad-method 6.12.0's
-// tools/installer/modules/plugin-resolver.js before being written here.
-
-function writeMarketplace(root, plugins) {
-  write(root, ".claude-plugin/marketplace.json", JSON.stringify({ name: "fixture", plugins }, null, 2) + "\n");
-}
-
-// Give a fixture skill enough shape to be a standalone module home for check 8's purposes.
-// (writeModuleHome already writes assets/module.yaml + assets/module-help.csv, which is what
-// PluginResolver strategies 2/3/4 look for.)
-
-// The real tree: -v names what rule 8 concluded for every plugin, so a reader can see what the
-// check concluded rather than trusting that it concluded anything.
-test("the real repository resolves every plugin by an authored PluginResolver strategy", (t) => {
-  const root = fixtureFromRepo(t);
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-  // Every module now carries a v7 record (ADR-0014), so none is resolved by PluginResolver;
-  // the synthetic tests around this one keep rule 8 itself covered.
-  for (const code of ["l3io-pm", "l3io-sec", "l3io-util", "l3io-arch"]) {
-    assert.match(r.stdout, new RegExp(`plugin '${code}' is a v7 module`));
-  }
-});
-
-// _tryMultipleStandalone's partial-match branch: `resolved.length === skillPaths.length` or
-// `return null`. One skill without both files is enough to synthesize the whole plugin.
-test("check:module rejects a two-skill plugin where only one skill carries the module files", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  write(root, "skills/beta/SKILL.md", "---\nname: beta\n---\n");
-  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha", "./skills/beta"] }]);
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /plugin 'alpha' .*strategy 5/s);
-});
-
-// The same plugin, with the second skill made a module home too, resolves by strategy 4.
-test("check:module passes a two-skill plugin where both skills carry the module files", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  writeModuleHome(root, "beta", "beta");
-  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha", "./skills/beta"] }]);
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /plugin 'alpha' resolves by PluginResolver strategy 4/);
-});
-
-// _trySetupSkill `continue`s past a -setup skill missing either file, so a multi-skill plugin
-// whose setup home lost its CSV synthesizes even though the directory is named correctly.
-test("check:module rejects a plugin whose -setup home is missing module-help.csv", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "multi-setup", "multi");
-  write(root, "skills/multi-a/SKILL.md", "---\nname: multi-a\n---\n");
-  fs.rmSync(path.join(root, "skills/multi-setup/assets/module-help.csv"));
-  writeMarketplace(root, [{ name: "multi", skills: ["./skills/multi-setup", "./skills/multi-a"] }]);
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /plugin 'multi' .*strategy 5/s);
-});
-
-// resolve() filters a listed skill path that does not exist on disk BEFORE any strategy runs,
-// so `skillPaths.length === 1` is a count of EXISTING skills, not of listed ones. A check that
-// counted the marketplace array instead would call this plugin multi-skill and wrongly expect
-// strategy 4. Pinned here because it is a condition the summary of the resolver did not state.
-test("check:module ignores a marketplace skill path that does not exist on disk", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha", "./skills/never-built"] }]);
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /plugin 'alpha' resolves by PluginResolver strategy 3/);
-});
-
-// _readModuleYaml returns yaml.parse(content) and every strategy bails on a falsy result, so
-// an EMPTY module.yaml is not a module.yaml -- existence alone is not the resolver's test.
-test("check:module rejects a plugin whose module.yaml parses to nothing", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  write(root, "skills/alpha/assets/module.yaml", "\n");
-  write(root, "skills/alpha/module.yaml", "\n");
-  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha"] }]);
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /plugin 'alpha' .*strategy 5/s);
-});
-
-// resolve() returns [] for a plugin with no skills array and for one whose skills all fail to
-// resolve: no module is installed at all, which is worse than synthesis, not better.
-test("check:module rejects a plugin that declares no skills", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  writeMarketplace(root, [{ name: "alpha" }]);
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /plugin 'alpha' declares no 'skills'/);
-});
-
-// Fail closed on the scope source itself. A checker that skipped a missing or unreadable
-// marketplace.json would report success over the empty set -- the failure mode root CLAUDE.md
-// §4 exists to prevent.
-test("check:module reports a missing .claude-plugin/marketplace.json", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  fs.rmSync(path.join(root, ".claude-plugin", "marketplace.json"));
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /\.claude-plugin\/marketplace\.json is missing/);
-});
-
-test("check:module reports a marketplace.json with no plugins array", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "alpha", "alpha");
-  write(root, ".claude-plugin/marketplace.json", JSON.stringify({ name: "fixture" }) + "\n");
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /declares no 'plugins' array/);
-});
-
-// ---- check 9 (help-registration) ----
-//
-// Every mode keyword a skill documents in its SKILL.md routing table must either carry a
-// module-help.csv row or be explicitly excluded in that table's own `Menu` column. The
-// exclusion set is read from the table -- never from a list inside the checker -- because a
-// hand-kept list of exempt keywords is exactly the drift this rule exists to stop (root
-// CLAUDE.md §4).
-//
-// The rule's SCOPE is attacked as hard as the rule: a table whose `Menu` column is deleted
-// makes every keyword required rather than exempt, an unknown `Menu` value fails instead of
-// quietly excluding, and a skill whose mode files exist but whose whole table has been
-// deleted fails rather than passing over an empty expectation set.
-
-const HELP_CSV_HEADER =
-  "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n";
-
-// A skill that documents its modes the way the real ones do: a "Recognized keywords"
-// paragraph, a routing table, and one steps/<mode>.md file per row.
-function writeKeywordSkill(root, dir, rows, { menuColumn = true, table = true } = {}) {
+function keywordSkill(root, rows, { menuColumn = true, table = true, help = null, bmod = BMOD } = {}) {
   const header = menuColumn
     ? "| Keyword | Load | Menu | Notes |\n|---|---|---|---|\n"
     : "| Keyword | Load | Notes |\n|---|---|---|\n";
-  const body = rows
-    .map((r) => (menuColumn
-      ? `| \`${r.keyword}\` | \`${r.load}\` | ${r.menu} | note |\n`
-      : `| \`${r.keyword}\` | \`${r.load}\` | note |\n`))
-    .join("");
-  write(root, `skills/${dir}/SKILL.md`,
-    `# ${dir}\n\n**Recognized keywords** — match the argument and load that file:\n\n` +
-    (table ? header + body : "") + "\n**Everything else** → the default.\n");
-  for (const r of rows) write(root, `skills/${dir}/${r.load}`, `# ${r.keyword}\n`);
+  const body = rows.map((r) => (menuColumn
+    ? `| \`${r.keyword}\` | \`${r.load}\` | ${r.menu} | note |\n`
+    : `| \`${r.keyword}\` | \`${r.load}\` | note |\n`)).join("");
+  const files = {
+    "SKILL.md": `---\nname: doctor\n---\n\n**Recognized keywords** — match and load:\n\n` +
+      (table ? header + body : "") + "\n**Everything else** → the default.\n",
+  };
+  if (bmod !== null) files["bmod.toml"] = bmod;
+  if (help !== null) files["help/help.md"] = help;
+  for (const r of rows) files[r.load] = `# ${r.keyword}\n`;
+  return skill(root, "util", "doctor", files);
 }
 
-// The canonical failure: a keyword documented in the table, marked as registered, with no row
-// anywhere. This is the drift Tasks 1-6 corrected by hand.
-test("check:module rejects a keyword-table entry with no module-help.csv row", (t) => {
+const HELP = "# util\n\nOne skill, `doctor`.\n\n| Mode | For |\n|---|---|\n| `stats` | the dashboard |\n";
+
+test("check:module rejects a registered keyword help.md does not name", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeKeywordSkill(root, "solo", [
+  keywordSkill(root, [
     { keyword: "stats", load: "steps/stats.md", menu: "registered" },
     { keyword: "brand-new-mode", load: "steps/brand-new-mode.md", menu: "registered" },
-  ]);
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,solo,Stats,SST,"Render the dashboard.",stats,,anytime,,,false,,report\n');
+  ], { help: HELP });
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /brand-new-mode/);
+  assert.doesNotMatch(r.stderr, /`stats`/);
 });
 
-// The shape the real tree ships: a `default` keyword served by the module's bare-invocation
-// row (empty `action`, BMad's convention), a `registered` keyword matched by action, and
-// excluded keywords carrying no row at all.
-test("check:module passes a keyword table whose registered keywords all have rows", (t) => {
+test("check:module passes a table whose registered and default keywords are all in help.md", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeKeywordSkill(root, "solo", [
+  keywordSkill(root, [
     { keyword: "check", load: "steps/health-check.md", menu: "default" },
     { keyword: "stats", load: "steps/stats.md", menu: "registered" },
     { keyword: "migrate-state", load: "steps/migrate-state.md", menu: "health-check" },
     { keyword: "setup", load: "steps/setup.md", menu: "not-a-capability" },
-  ]);
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,solo,Doctor,SDR,"Scan project state.",,,anytime,,,false,,findings\n' +
-    'Solo,solo,Stats,SST,"Render the dashboard.",stats,,anytime,,,false,,report\n');
+  ], { help: HELP });
   const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /2 of them expecting a help\/help\.md entry/);
+});
+
+test("check:module accepts a mode named after its skill, as a multi-skill module's help.md writes it", (t) => {
+  const root = fixture(t);
+  keywordSkill(root, [{ keyword: "reorg", load: "steps/reorg.md", menu: "registered" }],
+    { help: "# util\n\n- \"rebalance\" → `doctor reorg`.\n" });
+  const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
-// A `default` keyword needs the bare-invocation row to actually exist: with every row
-// carrying an action, nothing routes the bare command.
-test("check:module rejects a default keyword with no empty-action row", (t) => {
+test("check:module rejects a default keyword when help.md never names the skill", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeKeywordSkill(root, "solo", [
-    { keyword: "check", load: "steps/health-check.md", menu: "default" },
-  ]);
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,solo,Stats,SST,"Render the dashboard.",stats,,anytime,,,false,,report\n');
+  keywordSkill(root, [{ keyword: "check", load: "steps/health-check.md", menu: "default" }],
+    { help: "# util\n\nNothing here.\n" });
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /`check`/);
+  assert.match(r.stderr, /`check`.*never names `doctor`/);
 });
 
-// SCOPE ATTACK 1: the exclusion marker itself. An unrecognised `Menu` value -- a typo, or a
-// new word someone invents -- must fail loudly. A rule that treated "anything that is not
-// `registered`" as excluded would let one keystroke silently drop a keyword out of scope.
+test("check:module rejects a registered keyword when the module has no help.md", (t) => {
+  const root = fixture(t);
+  keywordSkill(root, [{ keyword: "stats", load: "steps/stats.md", menu: "registered" }]);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /no help\/help\.md/);
+});
+
+test("check:module reads a multi-skill module's help.md from its bmod-<code> record", (t) => {
+  const root = fixture(t);
+  skill(root, "pm", "bmod-pm", { "bmod.toml": '[bmod]\ncode = "pm"\n', "help/help.md": "`plan estimate`\n" });
+  skill(root, "pm", "plan", {
+    "SKILL.md": "---\nname: plan\n---\n\n| Keyword | Load | Menu |\n|---|---|---|\n" +
+      "| `estimate` | `steps/e.md` | registered |\n| `lanes` | `steps/l.md` | registered |\n",
+    "bmod.toml": '[skill]\nbmod = "pm"\n',
+  });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /`lanes`.*bmod-pm\/help\/help\.md/);
+  assert.doesNotMatch(r.stderr, /`estimate`/);
+});
+
+// SCOPE ATTACK 1: an unrecognised Menu value fails rather than quietly excluding.
 test("check:module rejects an unrecognised Menu value in a keyword table", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeKeywordSkill(root, "solo", [
-    { keyword: "stats", load: "steps/stats.md", menu: "healthcheck" },
-  ]);
+  keywordSkill(root, [{ keyword: "stats", load: "steps/stats.md", menu: "healthcheck" }], { help: HELP });
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /healthcheck/);
 });
 
-// SCOPE ATTACK 2: deleting the Menu column must make the rule STRICTER, never weaker. A table
-// with no exclusion column claims every keyword it lists is registered.
-test("check:module requires a row for every keyword when the table has no Menu column", (t) => {
+// SCOPE ATTACK 2: deleting the Menu column makes the rule stricter, never weaker.
+test("check:module requires help.md to name every keyword when the table has no Menu column", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeKeywordSkill(root, "solo", [
-    { keyword: "progress", load: "steps/mode-progress.md" },
-  ], { menuColumn: false });
+  keywordSkill(root, [{ keyword: "progress", load: "steps/mode-progress.md" }], { menuColumn: false, help: HELP });
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /progress/);
 });
 
-// No false positive on a skill that documents no keywords at all: most skills have one mode
-// and no routing table, and the rule must be silent about them.
-test("check:module passes a skill with no keyword table at all", (t) => {
+test("check:module passes a skill with no keyword table and no modes", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/SKILL.md", "---\nname: solo\n---\n\n# solo\n\nOne mode, no table.\n");
-  const r = run(root, ["-v"]);
+  skill(root, "solo", "solo", { "SKILL.md": "---\nname: solo\n---\n\nOne mode, no table.\n" });
+  const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
-// SCOPE ATTACK 3 -- THE VACUITY TEST. Removing every keyword table must FAIL, not pass over an
-// empty expectation set. The expectation is anchored outside the table: the mode files on disk
-// under steps/, which is what a mode IS (root CLAUDE.md, "Module Layout"). A rule that derived
-// its cases only from the table under test could not catch the table being deleted.
+// SCOPE ATTACK 3, the vacuity test: removing the table must fail, anchored on the mode files.
 test("check:module rejects a skill whose mode files exist but whose keyword table was removed", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeKeywordSkill(root, "solo", [
+  keywordSkill(root, [
     { keyword: "stats", load: "steps/stats.md", menu: "registered" },
     { keyword: "triage", load: "steps/triage.md", menu: "health-check" },
-  ], { table: false });
+  ], { table: false, help: HELP });
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /no keyword table/);
   assert.match(r.stderr, /steps\/stats\.md/);
 });
 
-// The second net under the same attack: the "Recognized keywords" paragraph left behind with
-// no table under it. Catches a deletion in a skill whose modes are not one-file-per-mode.
 test("check:module rejects a Recognized-keywords section with no table under it", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/SKILL.md", "# solo\n\n**Recognized keywords** — match and load:\n\nnone yet.\n");
+  skill(root, "solo", "solo", { "SKILL.md": "# solo\n\n**Recognized keywords** — match and load:\n\nnone yet.\n" });
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /no keyword table/);
 });
 
-// ---- check 10 (agent-roster) ----
-//
-// A module.yaml `agents:` roster and the agent skill's own `customize.toml` `[agent]` block
-// are the same declaration in two files, and nothing compared them. The installer writes the
-// roster into `_bmad/config.toml` as `[agents.<code>]` (manifest-generator.js:589, :597,
-// :608) and the skill reads its own block through `resolve_customization.py --key agent`, so
-// a drifted title or icon shows one identity at install time and another at activation.
-// BMad's own module-builder workflow calls out icon drift specifically.
+// ---- the real tree ----
 
-// A module whose roster and agent skill agree. `rosterOverrides` perturbs exactly one field
-// of the module.yaml side so each test isolates one drift.
-function writeAgentModule(root, dir, code, { roster = {}, agent = {}, rosterAgents } = {}) {
-  const entry = {
-    code: "redteam", name: "", title: "Red Team Agent", icon: "🔴",
-    description: "Adversarial analysis.", ...roster,
-  };
-  const entries = rosterAgents ?? [entry];
-  const agentLines = entries.map((e) => [
-    `  - code: ${JSON.stringify(e.code)}`,
-    ...(("name" in e) ? [`    name: ${JSON.stringify(e.name)}`] : []),
-    `    title: ${JSON.stringify(e.title ?? "")}`,
-    `    icon: ${JSON.stringify(e.icon ?? "")}`,
-    `    description: ${JSON.stringify(e.description ?? "")}`,
-  ].join("\n")).join("\n");
-  const moduleYaml =
-    `code: ${code}\nname: "${dir}"\ndescription: "test module"\nagents:\n${agentLines}\n`;
-  write(root, `skills/${dir}/assets/module.yaml`, moduleYaml);
-  if (!dir.endsWith("-setup")) write(root, `skills/${dir}/module.yaml`, moduleYaml);
-  write(root, `skills/${dir}/assets/module-setup.md`, "# setup\n");
-  write(root, `skills/${dir}/assets/module-help.csv`, `skill,module,description\n${dir},${code},test skill\n`);
-  write(root, `skills/${dir}/scripts/merge-config.py`, "# merge-config\n");
-  write(root, `skills/${dir}/scripts/merge-help-csv.py`, "# merge-help-csv\n");
-  const a = { code: "redteam", name: "", title: "Red Team Agent", icon: "🔴",
-    description: "Adversarial analysis.", ...agent };
-  write(root, `skills/${dir}/customize.toml`,
-    `[agent]\ncode        = ${JSON.stringify(a.code)}\n` +
-    (("name" in a) ? `name        = ${JSON.stringify(a.name)}\n` : "") +
-    `title       = ${JSON.stringify(a.title)}\n` +
-    `icon        = ${JSON.stringify(a.icon)}\n` +
-    `description = ${JSON.stringify(a.description)}\n` +
-    `agent_type  = "memory"\n`);
-}
-
-// The canonical drift, and the one BMad's own validation workflow names: the icon.
-test("check:module rejects a roster icon that differs from the skill's customize.toml", (t) => {
-  const root = fixture(t);
-  writeAgentModule(root, "sec-redteam", "sec", { roster: { icon: "🟥" } });
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /icon/);
-  assert.match(r.stderr, /redteam/);
-});
-
-test("check:module rejects a roster title that differs from the skill's customize.toml", (t) => {
-  const root = fixture(t);
-  writeAgentModule(root, "sec-redteam", "sec", { agent: { title: "Red Team Analyst" } });
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /title/);
-});
-
-test("check:module rejects an empty roster description", (t) => {
-  const root = fixture(t);
-  writeAgentModule(root, "sec-redteam", "sec", { roster: { description: "" }, agent: { description: "" } });
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /description/);
-});
-
-// `name` is the one roster field that may be empty -- a First-Breath agent fills it after
-// activation -- but the KEY must be present: the installer writes `name = ''` from it either
-// way, and an absent key is indistinguishable from a forgotten one.
-test("check:module accepts an empty roster name and rejects an absent one", (t) => {
-  const ok = fixture(t);
-  writeAgentModule(ok, "sec-redteam", "sec");
-  assert.equal(run(ok, ["-v"]).status, 0, run(ok).stderr);
-
-  const bad = fixture(t);
-  writeAgentModule(bad, "sec-redteam", "sec", { rosterAgents: [
-    { code: "redteam", title: "Red Team Agent", icon: "🔴", description: "Adversarial analysis." },
-  ] });
-  const r = run(bad);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /name/);
-});
-
-// SCOPE: the roster entry is matched to its skill through the `[agent] code` in
-// customize.toml -- NOT through the directory name, because `code: redteam` deliberately does
-// not match `skills/l3io-sec-redteam` (the installer uses it only as the `[agents.<code>]`
-// TOML section key). A roster entry whose code no skill claims declares an agent that no
-// skill implements.
-test("check:module rejects a roster entry whose code no skill in the module declares", (t) => {
-  const root = fixture(t);
-  writeAgentModule(root, "sec-redteam", "sec", { roster: { code: "ghost" } });
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /ghost/);
-});
-
-// The other direction, which is the one that fails SILENTLY in production: a skill declaring
-// an [agent] block that no roster lists is never written to config.toml at all.
-test("check:module rejects a customize.toml [agent] block with no roster entry", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "sec-redteam", "sec");
-  write(root, "skills/sec-redteam/customize.toml",
-    '[agent]\ncode        = "redteam"\nname        = ""\ntitle       = "Red Team Agent"\n' +
-    'icon        = "🔴"\ndescription = "Adversarial analysis."\n');
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /redteam/);
-});
-
-// A workflow skill's customize.toml carries [workflow], not [agent], and must not be dragged
-// into the roster rule.
-test("check:module ignores a customize.toml with no [agent] block", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/customize.toml", "[workflow]\nmax_fix_iterations = 3\n");
-  const r = run(root, ["-v"]);
+test("the real repository passes check:module, and the help rule judges real keywords", (t) => {
+  const r = spawnSync(process.execPath, [CHECK, "-v"], { cwd: REPO, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-});
-
-// ---------------------------------------------------------------------------
-// 11. setup-singleton. The shape that shipped in 3.1.7: a bare DEPRECATED forwarder at the
-// module's OLD setup name, beside the real home at the new one. BMad's find_setup_skill()
-// takes the first `*-setup` directory the filesystem hands back, so which one is the module
-// home depends on directory ordering -- and 'pm-pm-setup' < 'pm-setup', so on a sorted-order
-// filesystem (APFS/HFS+, many NFS/SMB) the forwarder wins deterministically.
-test("check:module rejects a second *-setup directory in one module", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "pm-setup", "pm");
-  // The forwarder, exactly as shipped: SKILL.md + customize.toml, no module.yaml at all.
-  write(root, "skills/pm-pm-setup/SKILL.md", "---\nname: pm-pm-setup\n---\n# forwarder\n");
-  write(root, "skills/pm-pm-setup/customize.toml", "[workflow]\n");
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /has 2 \*-setup directories/);
-  // The message must name the sorted-order winner, which is the actionable half: it tells you
-  // WHICH one macOS has been resolving to, not merely that two exist.
-  assert.match(r.stderr, /always skills\/pm-pm-setup/);
-});
-
-// One *-setup directory is the correct shape and must stay silent -- a rule that fired on the
-// normal case would be worse than no rule.
-test("check:module accepts exactly one *-setup directory in a module", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "pm-setup", "pm");
-  write(root, "skills/pm-execute/SKILL.md", "---\nname: pm-execute\n---\n# x\n");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// Scope check: two *-setup directories belonging to DIFFERENT modules are legal -- every
-// module is entitled to its own setup skill. The rule is per-module, not per-repo.
-test("check:module allows one *-setup directory each in two different modules", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "pm-setup", "pm");
-  writeModuleHome(root, "ops-setup", "ops");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// ---------------------------------------------------------------------------
-// 12. menu-code-unique. The shape that shipped in 3.1.3: `/l3io-help catalog` was given menu
-// code LPC, which `l3io-sync`'s Sync row already held, and it survived five releases. Every
-// other gate over this CSV compares a row to something OUTSIDE the file -- a directory on
-// disk (rule 7), a keyword in a routing table (rule 9) -- so none of them ever compared two
-// rows to each other.
-test("check:module rejects two module-help.csv rows sharing a menu code", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n' +
-    'Solo,solo,Catalog,SLC,"List installed skills.",catalog,,anytime,,,false,,table\n');
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /menu-code 'SLC' is claimed by two rows/);
-  // Both rows must be named: knowing a code collides is useless without knowing which two
-  // capabilities are fighting over it, since only one of them is the newcomer to move.
-  assert.match(r.stderr, /Sync/);
-  assert.match(r.stderr, /Catalog/);
-});
-
-// The code is typed by a human at a menu, so `slc` selects the row that wrote `SLC`. A
-// case-sensitive comparison would call that pair distinct and miss a real collision.
-test("check:module rejects menu codes that differ only in case", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n' +
-    'Solo,solo,Catalog,slc,"List installed skills.",catalog,,anytime,,,false,,table\n');
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /claimed by two rows/);
-});
-
-// The normal shape must stay silent, INCLUDING the `_meta` documentation row, which carries no
-// menu code at all. Counting empty codes as colliding would fire on every real module CSV --
-// each of the four ships exactly one such row.
-test("check:module accepts distinct menu codes and empty _meta codes", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,_meta,,,,,,,,,false,https://example.invalid/docs,\n' +
-    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n' +
-    'Solo,solo,Catalog,SLA,"List installed skills.",catalog,,anytime,,,false,,table\n');
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// SCOPE: the rule is per-CSV, and the header says so. Two DIFFERENT modules reusing a code are
-// assembling separate menus, and nothing measured here says those collide -- a repo-wide
-// uniqueness rule would assert that without evidence.
-test("check:module allows the same menu code in two different modules", (t) => {
-  const root = fixture(t);
-  writeModuleHome(root, "solo", "solo");
-  writeModuleHome(root, "other", "other");
-  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
-    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n');
-  write(root, "skills/other/assets/module-help.csv", HELP_CSV_HEADER +
-    'Other,other,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n');
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// ---------------------------------------------------------------------------
-// Rule 13: forwarder-shape.
-//
-// The real forwarders are all internally consistent today, so these fixtures are what makes
-// the rule non-vacuous: each one plants exactly the edit a copied forwarder is apt to miss.
-
-// The shipped shape, parameterised. `to` is the target; the options each break ONE part of it,
-// so a failing test names the clause it broke rather than "the forwarder is wrong".
-function writeForwarder(root, from, to, opts = {}) {
-  const notice = opts.notice !== undefined
-    ? opts.notice
-    : `NOTICE: /${from} is deprecated (renamed to /${to} in v3.1.3). This forwarder will be removed in v${opts.bodyRemoval ?? "4.0.0"}.`;
-  write(root, `skills/${from}/SKILL.md`,
-    `---\n` +
-    `name: ${from}\n` +
-    `description: DEPRECATED forwarder for /${to} — renamed in 3.1.3. Use /${to} instead. ` +
-    `This forwarder will be removed in ${opts.fmRemoval ?? "4.0.0"}.\n` +
-    `---\n\n` +
-    `# ${from} (DEPRECATED — use /${to})\n\n` +
-    `This skill was renamed to \`/${to}\` in v3.1.3. This forwarder exists only so old\n` +
-    `invocations continue to work; it will be **removed in v${opts.bodyRemoval ?? "4.0.0"}**.\n\n` +
-    `## On Activation\n\n` +
-    `1. Print one line to stderr, verbatim:\n\n` +
-    (notice ? `   \`\`\`\n   ${notice}\n   \`\`\`\n\n` : ``) +
-    `2. Invoke \`skill:${opts.invokes ?? to}\` with the exact arguments the user gave to /${from}, and report\n` +
-    `   its output unchanged.\n`);
-  write(root, `skills/${from}/customize.toml`, `[workflow]\n`);
-}
-
-// A plain (non-forwarder) skill for the forwarder to point at.
-function writePlainSkill(root, name) {
-  write(root, `skills/${name}/SKILL.md`, `---\nname: ${name}\ndescription: A real skill.\n---\n\n# ${name}\n`);
-  write(root, `skills/${name}/customize.toml`, `[workflow]\n`);
-}
-
-test("check:module accepts a well-formed forwarder", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-test("check:module rejects a forwarder that invokes a different skill than it claims", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writePlainSkill(root, "solo-plan");
-  writeForwarder(root, "solo-pm-exec", "solo-exec", { invokes: "solo-plan" });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a forwarder invoking the wrong skill must fail");
-  assert.match(r.stderr, /body invokes skill:solo-plan/);
-});
-
-test("check:module rejects a forwarder whose target does not exist", (t) => {
-  const root = fixture(t);
-  writeForwarder(root, "solo-pm-exec", "solo-gone");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a forwarder to a nonexistent skill must fail");
-  assert.match(r.stderr, /forwards to '\/solo-gone', which is not a skill directory/);
-});
-
-test("check:module rejects a forwarder chain", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-mid", "solo-exec");
-  writeForwarder(root, "solo-old", "solo-mid");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a forwarder pointing at another forwarder must fail");
-  assert.match(r.stderr, /which is itself a DEPRECATED forwarder/);
-});
-
-test("check:module rejects a forwarder that names a third skill", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writePlainSkill(root, "solo-sync");
-  writeForwarder(root, "solo-pm-exec", "solo-exec", {
-    notice: `NOTICE: /solo-sync is deprecated (renamed to /solo-exec in v3.1.3). This forwarder will be removed in v4.0.0.`,
-  });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a third skill named in a forwarder body must fail");
-  assert.match(r.stderr, /names '\/solo-sync'/);
-});
-
-test("check:module rejects a forwarder with no NOTICE line", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec", { notice: "" });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a forwarder with no deprecation notice must fail");
-  assert.match(r.stderr, /has no NOTICE: line/);
-});
-
-test("check:module rejects a forwarder carrying payload beyond SKILL.md and customize.toml", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec");
-  write(root, "skills/solo-pm-exec/assets/module.yaml", "code: solo\nname: x\ndescription: y\n");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "payload on a forwarder must fail -- this is the rule 11 road");
-  assert.match(r.stderr, /a forwarder carries only SKILL\.md and customize\.toml/);
-});
-
-test("check:module rejects a forwarder whose frontmatter and body disagree on the removal version", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec", { fmRemoval: "4.0.0", bodyRemoval: "5.0.0" });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "two different removal versions must fail");
-  assert.match(r.stderr, /different removal versions/);
-});
-
-// The clause that fires on a tree nobody edited: once the package reaches the version a
-// forwarder promised to disappear in, the promise is due and the gate says so.
-test("check:module rejects a forwarder whose removal version has already been reached", (t) => {
-  const root = fixture(t);
-  write(root, "package.json", JSON.stringify({ name: "fixture", version: "4.0.0" }) + "\n");
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a forwarder past its own removal version must fail");
-  assert.match(r.stderr, /promises removal in 4\.0\.0, but this package is already at 4\.0\.0/);
-});
-
-test("check:module accepts a forwarder whose removal version is still ahead", (t) => {
-  const root = fixture(t);
-  write(root, "package.json", JSON.stringify({ name: "fixture", version: "3.1.8" }) + "\n");
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// SCOPE: the rule is derived from the `DEPRECATED forwarder for /<target>` description shape.
-// An ordinary skill that merely mentions another skill is not a forwarder and is not judged.
-test("check:module does not judge a non-forwarder skill that names other skills", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  write(root, "skills/solo-doc/SKILL.md",
-    "---\nname: solo-doc\ndescription: A real skill that talks about /solo-exec a lot.\n---\n\n" +
-    "# solo-doc\n\nSee /solo-exec and invoke `skill:solo-exec` whenever you like.\n");
-  write(root, "skills/solo-doc/customize.toml", "[workflow]\n");
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-// Both names present, roles swapped. A presence-only check passes this, which is why the rule
-// compares their positions: this notice tells the user to migrate TO the name being removed.
-test("check:module rejects a NOTICE line with the two skills swapped", (t) => {
-  const root = fixture(t);
-  writePlainSkill(root, "solo-exec");
-  writeForwarder(root, "solo-pm-exec", "solo-exec", {
-    notice: "NOTICE: /solo-exec is deprecated (renamed to /solo-pm-exec in v3.1.3). This forwarder will be removed in v4.0.0.",
-  });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 1, "a swapped NOTICE line must fail");
-  assert.match(r.stderr, /the two are swapped/);
-});
-
-// ---- v7 modules (ADR-0014, ADR-0021) ----
-//
-// A module carrying skills/<code>/bmod-<code>/ is installed by v7, not by 6.x's PluginResolver,
-// and has no module-help.csv. Rules 8 and 9 skip it; a module WITHOUT that record still gets
-// both, which the second test pins so the exemption cannot widen to everything. Files are
-// written raw: write() would plant a SKILL.md in the module folder and make it the skill.
-function writeV7Shape(root, { record }) {
-  const put = (rel, text) => {
-    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-    fs.writeFileSync(path.join(root, rel), text);
-  };
-  if (record) put("skills/l3io-x/bmod-l3io-x/retired.toml", "removed = []\n");
-  put("skills/l3io-x/l3io-x-run/SKILL.md",
-    "# run\n\n**Recognized keywords**\n\n| Keyword | Load | Menu | Notes |\n|---|---|---|---|\n" +
-    "| `go` | `steps/go.md` | registered | note |\n");
-  put("skills/l3io-x/l3io-x-run/steps/go.md", "# go\n");
-  writeMarketplace(root, [{ name: "l3io-x", skills: ["./skills/l3io-x/l3io-x-run"] }]);
-}
-
-test("check:module exempts a v7 module from the PluginResolver and help-registration rules", (t) => {
-  const root = fixture(t);
-  writeV7Shape(root, { record: true });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /plugin 'l3io-x' is a v7 module/);
-});
-
-test("check:module still applies both rules to a module with no v7 record", (t) => {
-  const root = fixture(t);
-  writeV7Shape(root, { record: false });
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /keyword `go` is marked 'registered'/);
-  assert.match(r.stderr, /plugin 'l3io-x' resolves by PluginResolver strategy 5/);
-});
-
-// A single-skill v7 module keeps its record in the skill's own bmod.toml, not in a bmod-<code>/
-// folder (BMad docs/reference/module-files.md, "Where the Files Live").
-function writeSingleSkillV7(root, { roster }) {
-  const put = (rel, text) => {
-    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-    fs.writeFileSync(path.join(root, rel), text);
-  };
-  const dir = "skills/l3io-y/l3io-y-agent";
-  put(`${dir}/SKILL.md`,
-    "# agent\n\n**Recognized keywords**\n\n| Keyword | Load | Menu | Notes |\n|---|---|---|---|\n" +
-    "| `go` | `steps/go.md` | registered | note |\n");
-  put(`${dir}/steps/go.md`, "# go\n");
-  put(`${dir}/bmod.toml`, '[bmod]\ncode = "l3io-y"\nversion = "1.0.0"\nupdate_source = "file:x"\n\n[skill]\n');
-  put(`${dir}/customize.toml`, '[agent]\ncode = "red"\nname = ""\ntitle = "T"\nicon = "I"\ndescription = "D"\n');
-  if (roster) put(`${dir}/roster.toml`, `[[members]]\ncode = "red"\nskill = "${roster}"\n`);
-  writeMarketplace(root, [{ name: "l3io-y", skills: [`./${dir}`] }]);
-}
-
-test("check:module exempts a single-skill v7 module and accepts its roster.toml", (t) => {
-  const root = fixture(t);
-  fs.rmSync(path.join(root, "skills/module.yaml"));
-  writeSingleSkillV7(root, { roster: "l3io-y-agent" });
-  const r = run(root, ["-v"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /plugin 'l3io-y' is a v7 module/);
-});
-
-test("check:module still rejects a v7 [agent] block that no roster.toml lists", (t) => {
-  const root = fixture(t);
-  writeSingleSkillV7(root, { roster: "someone-else" });
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /declares agent 'red'/);
+  const m = r.stdout.match(/(\d+) of them expecting a help\/help\.md entry/);
+  assert.ok(m && Number(m[1]) > 0, `the rule must judge something on the real tree: ${r.stdout}`);
 });

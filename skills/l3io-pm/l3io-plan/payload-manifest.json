@@ -2,7 +2,7 @@
   "version": "3.7.1",
   "generated_from": "skills/<skill>/",
   "files": {
-    "SKILL.md": "53a8e9d68cd6b6aa8bdee32a2d1f4821f983e6080e1f6d392c98d23fd255744f",
+    "SKILL.md": "f8f102458a87a6fc9480bdb295781dabb032ab67dc5bc375bac94391c989a624",
     "bmod.toml": "793f9827e86ce6fca61be70fad38ced63166474e88f544cd1ba1bb26351dc273",
     "customize.toml": "fca175b99ad4d5e45ea3b699486d0895ccab16179b84c9d044d1cf5325ea11b4",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
@@ -23,7 +23,7 @@
     "steps/plan/step-backlog-intake.md": "cfc46f755ff86b83c51912038588e4b47bf9cf408d3c32253dd82d816f345080",
     "steps/reorg/step-reorg-undo.md": "be3cfe8e0ff73f1758ac9b457afea62064be5304c61fbc54432b64a77faa2f39",
     "steps/reorg/step-reorg.md": "77f741faeb7eeea40e366f4572e1611604f172ff84c9ed25833cf5d81bcf5b53",
-    "steps/shared/step-00-activate.md": "0cc61909a14623cac7a6341b065a0ad43557084ca871cee32246cc265c0e3497",
+    "steps/shared/step-00-activate.md": "fcaf39da8eefb3c11ccb352da2a6c1a691e21f758f331e73be5253d9e1ada49b",
     "steps/shared/step-00-digest.md": "27af27894b622e1da2ffade4cd6d292d207bf4d114ef0f1bb5706be86ee0146d",
     "steps/shared/step-01-classify-work.md": "53b6c3df3744f01fc4f7bc38fbf56e27f54ec13ba1cc67fbf5334d26bfb9a12c",
     "steps/shared/step-estimate.md": "dc361f48af47290aace3c10e9aa42cfd4201941cd976ea200f4ec7c25a8ea94a"

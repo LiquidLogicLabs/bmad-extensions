@@ -23,8 +23,6 @@
     "references/threat-analysis.md": "45201fe051fe9f21d09e0416e886cf0438025823fae6d52a7c85d60252b52e2b",
     "roster.toml": "b34c1a8cc3ab4cf8f6003e334937b4f75d0cac3d321e097940102e4293ce0c2f",
     "scripts/init-sanctum.py": "59ed2e8fd03db56a1a4ff6cae82c51d9459b9b7039ae96728d2a3486f58459f6",
-    "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
-    "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f"
   }
 }

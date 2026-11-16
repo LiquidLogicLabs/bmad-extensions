@@ -20,7 +20,7 @@ module.exports = {
     // rewrites version strings inside payload files, so every hash moves and the manifest's
     // own `version` field with them. Skipping this leaves prerelease failing on the NEXT
     // release, over drift the bump itself introduced.
-    postbump: "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -A skills/ .claude-plugin/ && git add -u"
+    postbump: "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -A skills/ && git add -u"
   },
   types: [
     { type: "feat", section: "Features" },

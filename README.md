@@ -347,7 +347,6 @@ skills/
   l3io-arch/             module folder
     l3io-arch-review/    SKILL.md, bmod.toml (module record), help/, customize.toml, references/, assets/ (module-setup.md), scripts/
 .claude/commands/        symlinks → ../../skills/<module>/<skill>/SKILL.md
-.claude-plugin/          marketplace.json (required for installation)
 ```
 
 Files under `skills/_shared/` are the **only** editable copies of anything shared. Each PM
@@ -424,7 +423,7 @@ Both hooks are configured in `.versionrc.cjs`, not in `package.json`:
   `skills/_shared/`, when a `payload-manifest.json` hash is stale, when `check:docs` fails, or
   when `pm-status.py`'s version markers disagree.
 - **`postbump`** re-syncs after the bump, because the new version string is embedded inside
-  payload files: it rewrites `.claude-plugin/marketplace.json`, every `module.yaml`, and
+  payload files: it rewrites every `bmod.toml` module record and
   `pm-status.py`'s version marker, regenerates the manifests, then stages the result.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.

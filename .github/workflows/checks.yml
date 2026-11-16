@@ -60,20 +60,20 @@ jobs:
       run: npm run check:version
     - name: Verify per-skill payload manifests match the payload
       run: npm run check:manifest
-    - name: Verify module structure — one module.yaml per module, correctly homed
+    - name: Verify module structure — one pm_status copy per module, every registered mode in help.md
       run: npm run check:module
-    # BMad Builder's own deterministic scanners, over this package's skills. bmb ships them
-    # in the `bmad-builder` npm package, which is a devDependency, so `npm ci` above is all
-    # the setup this needs -- no BMad install, which matters because `.claude/skills/` is
-    # gitignored and a real install is not available to CI. Exemptions for the core
-    # conventions this package rejects live in scripts/check-bmb.mjs, each with a test that
-    # plants a violation it must not swallow.
+    # BMad v7's own manifest validator, validate_manifests.py, over this package's skills. It is
+    # never bundled: scripts/fetch-bmad-tool.mjs fetches it at the pinned BMAD-METHOD commit from
+    # raw.githubusercontent.com and verifies each file against a SHA-256 recorded in that script,
+    # so this step needs network and a tampered fetch fails it. It runs over a view of skills/
+    # without _shared/, which the validator would otherwise report as a skill missing bmod.toml.
+    - name: BMad v7 manifest validation (validate_manifests.py at the pin)
+      run: npm run check:bmod
     # Ruff over every Python file in skills/. The version is PINNED in the npm script, and
     # ruff.toml carries no `select` list on purpose: the rule set is whatever that pinned
     # version enables, so it cannot drift from a hand-kept list, and a bump is a visible diff.
-    # This ran nowhere before -- bmb's scan-scripts.py has a ruff arm, but it shells to
-    # `uv run ruff`, which failed to spawn here and was swallowed, so check:bmb was passing
-    # over ~12,000 unlinted lines.
+    # This ran nowhere before -- a scanner's ruff arm that shelled to `uv run ruff` failed to
+    # spawn here and was swallowed, so a gate was passing over ~12,000 unlinted lines.
     - name: Python lint (ruff)
       run: npm run check:lint:py
     # Scoped type check over pm-status.py: two classes only, not a clean file (mypy reports
@@ -87,12 +87,10 @@ jobs:
     # standards-shell.md — a reference this package SHIPS to consumers — requires
     # "ShellCheck clean in CI, not just locally", and the repo shipped shell with no gate.
     # The gate FAILS (exit 2) rather than skipping when shellcheck is absent: a linter that
-    # cannot run has told you nothing, and reporting that as a pass is how check:bmb came to
-    # report clean over Python it had never read.
+    # cannot run has told you nothing, and reporting that as a pass is how a scanner gate came
+    # to report clean over Python it had never read.
     - name: Shell lint (bash -n + ShellCheck)
       run: npm run check:lint:sh
-    - name: BMad Builder skill scanners
-      run: npm run check:bmb
     # Every Python suite under skills/**/tests/, DISCOVERED FROM DISK. This replaced ten
     # hand-written steps, and the reason is that the hand-written list was wrong: seven
     # suites (test-engine.py, its five reader suites, and test-state-record.py) existed and

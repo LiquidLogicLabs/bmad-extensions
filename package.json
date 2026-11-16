@@ -8,7 +8,7 @@
   "scripts": {
     "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
     "check:audit": "npm audit --audit-level=high",
-    "check:bmb": "node scripts/check-bmb.mjs",
+    "check:bmod": "node scripts/check-bmod.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:lint:py": "uv run --with 'ruff==0.16.9' ruff check .",
     "check:lint:sh": "node scripts/check-shell.mjs",
@@ -33,7 +33,6 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "bmad-builder": "^1.1.0",
     "commit-and-tag-version": "latest",
     "conventional-changelog-cli": "latest",
     "csv-parse": "^7.0.2",

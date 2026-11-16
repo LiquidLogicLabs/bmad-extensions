@@ -10,16 +10,19 @@ reviewing a pull request, flag these specifically:
 - **Stale payload manifests.** Any change to a file a skill ships needs that skill's
   `payload-manifest.json` regenerated (`node scripts/write-payload-manifest.mjs`), never
   hand-edited.
-- **Version lines.** l3io 3.x on `main` supports BMad 6.x only; BMad v7 work belongs on the
-  v7 branch. Never move `pm-status`'s version backwards.
+- **Version lines.** This is the v7 branch: modules are packaged as `bmod.toml` records
+  (ADR-0014), and `npm run check:bmod` runs BMad's own `validate_manifests.py` over them.
+  Never bundle that validator; it is fetched at the pin. Never move `pm-status`'s version
+  backwards.
 - **pm_status package.** Every `.py` under `skills/_shared/pm_status/` stays under 1,500
   lines; split a module rather than raise the cap. Only pm-status turns a node key into a
   state path. `cost` is derived from tokens × rates and never entered.
-- **Skill probes.** A check for an installed skill must cover `.claude/skills`,
-  `.agents/skills` and `_bmad/_config/skill-manifest.csv`. Agentic tools other than Claude
-  are first-class.
+- **Skill probes.** A check for an installed skill must cover `.claude/skills` and
+  `.agents/skills`. `_bmad/_config/skill-manifest.csv` is a 6.x record v7 does not write.
+  Agentic tools other than Claude are first-class.
 - **Never bundle a BMad core script** (`resolve_config.py`, `resolve_customization.py`,
-  `memlog.py`); invoke them from `{project-root}/_bmad/scripts/`.
+  `memlog.py`, `validate_manifests.py`); invoke them from `{project-root}/_bmad/scripts/`, or
+  fetch them at the pin through `scripts/fetch-bmad-tool.mjs`.
 - **Workflows.** Pin `actions/*` by maintained major tag and everything else by exact tag or
   SHA. Keep permissions least-privilege. Gate steps run after `npm ci`.
 - **Commits.** Conventional Commits with a DCO sign-off (`git commit -s`).
