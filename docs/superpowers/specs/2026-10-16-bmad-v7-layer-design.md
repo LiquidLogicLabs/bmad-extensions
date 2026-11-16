@@ -775,6 +775,26 @@ moved was packaging and distribution, and most of what this re-measure found was
 read a month ago. The readiness risk is now less "v7 changes under us" and more "we have not
 planned the parts of v7 that were already settled".
 
+### 13.5 Verified on a real install at `e435a22` (Task 0.2, 2026-11-16)
+
+Built with `tests/fixtures/v7/make-fixture.sh e435a22574fe55722841086e5566420178b98df3
+<dir>`: `npx skills add` (`vercel-labs/skills` 1.9.0) of `core-tools` and `method` for
+Claude Code and Codex, then v7's `setup.py` run headlessly. Everything below was observed
+there, or on a real BMad 6.12.4 `--tools cline` install, unless marked otherwise.
+
+| Claim (where it was open) | Observed |
+|---|---|
+| Declared module scripts land at `_bmad/<code>/scripts/` (§3.4; `shape.md` says `_bmad/scripts/`) | **`_bmad/<code>/scripts/`.** `_bmad/method/scripts/tickets.py`, `_bmad/core-tools/scripts/pick_methods.py`. `_bmad/scripts/` holds only core's 13 shared scripts. The code is right; `shape.md` is wrong. |
+| `migration-2` (`7 preview` → `7`) does not match an l3io tree (§13.3) | **It can.** Its `detect` matches any `epic-*/` folder holding a `*-plan.md` directly. A real 3.x-shaped project had `epic-065/epic-065-plan.md` (hand-written, not ours). `migration-1` matched on `epics.md`, as expected of any v6 project. The story-file signal (`route:` + `status:`) matched none of that project's 616 stories, so `docs/upgrading.md`'s claim that `sync-story-doc` makes it fire is wrong. `bmad migrate` matches by an agent reading `detect` prose; it is not a script. |
+| Leftover v6 shims are not offered for removal | **Confirmed.** A 6.12.4 `bmad-create-story` in both skill roots: `setup.py --status` lists no `retired_skills`; `migrate_v6.py` lists no leftover for it. On an upgraded 6.12.4 tree, `migrate_v6.py` lists 11 `legacy_leftovers` (including `_config/manifest.yaml` and `_config/skill-manifest.csv`) and 7 `stale_config_keys`, and lists no l3io skill. |
+| (new) v7 version string | The preview reports **`6.13.0-next`**, not 7.x. A version check that expects `7` misses the preview. |
+| (new) a multi-tool install | **v7 calls it duplicates.** Every skill installed for both Claude Code and Codex is a `duplicate_skills` entry, and v7's setup guide offers `--remove-copies`, keeping the copy in use (`.agents/skills`, first root). If the user accepts, the `.claude/skills` copies go. Whether Claude Code still sees the skills then is unverified. 4.0.0's install guidance must say this. Also a candidate upstream issue. |
+| (new) v7 detection | **`config_utils.py` is not a v7 marker.** 6.12.0 and later ship it. After `bmad setup` the 6.x `manifest.yaml` stays until `migrate_v6.py` cleans up, so a manifest-first check calls a mid-upgrade tree 6.x. Fixed on `main` in `378c0d1`: v7 is decided first, by `_bmad/scripts/setup.py` or a `[bmod]` record. |
+
+**RECEIVED, not measured here:** the downstream adopter reports that 41 real installs on
+this box, 6.6.0 → 6.12.4, each carry `_bmad/_config/skill-manifest.csv` with `"<name>",`
+at line start. Its session reported this on 2026-11-16; n=41, read-only.
+
 ## 14. Extend v7, do not replace it
 
 **Decided by the user, 2026-11-15. This section governs §4–§7 wherever they conflict.**

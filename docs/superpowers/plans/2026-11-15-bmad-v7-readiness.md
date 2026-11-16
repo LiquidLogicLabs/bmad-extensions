@@ -89,6 +89,16 @@ Spec §13 holds the `61e01f8` → `e435a22` drift log. It is listed here so the 
 
 ### Task 0.2: Build a real v7 fixture project and settle the four "verify before building" claims
 
+> **Done 2026-11-16.** `tests/fixtures/v7/make-fixture.sh` reproduces the fixture; results are in
+> spec §13.5. Two expectations were wrong. Scripts land at `_bmad/<code>/scripts/` as the code
+> says. `migration-2` **can** match an l3io-shaped tree, through any hand-written
+> `epic-*/*-plan.md`. Leftover shims are not offered for removal, as expected. Three findings
+> were new: the preview reports `6.13.0-next`; v7 treats a multi-tool install as duplicates and
+> offers to delete copies; and `config_utils.py` is not a v7 marker, which made 3.7.0's v7
+> refusal miss mid-upgrade trees. That is fixed on `main` (`378c0d1`) for 3.7.2. Ruling: Step 3
+> was run by applying each migration's `detect` prose by hand to a real project, because
+> `bmad migrate` is an agent reading prose, not a script.
+
 Three spec claims are explicitly marked unverified, and Phases 3, 4 and 6 build on all three.
 
 **Files:**
