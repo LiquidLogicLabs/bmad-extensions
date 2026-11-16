@@ -7,6 +7,45 @@ any subsequent step file.
 
 ---
 
+## 0. Confirm this is a BMad 6.x install
+
+l3io 3.x supports **BMad 6.x only**; l3io 4.x is the line for BMad v7. Check before anything
+else, because every later step reads or writes BMad 6.x's layout, and §2 installs into
+`_bmad/scripts/`, which v7 rebuilds on every setup.
+
+```bash
+evidence_path=""
+if [ -f "{project-root}/_bmad/_config/manifest.yaml" ]; then
+  bmad_generation=v6
+elif [ -f "{project-root}/_bmad/scripts/config_utils.py" ]; then
+  bmad_generation=v7; evidence_path="{project-root}/_bmad/scripts/config_utils.py"
+elif evidence_path=$(grep -ls '^\[bmod\]' {project-root}/.agents/skills/*/bmod.toml \
+                       {project-root}/.claude/skills/*/bmod.toml | head -1) \
+     && [ -n "$evidence_path" ]; then
+  bmad_generation=v7
+else
+  bmad_generation=unknown
+fi
+echo "bmad_generation=$bmad_generation evidence_path=$evidence_path"
+```
+
+These are the signals `l3io-doctor`'s `bmad-deps.py` `detect_generation()` uses: 6.x writes
+`_bmad/_config/manifest.yaml` on every install; v7 has no central manifest, and is recognised
+by the shared script its resolver imports or by a module record (`bmod.toml` carrying
+`[bmod]`). The 6.x manifest wins when both are present, so a 6.x project that has had v7 skills
+added beside it is still treated as 6.x.
+
+`unknown` falls through to §1, which halts if BMad core is missing.
+
+When `bmad_generation` is `v7`, stop. Do not resolve config, install anything, or load another
+step:
+
+```
+BLOCKED: BMad v7 detected ({evidence_path}). This is l3io 3.x, which supports BMad 6.x only —
+install l3io 4.x for BMad v7. Do not run `bmad migrate` on this project until l3io 4.x is
+installed: see docs/upgrading.md.
+```
+
 ## 1. Load module configuration
 
 Resolve config through BMad core's resolver — the full contract, including every
