@@ -86,7 +86,7 @@ class Base(unittest.TestCase):
         return proc.returncode, proc.stdout
 
     def _tree(self, names, layout="skills", version="6.12.0", shims=None, manifest_rows=None,
-              bmb_version=None, tool=".claude"):
+              bmb_version=None, tool=".claude", ides=("claude-code",)):
         """Build a project root whose <tool>/<layout>/ contains `names`.
 
         `manifest_rows` is a list of data-row strings (no header) for
@@ -116,7 +116,7 @@ class Base(unittest.TestCase):
         text += "modules:\n  - name: core\n  - name: bmm\n"
         if bmb_version is not None:
             text += f"  - name: bmb\n    version: {bmb_version}\n"
-        text += "ides:\n  - claude-code\n"
+        text += "ides:\n" + "".join(f"  - {i}\n" for i in ides)
         pathlib.Path(mf, "manifest.yaml").write_text(text, encoding="utf-8")
         if manifest_rows is not None:
             csv_text = "canonicalId,name,description,module,path\n"
@@ -335,21 +335,68 @@ class TestLayouts(Base):
         self.assertIn("ok       a-one", out)
 
 
-    def test_bare_project_skills_root_is_probed(self):
-        """`registry.py` `default_roots()` names a BARE `<project>/skills` beside the two
-        dotted roots, and `scan_paths.py`'s SKILL_DIR_RE corroborates it. Deriving the probe
-        set by mirroring `.claude`'s shape onto `.agents` cannot reach it, so a skill
-        installed there read as absent and self-skipped its phase.
+    def test_bare_project_skills_root_is_not_probed_on_6x(self):
+        """A bare `<project>/skills` is a v7 location (`registry.py` `default_roots()`); no
+        6.x platform installs there. l3io 3.x targets BMad 6.x only, so a skill found ONLY
+        there is not an install and must still be reported missing.
 
-        Inverted: deleting `project_root` from skill_roots() makes this the only failure.
+        Inverted: adding `project_root` back to skill_roots() makes this the only failure.
         """
         inv = self._inv([{"name": "a-one", "status": "required"}])
         root = self._tree(["a-one"], tool="")
-        self.assertTrue(os.path.isdir(os.path.join(root, "skills", "a-one")),
-                        "fixture must place the skill at the BARE root, not under a tool dir")
+        self.assertTrue(os.path.isfile(os.path.join(root, "skills", "a-one", "SKILL.md")),
+                        "fixture must actually plant the file the probe must NOT honour")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 3, self.err)
+        self.assertNotIn("ok       a-one", out)
+
+
+    def test_recorded_tool_target_dir_is_probed(self):
+        """6.12.4 installs into the target_dir of each tool chosen -- `.cline/skills` for
+        Cline, one of 20 tool-specific directories beside `.claude` and `.agents`. Measured
+        on a real 6.12.4 `--tools cline` install: every skill read as absent before this.
+
+        Inverted: dropping the `ides:`-derived roots from skill_roots() makes this fail.
+        """
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], tool=".cline", ides=("cline",))
+        self.assertTrue(os.path.isfile(os.path.join(root, ".cline", "skills", "a-one", "SKILL.md")))
         code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
         self.assertEqual(code, 0, self.err)
         self.assertIn("ok       a-one", out)
+
+
+    def test_recorded_tool_global_target_dir_is_probed(self):
+        """A global install lands in the tool's global_target_dir (`~/.cline/skills`)."""
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree([], ides=("cline",))
+        d = os.path.join(self.home, ".cline", "skills", "a-one")
+        os.makedirs(d)
+        pathlib.Path(d, "SKILL.md").write_text("x", encoding="utf-8")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("ok       a-one", out)
+
+
+    def test_unrecorded_tool_dir_is_not_probed(self):
+        """The tool directories probed are derived from what the install recorded, not a
+        blanket list: `.cline/skills` on a claude-code-only install is not BMad's."""
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], tool=".cline", ides=("claude-code",))
+        self.assertTrue(os.path.isfile(os.path.join(root, ".cline", "skills", "a-one", "SKILL.md")))
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 3, self.err)
+
+
+    def test_resolve_prints_path_or_exits_1(self):
+        """`resolve` is what overlay-mode uses to find BMad's skill root on any tool."""
+        root = self._tree(["bmad-customize"], tool=".cline", ides=("cline",))
+        code, out = self.run_cli(["resolve", "--project-root", root, "--name", "bmad-customize"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(out.strip(),
+                         os.path.join(root, ".cline", "skills", "bmad-customize", "SKILL.md"))
+        code, out = self.run_cli(["resolve", "--project-root", root, "--name", "nope"])
+        self.assertEqual((code, out), (1, ""))
 
 
     def test_agents_commands_layout_is_not_probed(self):

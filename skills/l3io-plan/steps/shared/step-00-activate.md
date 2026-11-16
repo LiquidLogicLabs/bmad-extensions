@@ -182,12 +182,13 @@ skills forward migrations, health checks, and the plan-aware progress dashboard 
 `l3io-help` invokes `check-pm-status` on every activation. A standard install carries the
 whole marketplace bundle so this is only false when someone has manually stripped the module.
 
-The check probes the roots BMad's own `registry.py` `default_roots()` scans — `.claude/skills`,
-`.agents/skills` and a bare `skills/` under the project, then the two home roots — plus the
-pre-6.12 `.claude/commands/` layout. These are the same seven paths `bmad-deps.py`'s resolve()
-covers, inlined because that script cannot be used here: it *is* the doctor. `.agents/skills`
-is the **cross-tool standard on 6.x today**, not a v7 path — 6.12.4's installer names it as
-such — so omitting it would report the doctor absent on any non-Claude install. There is
+The check probes `.claude/skills`, `.claude/commands/` (pre-6.12) and `.agents/skills`, in the
+project and then in the home directory, and finally BMad 6.x's own install record,
+`_bmad/_config/skill-manifest.csv`. It is inlined because `bmad-deps.py` cannot be used here:
+that script *is* the doctor. `.agents/skills` is the **cross-tool standard on 6.x**, shared by
+27 of the 48 platforms 6.12.4's installer supports. The manifest line covers the other twenty
+tool-specific directories (`.cline/skills`, `.kiro/skills`, …): 6.x writes one row per skill it
+installs, whichever tool was chosen, and a row's first field is the quoted skill name. There is
 deliberately **no `.agents/commands/`** probe: upstream has zero references to one, so probing
 it would read as supported layout while matching nothing.
 
@@ -195,10 +196,10 @@ it would read as supported layout while matching nothing.
 if   [ -f "{project-root}/.claude/skills/l3io-doctor/SKILL.md" ] \
   || [ -f "{project-root}/.claude/commands/l3io-doctor.md" ] \
   || [ -f "{project-root}/.agents/skills/l3io-doctor/SKILL.md" ] \
-  || [ -f "{project-root}/skills/l3io-doctor/SKILL.md" ] \
   || [ -f "$HOME/.claude/skills/l3io-doctor/SKILL.md" ] \
   || [ -f "$HOME/.claude/commands/l3io-doctor.md" ] \
-  || [ -f "$HOME/.agents/skills/l3io-doctor/SKILL.md" ]; then
+  || [ -f "$HOME/.agents/skills/l3io-doctor/SKILL.md" ] \
+  || grep -qs '^"l3io-doctor",' "{project-root}/_bmad/_config/skill-manifest.csv"; then
   doctor=present
 else
   doctor=absent

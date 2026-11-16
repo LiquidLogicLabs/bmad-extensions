@@ -96,7 +96,8 @@ and a marker quoted inside a backlog description must never re-harvest itself.
 
 **Then drop every hit whose path falls inside this skill's own installed payload** — the
 directory this step file was loaded from, and any sibling mirror of it (a BMad install writes
-both `.claude/skills/l3io-doctor/` and `.agents/skills/l3io-doctor/`). A hit in
+one copy per chosen tool: `.claude/skills/l3io-doctor/`, `.agents/skills/l3io-doctor/`,
+`.cline/skills/l3io-doctor/`, …). A hit in
 `…/skills/l3io-doctor/steps/harvest-debt.md` is one of this file's own three syntax examples,
 never project debt.
 

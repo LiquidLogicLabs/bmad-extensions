@@ -203,10 +203,10 @@ for n in bmad-check-implementation-readiness bmad-sprint-planning; do
   ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
     || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls {project-root}/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/commands/$n.md 2>/dev/null \
-    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
+    || { grep -qs "^\"$n\"," {project-root}/_bmad/_config/skill-manifest.csv && echo {project-root}/_bmad/_config/skill-manifest.csv:$n; }
 done | head -1
 ```
 

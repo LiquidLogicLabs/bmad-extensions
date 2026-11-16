@@ -783,19 +783,21 @@ test("check 16: an existence probe naming a removed skill is allowed", async (t)
   const root = fixture(t);
   write(root, "skills/l3io-execute/steps/x-probe.md",
         "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n" +
-        "ls {project-root}/.agents/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
+        "ls {project-root}/.agents/skills/bmad-architect/SKILL.md 2>/dev/null\n" +
+        "grep -qs '^\"bmad-architect\",' {project-root}/_bmad/_config/skill-manifest.csv\n```\n");
   const r = await run(root);
   assert.equal(r.status, 0, "a probe line cannot dispatch anything; it must pass");
 });
 
-// The probe arm must recognise BOTH tool roots. BMad v7 installs under .agents/, and step files
+// The probe arm must recognise BOTH tool roots. .agents/ is BMad's cross-tool root, and step files
 // now probe it; a PROBE_LINE_RE that knew only .claude/ read such a line as a DISPATCH of the
 // removed skill and failed the build over the fix itself.
 test("check 16: an .agents/-only probe line of a removed skill is a probe, not a dispatch", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-execute/steps/x-agents-probe.md",
         "```bash\nls {project-root}/.agents/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n" +
-        "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
+        "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n" +
+        "```bash\ngrep -qs '^\"bmad-architect\",' {project-root}/_bmad/_config/skill-manifest.csv\n```\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -805,11 +807,16 @@ test("PROBE_LINE_RE: an ls probe under either root matches, and prose does not",
   assert.ok(PROBE_LINE_RE.test("  || ls {project-root}/.claude/commands/x.md"));
   assert.ok(!PROBE_LINE_RE.test("Check the tools under `.agents/skills/` before spawning x"));
   assert.ok(!PROBE_LINE_RE.test("ls {project-root}/.cursor/skills/x/SKILL.md"));
+  assert.ok(PROBE_LINE_RE.test("  || { grep -qs '^\"x\",' {project-root}/_bmad/_config/skill-manifest.csv && echo y; }"));
+  assert.ok(!PROBE_LINE_RE.test("BMad records every skill in `skill-manifest.csv`; spawn x"));
 });
 
 // ---- check 37 (probe-tool-root-parity) ----
 const ONLY_CLAUDE = "```bash\nls {project-root}/.claude/skills/l3io-doctor/SKILL.md 2>/dev/null\n```\n";
 const ONLY_AGENTS = "```bash\nls {project-root}/.agents/skills/l3io-doctor/SKILL.md 2>/dev/null\n```\n";
+// Check 38 requires every tool-directory probe to also test BMad's install record, so a
+// fixture meant to PASS carries this line too.
+const MANIFEST_DOCTOR = "```bash\ngrep -qs '^\"l3io-doctor\",' {project-root}/_bmad/_config/skill-manifest.csv\n```\n";
 
 test("check 37: a .claude-only skills probe fails, naming the file and the skill", async (t) => {
   const root = fixture(t);
@@ -822,7 +829,7 @@ test("check 37: a .claude-only skills probe fails, naming the file and the skill
 
 test("check 37: a probe through both tool roots passes", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_CLAUDE + ONLY_AGENTS);
+  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_CLAUDE + ONLY_AGENTS + MANIFEST_DOCTOR);
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -838,9 +845,47 @@ test("check 37: prose naming .agents/ does not stand in for the probe path", asy
 
 test("check 37: an .agents/-only probe is fine (the reverse is not a defect)", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_AGENTS);
+  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_AGENTS + MANIFEST_DOCTOR);
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// ---- check 38 (probe-manifest-parity) ----
+test("check 38: a tool-directory probe with no manifest test fails, naming the file and the skill", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-man.md", ONLY_CLAUDE + ONLY_AGENTS);
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /\[check 38\] skills\/l3io-execute\/steps\/x-man\.md: probes `l3io-doctor` through a tool directory but never tests `_bmad\/_config\/skill-manifest\.csv` for it/);
+});
+
+test("check 38: the loop form (\"^\\\"$n\\\",\") satisfies a $n probe", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-man.md",
+        "```bash\nfor n in a b; do\n  ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \\\n" +
+        "    || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \\\n" +
+        "    || { grep -qs \"^\\\"$n\\\",\" {project-root}/_bmad/_config/skill-manifest.csv && echo x; }\ndone\n```\n");
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 38: prose naming the manifest does not stand in for the test", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-man.md", ONLY_CLAUDE + ONLY_AGENTS +
+        "BMad records `\"l3io-doctor\",` in `skill-manifest.csv` on every install.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /\[check 38\] .*x-man\.md: probes `l3io-doctor`/);
+});
+
+test("check 38: a manifest test for a DIFFERENT name does not satisfy the probe", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-man.md", ONLY_CLAUDE + ONLY_AGENTS +
+        "```bash\ngrep -qs '^\"bmad-review\",' {project-root}/_bmad/_config/skill-manifest.csv\n```\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /\[check 38\] .*x-man\.md: probes `l3io-doctor`/);
 });
 
 // The probe arm has the same substring hole the replaced_by arm was hardened against: a bare
@@ -916,7 +961,8 @@ test("check 16 still allows a bare existence probe of a deprecated skill", async
       removed_in: undefined });
   write(root, "skills/l3io-execute/steps/probe-only.md",
     "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n" +
-    "ls {project-root}/.agents/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
+    "ls {project-root}/.agents/skills/bmad-dev-story/SKILL.md 2>/dev/null\n" +
+    "grep -qs '^\"bmad-dev-story\",' {project-root}/_bmad/_config/skill-manifest.csv\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
