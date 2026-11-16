@@ -109,6 +109,29 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.7.0
+
+No migration step. Four changes you may notice:
+
+**1. Skills are found whichever tool BMad installed them for.** BMad 6.12.4 installs into the
+chosen tool's own directory — `.cline/skills`, `.kiro/skills`, `.junie/skills` and seventeen
+more — and 3.x looked only in `.claude` and `.agents`. On those tools every phase that needs a
+BMad skill was skipped without a message, `/l3io-doctor check-deps` reported every skill
+missing, and `/l3io-doctor uninstall` removed nothing. All three now work on every tool.
+
+**2. A run on more than one model is priced per model.** `pm-status.py usage` prices each
+model's tokens at its own rates. For a mixed window it prints `--tokens-by-model '…'` for
+`set-actual` instead of `--tokens-*` and `--model`, and the actual records the split as
+`by_model`. Opus 5.5, Sonnet 5.5 and Fable 5.2 are in the rate table.
+
+**3. `claude-sonnet-5` is now priced at $2/$10, not $3/$15.** The launch price became the
+standard price. Actuals you recorded at the old rate still pass `verify`: the old card is kept
+as history, and `verify` accepts a cost that matches either card. New Sonnet 5 actuals and
+estimates price lower than before.
+
+**4. 3.x stops on a BMad v7 install.** `/l3io-execute`, `/l3io-plan` and `/l3io-sync` check the
+BMad generation first, and on v7 stop with a message naming l3io 4.x. See "BMad v7" below.
+
 ### → 3.6.0
 
 *(Written ahead of the release, which is why it is the first entry you can read before you can
