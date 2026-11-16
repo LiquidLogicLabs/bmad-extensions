@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.0](https://github.com/ravensorb/bmad-extensions/compare/3.6.0...3.7.0) (2026-11-16)
+
+
+### Features
+
+* **l3io-pm:** price each model's tokens at its own rate, and refuse naive timestamps ([c39a1ae](https://github.com/ravensorb/bmad-extensions/commit/c39a1ae36fe6bd96cfabd71e56ffa8d45180946e))
+* **l3io-pm:** record a mixed-model actual per model, and correct the Sonnet 5 rate ([651146b](https://github.com/ravensorb/bmad-extensions/commit/651146befa64dc76fcaa631e28223a36e440ff8d))
+* **l3io-pm:** stop at activation on a BMad v7 install ([ab43581](https://github.com/ravensorb/bmad-extensions/commit/ab4358160baed2981ab96616ebdf7475e7589985))
+
+
+### Fixes
+
+* **l3io-pm,l3io-util:** derive tool-root probes from BMad's default_roots() ([1b78b73](https://github.com/ravensorb/bmad-extensions/commit/1b78b73291ed4fb7d985c0e3daa3d27d52aa7eef))
+* **l3io-pm,l3io-util:** find BMad 6.x skills in every tool's install directory ([25fe7eb](https://github.com/ravensorb/bmad-extensions/commit/25fe7eb36fa239a2b597f79f61477e61b8072c58))
+
+
+### Documentation
+
+* **infra:** add 3.7.0 upgrade notes ([a38ec7b](https://github.com/ravensorb/bmad-extensions/commit/a38ec7bf06b3e43f3c0ad54e6e6744d19430aaf2))
+* **l3io-pm:** propose a proof-based binding for the recovered-transcript fallback ([8fd9cd2](https://github.com/ravensorb/bmad-extensions/commit/8fd9cd286a7b9c78ebe4354f32ac26228e833afb))
+
 ## [3.6.0](https://github.com/ravensorb/bmad-extensions/compare/3.5.2...3.6.0) (2026-10-27)
 
 
