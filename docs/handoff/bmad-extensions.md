@@ -96,7 +96,7 @@ BMad registered the module from a directory with no `module.yaml`, and exited 0 
 This repo is on ext4, whose hash ordering happened to return the real home. **Every gate here
 was green over a shape that would have failed for every macOS user.** The iteration order of
 a directory was an input nobody had modelled. Full reasoning: `docs/upgrading.md` → 3.1.8, and
-commit `c5a3e32`.
+commit `67edb10`.
 
 **The self-explanation paradox.** The obvious way for a withdrawn skill to explain its own
 withdrawal is to leave a stub behind carrying the reason — and a leftover `*-setup` directory
@@ -129,7 +129,7 @@ Carry both halves or the next session re-derives them.
   point at artifacts that were never written, so no reader can resolve them. Cause and method:
   `docs/superpowers/specs/2026-09-26-issue-source-structure-design.md` §1. The fix is structured
   `--source-phase`/`--source-ref` at the write boundary; §5 explains why backfilling is refused.
-- **`migrate-adrs` once minted 14 duplicate ADRs and reported success.** *Fixed* in `eb448c8`,
+- **`migrate-adrs` once minted 14 duplicate ADRs and reported success.** *Fixed* in `4174c95`,
   first released in **3.0.2**; the guard and its evidence are in `skills/_shared/spec-align.py`
   at `dup = docs_by_num.get(n) == slug`. **Still live for any consumer below 3.0.2**, and Health
   Check 15 recommends the mode to exactly those projects. Upgrade is the remedy.

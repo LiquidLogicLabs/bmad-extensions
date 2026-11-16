@@ -477,7 +477,7 @@ still fluid:
 ## 12. Adjacent decision — inventory `note` field
 
 The same peer conversation flagged the inventory `note` field on
-`bmad-dependencies.json` entries. Current state after `e630516`: `note` is
+`bmad-dependencies.json` entries. Current state after `2e77e53`: `note` is
 read from `related` entries and rendered as the second line of the `related`
 row in `bmad-deps.py verify`'s output. `bmad-deps.py` reads any entry's `note`
 in the JSON output, but the text rendering only surfaces it for `related`.

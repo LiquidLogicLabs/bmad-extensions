@@ -60,7 +60,7 @@ Ordered by consequence, not effort.
 | # | Item | Evidence | Size |
 |---|---|---|---|
 | 1 | **Typed writers** (§1) | `STRUCTURED_EXTRAS_TO_WARN` live; `depends_on` has no writer | 5 tasks |
-| 2 | **Structured issue `source`** | Spec `b831496`; 468 of 517 items untraceable on a real project | ~4 tasks, *partly done* — see note |
+| 2 | **Structured issue `source`** | Spec `1e71d26`; 468 of 517 items untraceable on a real project | ~4 tasks, *partly done* — see note |
 | 3 | **Concurrent epics share one working tree** | No source-file independence check; `docs/limits.md` Concurrency | Design first |
 | 4 | **No check that gate imports are declared in `package.json`** | ADR-0007 names the follow-up; `CLAUDE.md:105-109` | 1 task |
 | 5 | **Probe-path correctness has no CI check** | `CLAUDE.md:132`; verified only at runtime by `check-deps` | 1-2 tasks |
@@ -147,7 +147,7 @@ because nobody marked them closed.
 
 ## 5. Already closed — retire the records
 
-- **The doctor capability gap analysis: all ten gaps closed** (six in `0238849`, four earlier in
+- **The doctor capability gap analysis: all ten gaps closed** (six in `e696380`, four earlier in
   the redesign). The document is marked closed and now reads as a record.
 - **Seventeen dated implementation plans** in `docs/superpowers/plans/` are historical records of
   shipped work, not open items. Their checkboxes are unticked because SDD tracks in its ledger,
@@ -209,7 +209,7 @@ them through a change to the same files.
 
 ## 7. Addendum — the epic-aware issue migration (new, 2026-09-26)
 
-Added after `normalize-status` was found lossy and gated (`0949006`). The gate makes the current
+Added after `normalize-status` was found lossy and gated (`457cfcc`). The gate makes the current
 state safe; this is the real fix, **designed but not built**, and it needs one decision.
 
 ### The problem

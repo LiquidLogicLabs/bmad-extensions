@@ -17,7 +17,7 @@ extended.
 **Tech Stack:** Python 3.11 with markdown-it-py, mdit-py-plugins, ruamel.yaml, unidiff and
 tenacity; git CLI; unittest; Node 22 with `node:test` for check-docs.
 
-**Spec:** `docs/superpowers/specs/2026-09-11-spec-alignment-design.md` (commit `c2dd5e0`).
+**Spec:** `docs/superpowers/specs/2026-09-11-spec-alignment-design.md` (commit `45c7a57`).
 
 ## Global Constraints
 

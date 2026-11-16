@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown step files, Node (`scripts/check-docs.mjs`, zero runtime deps, `node:test`), Python 3.11 via `uv run` with PEP 723 headers (`ruamel.yaml`), JSON for the inventory.
 
-**Spec:** `docs/superpowers/specs/2026-09-12-bmad-v612-migration-design.md` (commit `82b984c`)
+**Spec:** `docs/superpowers/specs/2026-09-12-bmad-v612-migration-design.md` (commit `505ba20`)
 
 ## Global Constraints
 
@@ -26,7 +26,7 @@
   Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_01E4PU5edGnYd8Dc12LbhDYY
   ```
-- **Never push.** Three commits are already unpushed (`82b984c`, `9583b4b`, `3c5df13`).
+- **Never push.** Three commits are already unpushed (`505ba20`, `d79b6fa`, `104a227`).
 - Concurrent agents may share this checkout: stage only the paths your task names.
 
 ## Ordering constraint (do not reorder)

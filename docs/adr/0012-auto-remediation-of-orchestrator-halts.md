@@ -163,7 +163,7 @@ redirected:
 3. **A remediation-record verb in `pm-status.py`** — this decision's own attempt record.
 4. **The `check 12 boundary: exactly 10,000 lines passes` test**, which could not run at all
    once the file reached the cap: its padding helper asserted the file was still below the
-   target and failed before exercising check 12 (repaired in `92e78bd`). The one state the
+   target and failed before exercising check 12 (repaired in `76636d4`). The one state the
    project is actually in was the one state the suite had stopped checking.
 
 ADR-0001 says raising the number again "becomes a decision made on evidence rather than a

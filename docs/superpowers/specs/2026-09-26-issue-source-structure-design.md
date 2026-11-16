@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-26
 **Status:** approved design, not yet planned
-**Prompted by:** the four l3io-util-doctor defects fixed in `eb448c8`, `7492cfb`, `2bbe2c3`, `0e31428`
+**Prompted by:** the four l3io-util-doctor defects fixed in `4174c95`, `882add0`, `5e11179`, `160bb0d`
 
 ## 1. Why
 
@@ -24,9 +24,9 @@ regexes being subtly wrong about a shape:
 
 | Fixed in | The regex was wrong about |
 |---|---|
-| `7492cfb` (1) | `closure review (E001-S02)` — two-part sprint key, no `code-review` literal |
-| `7492cfb` (2) | `E004-S03-001 development` — `$` anchor rejected the trailing word |
-| `7492cfb` (3) | the lookup matched filenames where its sibling searched bodies |
+| `882add0` (1) | `closure review (E001-S02)` — two-part sprint key, no `code-review` literal |
+| `882add0` (2) | `E004-S03-001 development` — `$` anchor rejected the trailing word |
+| `882add0` (3) | the lookup matched filenames where its sibling searched bodies |
 
 **Measured on a real 517-item backlog:** over 100 distinct source shapes, and after all
 three fixes **468 of 517 remain untraceable**. 49 is that project's ceiling.

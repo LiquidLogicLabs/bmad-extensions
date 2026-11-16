@@ -248,7 +248,7 @@ Burndown charts, HTML dashboards, cost projection, web UI, configurable threshol
 ## Related chores (no spec needed, mechanical)
 
 1. **Delete `src/`.** Contains no tracked files — only two orphaned
-   `__pycache__/pm-status.cpython-311.pyc` caches left behind by commit `1a23e74`,
+   `__pycache__/pm-status.cpython-311.pyc` caches left behind by commit `a114550`,
    compiled from a pre-sharding `pm-status.py` under the long-gone skill name
    `l3io-pm-epic-execute`.
 2. **Rename `l3io-util-cleanup` → `l3io-util-doctor`.** "Cleanup" describes about 3

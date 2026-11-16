@@ -14,7 +14,7 @@ where the new script lives (§1). The plan's first task writes two new records:
 
 ## Problem
 
-Verified against `main` at `0f818bd`:
+Verified against `main` at `d2e14b9`:
 
 1. **No PM step reads the project's spec docs.** `{planning_artifacts}` is used only for the
    package's own plan outputs.

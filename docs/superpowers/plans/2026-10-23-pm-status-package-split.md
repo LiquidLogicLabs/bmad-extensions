@@ -41,9 +41,9 @@
 
 ## Completed
 
-- **Task 1 — package skeleton** (`3bf05f1..356b2af`). `git mv` into `pm_status/__main__.py`; `__init__.py` does `sys.modules[__name__] = _main`; sync converted to a tree walk; all path-naming gates re-pointed. Review clean.
-- **Task 2 — install contract** (`356b2af..fb3a154`). `self-install` installs the package directory: stage → rename-aside → rename-in, `tree_digest`, `sweep_stale`, guarded rollback, legacy-file removal gated on a shipped hash. Review clean.
-- **Task 3 — binding flip** (`fb3a154..a94089c`). `{pm_status}` → `…/_bmad/scripts/pm-status/__main__.py` across all four skills; three doctor scripts repaired. Review clean.
+- **Task 1 — package skeleton** (`8c0f50a..4754875`). `git mv` into `pm_status/__main__.py`; `__init__.py` does `sys.modules[__name__] = _main`; sync converted to a tree walk; all path-naming gates re-pointed. Review clean.
+- **Task 2 — install contract** (`4754875..58e00a6`). `self-install` installs the package directory: stage → rename-aside → rename-in, `tree_digest`, `sweep_stale`, guarded rollback, legacy-file removal gated on a shipped hash. Review clean.
+- **Task 3 — binding flip** (`58e00a6..9d8c675`). `{pm_status}` → `…/_bmad/scripts/pm-status/__main__.py` across all four skills; three doctor scripts repaired. Review clean.
 
 ---
 
