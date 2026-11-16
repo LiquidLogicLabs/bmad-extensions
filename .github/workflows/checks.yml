@@ -102,3 +102,35 @@ jobs:
     # belong here either.
     - name: Python unit tests (discovered, not enumerated)
       run: npm run test:python
+
+  # Merges a Dependabot patch or minor bump once every gate above has passed. `needs` is the
+  # wait: this job does not start unless shared-scripts succeeded, so nothing merges on a red
+  # run. Majors are left open for a human. Write permission is granted to this job alone; the
+  # workflow default above stays read-only.
+  #
+  # Scope is the PR's AUTHOR, not github.actor: a human re-running a Dependabot PR's checks
+  # becomes the actor, and should still get the merge.
+  #
+  # It does not wait for reviewdog.yml (detect-secrets), a separate workflow `needs` cannot
+  # reach. Dependabot edits only package.json, package-lock.json and workflow `uses:` pins.
+  dependabot-automerge:
+    needs: shared-scripts
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+    - id: meta
+      uses: dependabot/fetch-metadata@v3.1.0
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Squash-merge a patch or minor bump
+      if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+      run: gh pr merge --squash --delete-branch "$PR_URL"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Leave a major bump for review
+      if: steps.meta.outputs.update-type == 'version-update:semver-major'
+      run: echo "Major version bump — left open for a human to review and merge."
