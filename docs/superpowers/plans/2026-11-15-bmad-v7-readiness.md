@@ -142,6 +142,16 @@ There is no layer through which a module contributes customization (§14.2). Tha
 
 ## Phase 1 — 3.x correct on BMad 6.x (`main`)
 
+> **Done 2026-11-16 — shipped as 3.7.0** (tag `3.7.0`, merged into this branch as `d07cdd5`).
+> Task 1.1 → `25fe7eb`; 1.2 → `c39a1ae`, extended by `651146b` (actuals record a per-model
+> split as `by_model`, and `claude-sonnet-5` corrected to $2/$10 with `RATE_HISTORY` so older
+> actuals still verify — both at the user's request); 1.3 → `c39a1ae`; 1.4 → `ab43581` (refuse
+> on v7, replacing the shim warning); 1.5 → `ab43581`, with the v7 facts marked "read from code"
+> until Task 0.2 observes them; 1.6 → `8fd9cd2`, design note awaiting review. Ruling: Task 1.2
+> priced from each record's `message.model` rather than subagent `meta.json`, because it is
+> exact, present on every record, and read from the same file. The task text below is the
+> record of what was planned.
+
 Everything here must work on BMad 6.x and is verified against v6.12.4. It lands on `main` and merges forward. Nothing here makes 3.x run on v7.
 
 ### Task 1.1: Rework `1b78b73` against BMad 6.x's install targets — then **user gate** to push
