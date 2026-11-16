@@ -10,8 +10,8 @@ Two general rules first:
 - **Re-running without changing anything will block identically.** There is no override flag for
   most gates, by design. If a message tells you what to fix, that is the only path forward.
 
-When you do not know where you are, `/l3io-help` reads the project and tells you the next
-action. It is read-only and safe at any time.
+When you do not know where you are, `/l3io-doctor stats` shows where the plan stands. It is
+read-only and safe at any time.
 
 ## Exit codes
 
@@ -78,22 +78,20 @@ The detector counts layouts rather than stopping at the first one it finds, prec
 half-finished migration cannot be mistaken for a clean project.
 
 When the sharded tree and the legacy per-epic tree are the only two present, and every epic key
-in the legacy `_bmad/state/` is also in the sharded tree, `l3io-execute`, `l3io-plan` and
-`l3io-sync` resolve it themselves: they move the legacy tree to `_bmad/state.superseded`
+in the legacy `_bmad/state/` is also in the sharded tree, `l3io-execute` and `l3io-plan`
+resolve it themselves: they move the legacy tree to `_bmad/state.superseded`
 (`mv _bmad/state.superseded _bmad/state` undoes it), leave the sharded tree untouched, report
 the move, and continue. Only epic keys are compared, not sprints or stories inside a shared
 key. A legacy-only key, a legacy entry that is not an epic key, or a flat `sprint-status.yaml`
 still halts; for the first three the message prints the keys that differ. Inspect both
-locations, remove the stale one, then re-run `/l3io-doctor migrate-state`. `/l3io-help` only
-reports this condition and always halts.
+locations, remove the stale one, then re-run `/l3io-doctor migrate-state`.
 
 ### `legacy state layout — migrate required`
 
 A flat `sprint-status.yaml` or a legacy per-epic `_bmad/state/` tree was found. The skill runs
 `/l3io-doctor migrate-state` itself, reports it, and continues; originals are preserved as
 `.legacy`. It halts only if the migration fails or the layout is still legacy afterwards, naming
-what it tried; then run `/l3io-doctor migrate-state` yourself and read its error. `/l3io-help`
-does not migrate and halts.
+what it tried; then run `/l3io-doctor migrate-state` yourself and read its error.
 
 Do not run the individual migration modes by hand — `split-status` in particular produces a
 three-file layout that the PM skills *still* cannot read. Let the doctor sequence the migration.
@@ -105,13 +103,13 @@ BLOCKED: … Refusing to start a blank project over existing state.
 ```
 
 State exists somewhere other than where config now points, which usually means
-`implementation_artifacts` was changed after work had already begun. `l3io-execute`,
-`l3io-plan` and `l3io-sync` repoint `implementation_artifacts` at the existing tree in
+`implementation_artifacts` was changed after work had already begun. `l3io-execute` and
+`l3io-plan` repoint `implementation_artifacts` at the existing tree in
 `_bmad/custom/config.toml`, writing the previous value beside it as a `# was:` comment, and
 report the change; revert by restoring that value. The alternative, silently starting a second,
 empty project, never happens. It halts instead when `_bmad/custom/config.user.toml` also sets
 `implementation_artifacts` (that layer wins and is yours to edit), when the write fails, or when
-the setting still resolves elsewhere afterwards. `/l3io-help` only reports it and halts.
+the setting still resolves elsewhere afterwards.
 
 ### `schema verify failed for {epic}`
 
@@ -225,18 +223,6 @@ A previous run stopped midway, leaving moved files uncommitted. Inspect and comm
 Never use a repo-wide discard: other agents may share this checkout, and a blanket reset would
 destroy their uncommitted work. The message lists exactly which paths to look at.
 
-## Sync problems
-
-### `platform detection failed`
-
-`l3io-sync` supports GitHub only. Point a remote at a GitHub repository and re-run.
-
-### `authentication unavailable`
-
-Neither path worked. Configure GitHub MCP, or run `gh auth login`. Note that
-`github_auth_method` is a preference rather than a guarantee — `mcp` falls through to the `gh`
-CLI when no MCP tools are present, so this message means *both* failed.
-
 ## Housekeeping problems
 
 ### `Cleanup HALT — {n} classifiable file(s) remain after {n} passes`
@@ -266,7 +252,7 @@ These are not errors to work around. Each one exists because the alternative shi
 
 ## Still stuck?
 
-- `/l3io-help` — what to do next, read-only
+- `/l3io-doctor stats` — where the plan stands, read-only
 - `/l3io-doctor check` — the full diagnostic, read-only, changes nothing
 - [Limits](limits.md) — it may be something this package deliberately does not do
 - [Upgrading](upgrading.md) — if the project came from an older version

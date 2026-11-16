@@ -22,14 +22,6 @@ complete in order.
 
 ## Platform and runtime
 
-**`l3io-sync` supports GitHub only.** Not GitLab, not Azure DevOps, not Jira. A remote that
-does not parse as GitHub stops the run.
-
-**Sync has no field-level conflict resolution.** `push` overwrites the remote issue with local
-content — push wins by construction. The configuration template contains `field_rules` and
-`status_labels` keys implying per-field authority; its own header states they are not read by
-anything. Do not rely on them.
-
 **Token and cost actuals are exact only under Claude.** Other runtimes record what they expose,
 and `N/A` where they expose nothing — never a guess. Under `--runtime claude` an `N/A` token
 count is refused outright, since a Claude session can read its own usage.
@@ -78,22 +70,14 @@ Each of these exists because the permissive version shipped a bug.
 
 Worth knowing so you do not spend time tuning them.
 
-Each is kept deliberately rather than removed, and the reason differs per entry.
+Each is kept deliberately rather than removed.
 
 - **`granularity`** in the calibration file is never varied — every project runs story
   granularity in practice. Kept because it is a field in a versioned file: removing it is a
   schema change.
-- **`sync-config.yaml`'s `field_rules` and `status_labels`** are not consumed by any script yet.
-  Kept because they are a **reserved interface**, not debris — the template says so at the point
-  of use, so they mislead nobody, and `l3io-sync` is GitHub-only *today* rather than by
-  principle.
-- **`last_sync`**, the TOP-LEVEL key in the sync state file, is written `None` and never
-  updated. Kept for the same schema reason as `granularity`. Do not confuse it with the
-  per-mapping **`last_synced_at`/`last_synced_hash`**, which are load-bearing: drift detection
-  reads them, and a grep that conflates the two will suggest deleting live code.
 
 A separate `max_fix_iterations_non_code` used to head this list. It was removed in 3.1.x rather
-than documented, because unlike the entries above it was **user-settable** in four
+than documented, because unlike the entry above it was **user-settable** in four
 `customize.toml` files and so invited tuning that could not do anything.
 
 ## Not in scope at all
@@ -104,6 +88,8 @@ than documented, because unlike the entries above it was **user-settable** in fo
   BMad's own installed location, never vendored here.
 - **Test suites are never shipped to consumers.** They stay in the source repository and run in
   its CI.
+- **Issue-tracker sync is not part of this package.** `l3io-sync` was retired; use BMad v7's
+  own ticket stores.
 - **This package does not replace any core BMad skill.** It orchestrates them. Story creation,
   dev, code review, QA and retrospective remain BMad's.
 

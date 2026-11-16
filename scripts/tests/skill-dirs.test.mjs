@@ -79,6 +79,19 @@ test("strayFiles names a file left at a path no skill owns", (t) => {
   assert.deepEqual(strayFiles(root), ["skills/l3io-execute/steps/x.md", "skills/pm/notes.md"]);
 });
 
+test("strayFiles treats a bmod-<code> folder holding retired.toml as a module record", (t) => {
+  // A module retires names before it has a bmod.toml. The record is owned by its name and
+  // that file together: retired.toml in any other folder, or a bmod- folder without it, is
+  // still stray.
+  const root = tree(t, [
+    "skills/pm/bmod-pm/retired.toml",
+    "skills/pm/bmod-pm/notes.md",
+    "skills/pm/other/retired.toml",
+    "skills/pm/bmod-empty/notes.md",
+  ]);
+  assert.deepEqual(strayFiles(root), ["skills/pm/bmod-empty/notes.md", "skills/pm/other/retired.toml"]);
+});
+
 test("strayFiles ignores __pycache__ detritus", (t) => {
   const root = tree(t, ["skills/pm/__pycache__/x.pyc"]);
   assert.deepEqual(strayFiles(root), []);

@@ -74,6 +74,9 @@
 //                            nothing would have caught the next drift. The exclusion set is
 //                            READ FROM THE TABLE, not listed here, and the expectation
 //                            survives the table being deleted -- see the rule's own header.
+//                            Rules 8 and 9 skip a module carrying a v7 record
+//                            (`skills/<code>/bmod-<code>/`): v7 installs it without
+//                            PluginResolver, and its menu is `help/help.md`, not a CSV.
 //  10. agent-roster          every `agents[]` entry in a module.yaml agrees, field for
 //                            field, with the `[agent]` block in the customize.toml of the
 //                            skill that implements it, and each block is listed by exactly
@@ -209,6 +212,18 @@ function skillRel(name) {
 
 function listSkillDirs() {
   return [...SKILL_REL.keys()];
+}
+
+// A module that carries a v7 record, `skills/<code>/bmod-<code>/` (ADR-0014, ADR-0021), is
+// packaged for BMad v7: `npx skills add` installs it and its menu is the record's
+// `help/help.md`. Rules 8 and 9 model 6.x's installer -- PluginResolver and module-help.csv --
+// so they do not apply to it. The module code is the folder a skill sits in.
+function isV7Module(code) {
+  return exists(`skills/${code}/bmod-${code}`);
+}
+function moduleFolderOf(skill) {
+  const parts = skillRel(skill).split("/");
+  return parts.length === 3 ? parts[1] : null;
 }
 
 // module.yaml is YAML, so it is read with a YAML parser (`yaml`), not a line-scanner.
@@ -730,6 +745,11 @@ function checkPluginResolverStrategy() {
       continue;
     }
 
+    if (isV7Module(name)) {
+      report.push(`  plugin '${name}' is a v7 module (skills/${name}/bmod-${name}/) -- not resolved by PluginResolver`);
+      continue;
+    }
+
     const result = resolvePluginStrategy(plugin);
 
     if (result.strategy === null) {
@@ -890,8 +910,8 @@ function modeFiles(skill) {
 
 function checkHelpRegistration(skills) {
   // Every row of every module-help.csv in the tree, indexed by the skill it registers. A
-  // skill's rows do not necessarily live in its own directory: the whole l3io-pm module is
-  // registered from skills/l3io-setup/assets/module-help.csv.
+  // skill's rows do not necessarily live in its own directory: a multi-skill 6.x module
+  // registers all its skills from its *-setup home's CSV.
   const actionsBySkill = new Map();
   for (const skill of skills) {
     const rel = `${skillRel(skill)}/assets/module-help.csv`;
@@ -911,6 +931,8 @@ function checkHelpRegistration(skills) {
   for (const skill of skills) {
     const rel = `${skillRel(skill)}/SKILL.md`;
     if (!exists(rel)) continue;
+    const folder = moduleFolderOf(skill);
+    if (folder && isV7Module(folder)) continue;
     const text = read(rel);
     const tables = keywordTables(rel, text);
 

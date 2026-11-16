@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { scanners, skills, EXEMPTIONS, noBareBmadInCommands } from '../check-bmb.mjs';
+import { skillDirs } from '../lib/skill-dirs.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const byId = (id) => {
@@ -19,7 +20,9 @@ test('scope is derived: scanners come from the installed bmb package, skills fro
   const s = scanners();
   assert.ok(s.length >= 2, `expected bmb scan-*.py, got ${JSON.stringify(s)}`);
   assert.ok(s.every((n) => /^scan-.*\.py$/.test(n)));
-  assert.ok(skills().length >= 8, `expected the l3io skills, got ${skills().length}`);
+  // Every skill on disk, not a floor: a floor goes stale each time a skill is retired.
+  assert.ok(skills().length > 0 && skills().length === skillDirs(ROOT).length,
+    `expected all ${skillDirs(ROOT).length} skills, got ${skills().length}`);
   assert.ok(skills().every((p) => p.startsWith('skills/l3io-')));
 });
 

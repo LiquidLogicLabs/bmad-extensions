@@ -229,7 +229,7 @@ class TestPresence(Base):
 
     def test_related_present_surfaces_as_related_row(self):
         """A `related` skill we detect but do not dispatch. Absence is silent; presence
-        is surfaced so callers (l3io-help) can enable relationship-aware behaviour."""
+        is surfaced so callers (check-deps) can enable relationship-aware behaviour."""
         inv = self._inv([{"name": "a-one", "status": "required"},
                          {"name": "a-rel", "status": "related", "note": "adjacent tooling"}])
         root = self._tree(["a-one", "a-rel"])

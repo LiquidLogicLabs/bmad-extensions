@@ -37,6 +37,9 @@ plugin l3io-util  -> code=l3io-util  strategy=3  skills/l3io-doctor/assets/modul
 plugin l3io-arch  -> code=l3io-arch  strategy=3  skills/l3io-arch-review/assets/module.yaml
 ```
 
+The measurements in this document predate the retirement of `l3io-setup` in 4.0; `l3io-pm`
+no longer ships a `*-setup` skill, and is configured with `bmad setup l3io-pm` instead.
+
 > **Strategy 1 is a trap for this repo.** Every plugin here lists skills directly under
 > `skills/`, so `_computeCommonParent` (`:278`) returns `skills/` for *all four* — including
 > the single-skill ones, where the common parent of one path is its `dirname`. If
@@ -99,7 +102,7 @@ to stop and report "BMad core is not installed" — which is false.
 
 | Module shape | Where `module.yaml` must live | Why |
 | --- | --- | --- |
-| Multi-skill, with a `*-setup` skill (`l3io-pm`) | `skills/l3io-setup/assets/module.yaml` | PluginResolver strategy 2 and `searchRootAll` pattern 5 both read exactly this path |
+| Multi-skill, with a `*-setup` skill | `skills/<name>-setup/assets/module.yaml` | PluginResolver strategy 2 and `searchRootAll` pattern 5 both read exactly this path. No module here has this shape now that `l3io-setup` is retired |
 | Standalone single-skill (`l3io-sec`, `l3io-util`, `l3io-arch`) | **both** `skills/<skill>/assets/module.yaml` **and** `skills/<skill>/module.yaml`, byte-identical | `assets/` is what PluginResolver strategy 3 and `validate-module.py` read; the **skill root** is the only place `searchRootAll` looks for a non-`*-setup` skill |
 | The repository itself | `skills/module.yaml`, declaring **no** `code:`, **no** `name:`, **no** `agents:` | it is `searchRootAll`'s first candidate, so it is what the local branch's `all[0]` returns for every module; with no `code:` the section key falls back to each module's own name (`manifest-generator.js:560`), and with no `agents:` no agent block is emitted more than once |
 

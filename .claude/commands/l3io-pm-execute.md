@@ -1,1 +1,0 @@
-../../skills/l3io-pm/l3io-pm-execute/SKILL.md

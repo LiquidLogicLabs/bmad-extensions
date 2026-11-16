@@ -459,10 +459,12 @@ test("the real repository passes check:module with the expected module-home shap
   const moduleHomes = skillDirs(root)
     .filter((rel) => fs.existsSync(path.join(root, rel, "assets", "module.yaml")));
 
+  // A v7 module (skills/<code>/bmod-<code>/) has no 6.x module home, so it is not counted.
   const marketplace = JSON.parse(
     fs.readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"),
   );
-  const declaredPluginCount = marketplace.plugins.length;
+  const declaredPluginCount = marketplace.plugins
+    .filter((p) => !fs.existsSync(path.join(root, "skills", p.name, `bmod-${p.name}`))).length;
   assert.equal(
     moduleHomes.length,
     declaredPluginCount,
@@ -512,7 +514,7 @@ test("check:module rejects a plugin that a second skill drops to synthesized fal
   const arch = marketplace.plugins.find((p) => p.name === "l3io-arch");
   assert.ok(arch, "fixture precondition: marketplace.json declares an l3io-arch plugin");
   assert.deepEqual(arch.skills, ["./skills/l3io-arch/l3io-arch-review"], "fixture precondition: one skill");
-  arch.skills.push("./skills/l3io-pm/l3io-help");
+  arch.skills.push("./skills/l3io-pm/l3io-plan");
   fs.writeFileSync(mpPath, JSON.stringify(marketplace, null, 2) + "\n");
 
   const r = run(root);
@@ -528,7 +530,7 @@ test("the real repository resolves every plugin by an authored PluginResolver st
   const root = fixtureFromRepo(t);
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /plugin 'l3io-pm' resolves by PluginResolver strategy 2/);
+  assert.match(r.stdout, /plugin 'l3io-pm' is a v7 module/);
   assert.match(r.stdout, /plugin 'l3io-sec' resolves by PluginResolver strategy 3/);
   assert.match(r.stdout, /plugin 'l3io-util' resolves by PluginResolver strategy 3/);
   assert.match(r.stdout, /plugin 'l3io-arch' resolves by PluginResolver strategy 3/);
@@ -1157,4 +1159,40 @@ test("check:module rejects a NOTICE line with the two skills swapped", (t) => {
   const r = run(root, ["-v"]);
   assert.equal(r.status, 1, "a swapped NOTICE line must fail");
   assert.match(r.stderr, /the two are swapped/);
+});
+
+// ---- v7 modules (ADR-0014, ADR-0021) ----
+//
+// A module carrying skills/<code>/bmod-<code>/ is installed by v7, not by 6.x's PluginResolver,
+// and has no module-help.csv. Rules 8 and 9 skip it; a module WITHOUT that record still gets
+// both, which the second test pins so the exemption cannot widen to everything. Files are
+// written raw: write() would plant a SKILL.md in the module folder and make it the skill.
+function writeV7Shape(root, { record }) {
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  if (record) put("skills/l3io-x/bmod-l3io-x/retired.toml", "removed = []\n");
+  put("skills/l3io-x/l3io-x-run/SKILL.md",
+    "# run\n\n**Recognized keywords**\n\n| Keyword | Load | Menu | Notes |\n|---|---|---|---|\n" +
+    "| `go` | `steps/go.md` | registered | note |\n");
+  put("skills/l3io-x/l3io-x-run/steps/go.md", "# go\n");
+  writeMarketplace(root, [{ name: "l3io-x", skills: ["./skills/l3io-x/l3io-x-run"] }]);
+}
+
+test("check:module exempts a v7 module from the PluginResolver and help-registration rules", (t) => {
+  const root = fixture(t);
+  writeV7Shape(root, { record: true });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /plugin 'l3io-x' is a v7 module/);
+});
+
+test("check:module still applies both rules to a module with no v7 record", (t) => {
+  const root = fixture(t);
+  writeV7Shape(root, { record: false });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /keyword `go` is marked 'registered'/);
+  assert.match(r.stderr, /plugin 'l3io-x' resolves by PluginResolver strategy 5/);
 });

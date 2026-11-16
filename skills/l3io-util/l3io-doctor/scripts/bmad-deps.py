@@ -59,7 +59,7 @@ a manifest parsing to no `installation` key is a successful read and the run pro
                     it. This bucket is informational only and never affects the exit code.
   related_present   [{name, path, note}] -- related entries resolving somewhere. These are
                     third-party skills we do NOT dispatch (bmad-loop is the shape) but detect
-                    for user-awareness: when present, l3io-help surfaces an overlap note so
+                    for user-awareness: when present, check-deps reports an overlap note so
                     users understand how the two flows fit together. Absent related skills are
                     silent by design (they are not our tooling; missing them is the default),
                     so there is no counterpart `related_absent` field.
@@ -481,7 +481,7 @@ def verify(args: argparse.Namespace) -> int:
             continue
         if status == "related":
             # Adjacent tooling we do NOT dispatch. Present -> surface as informational so
-            # callers can enable relationship-aware behaviour (e.g. l3io-help mentioning
+            # callers can enable relationship-aware behaviour (e.g. check-deps mentioning
             # bmad-loop's overlap). Absent -> silent: not our tooling, not a warning.
             hit = resolve(name, args.project_root)
             if hit:

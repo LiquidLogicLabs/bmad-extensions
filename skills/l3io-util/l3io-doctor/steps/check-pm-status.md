@@ -4,10 +4,9 @@ Invoked with `check-pm-status`. **Read-only.** Compares the installed
 `{project-root}/_bmad/scripts/pm-status/__main__.py` against this doctor's `module_version` and reports
 whether it is current, stale, or absent.
 
-Why this lives here: `pm-help` and other consumers used to inline the comparison against a
-`module.yaml` local to themselves, but only module homes carry `module_version`. This mode
-lets any consumer ask "is pm-status.py current?" without a cross-skill file read of their
-own — pm-help calls this, then reads the exit code.
+Why this lives here: only module homes carry `module_version`. This mode lets any consumer
+ask "is pm-status.py current?" without a cross-skill file read of its own — it calls this,
+then reads the exit code.
 
 ## 1. Run the check
 

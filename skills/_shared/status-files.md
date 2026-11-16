@@ -6,7 +6,7 @@ Communicate all responses in `{communication_language}`.
 This file is the single source of truth for **where** epic/sprint/story/backlog state lives
 on disk and **how** to read or write it. It is a **deep reference, consulted on demand** — do
 not load it at activation. The PM skills' `l3io-execute/steps/shared/step-00-digest.md`
-(each of `l3io-execute`, `l3io-plan` and `l3io-sync` carries its own copy; a
+(each of `l3io-execute` and `l3io-plan` carries its own copy; a
 `l3io-util` install has none) carries the operative digest
 every run needs (keys, subcommand signatures, exit codes) plus a routing table naming the
 section to read for each case that genuinely needs this file: a `verify` failure (§7), a
@@ -233,8 +233,8 @@ actual:
 **`next` on a sprint is a high-water mark and never decreases.** Story keys are allocated as
 `max(sprint.next, highest-on-disk + 1)`, so a vacated number is never reissued. Deriving from
 the disk alone was safe only while stories could merely appear; the moment one can MOVE, a
-freed key handed to a different story silently retargets that key's remote issue in
-`l3io-sync`'s mapping — nothing errors, and the issue now tracks different work. The disk is
+freed key handed to a different story silently retargets that key's issue in any external
+tracker mapping it — nothing errors, and the issue now tracks different work. The disk is
 still consulted alongside `next`, which is what makes this need no migration (an absent `next`
 behaves exactly as before) and no repair verb (a `next` that is somehow too low cannot cause a
 reuse, because the disk floor still applies). The only visible consequence is that keys go
@@ -471,7 +471,7 @@ event log is unconditional so it cannot be silently skipped.
 write (`--no-calibrate` suppresses it). What it computes, and why a failed derivation only
 warns rather than failing the actuals write, is specified in the calibration model —
 `l3io-execute/references/calibration-model.md`, which ships with the PM skills
-(`l3io-execute`, `l3io-plan`, `l3io-sync`) and not with every skill that carries
+(`l3io-execute`, `l3io-plan`) and not with every skill that carries
 this contract. Do not go looking for it here
 unless your own `references/` has it; `pm-status.py` performs the whole loop itself, so
 nothing on a normal run needs to read it.

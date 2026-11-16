@@ -9,10 +9,10 @@ and refuse the other.
 
 ## 1. Is this project running lanes at all?
 
-Read `{lane_count}` (`modules.l3io-pm.lane_count`, set by `/l3io-setup`).
+Read `{lane_count}` (`modules.l3io-pm.lane_count`, set by `bmad setup l3io-pm`).
 
 - **Absent, or `1`** — lanes are off. Say so in one line and stop:
-  `Lanes are off for this project (one developer). /l3io-setup can change that.`
+  `Lanes are off for this project (one developer). bmad setup l3io-pm can change that.`
   **Do not prompt, do not propose, do not assign.** An absent module config section is a
   valid permanent state, never a first-run trigger, and a project that never asked for lanes
   must not be able to tell this mode exists.

@@ -144,7 +144,7 @@ def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
     WHY A HIGH-WATER AND NOT JUST THE DISK. Deriving from the disk alone makes a vacated
     number immediately reusable. That is harmless while stories only ever appear, but it is a
     live defect the moment one can MOVE: a story leaving E032-S01-001 frees that key, the next
-    story takes it, and `l3io-sync`'s mapping still points that key's remote issue at what is
+    story takes it, and any external tracker mapping that key still points its issue at what is
     now DIFFERENT WORK. Nothing errors -- the issue is silently retargeted. `issues.yaml`
     carries a per-epic `next:` for exactly this reason, documented there as "a high-water mark
     that never decreases, so a deleted or resolved key is never reused".
@@ -236,7 +236,7 @@ def _walk_story_nodes(state_root):
 def _dead_claim(status_dir, node) -> bool:
     """A story under archived/ that is not `done` is ignored as a claimant, because its
     epic is closed: promote's resume and audit 1d/1h skip it. If that story is later marked
-    `done` (cmd_set_status has no archived guard, and pm-sync pull runs `set-status done`),
+    `done` (cmd_set_status has no archived guard, and an issue-mirror pull can run `set-status done`),
     the claim revives, and audit 1h reports the double listing; audit 1g still reports an
     item SCHEDULED to it (1g is keyed on the item's `story:`)."""
     return status_dir == "archived" and str(node.get("status", "")) != "done"

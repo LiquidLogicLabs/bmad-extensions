@@ -10,11 +10,9 @@ Why this exists
 `pm-status.py` self-installs at each PM/doctor activation (see CLAUDE.md), which normally
 keeps the installed copy fresh. But between an extension upgrade and the next activation, or
 when a project's activation cadence lags, the installed copy can drift behind the source
-copy the extension ships. `pm-help` used to inline a `pm-status.py --version` check against
-its own module.yaml, but pm-help no longer owns a module.yaml -- so the freshness check
-lives here (the doctor's module.yaml is one of the four whose `module_version` is bumped
-together at postbump, so its value is the source of truth for pm-status.py's expected
-version at this extension level).
+copy the extension ships. The freshness check lives here because the doctor's module.yaml
+carries a `module_version` bumped at postbump, so its value is the source of truth for
+pm-status.py's expected version at this extension level.
 
 Single-consumer (l3io-doctor), so it ships in doctor's own scripts/ per ADR-0001,
 peer to bmad-deps.py and audit-backlog.py -- not synced or shared.

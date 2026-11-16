@@ -1,6 +1,6 @@
 # l3io-pm Reference
 
-Full reference for the PM orchestration module — four skills that cover the delivery lifecycle from planning through epic closure.
+Full reference for the PM orchestration module — two skills that cover the delivery lifecycle from planning through epic closure.
 
 ## Skills Overview
 
@@ -8,8 +8,6 @@ Full reference for the PM orchestration module — four skills that cover the de
 |-------|------|
 | `l3io-plan` | Validates readiness, elaborates thin stories, estimates, builds the dependency graph, and writes a phased execution plan |
 | `l3io-execute` | Runs the plan — full, single epic, or single sprint. Includes the pre-execution architecture gate, the per-story dev loop, and sprint/epic closure |
-| `l3io-help` | Reads project state and recommends the exact next l3io-pm action. `progress` forwards to `/l3io-doctor stats` for the plan-aware progress tree |
-| `l3io-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` |
 
 `l3io-execute` is **one skill in two modes**, not two skills. In normal mode it orchestrates epics; for each sprint it dispatches a *headless* subagent invocation of itself. There is no separate sprint-execute or epic-execute skill.
 
@@ -22,7 +20,7 @@ uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-ro
 ```
 
 The full contract is each skill's `references/config-resolution.md`. Module setup is not
-routed through any of these four skills — `/l3io-setup` is the module's setup entry point.
+routed through either skill — `bmad setup l3io-pm` is the module's setup entry point.
 An absent `modules.l3io-pm` section just means you have no overrides, which is the normal
 state.
 
@@ -64,7 +62,7 @@ Each skill ships a `customize.toml` at `{skill-root}/customize.toml`. Layers, la
 2. `{project-root}/_bmad/custom/{skill-name}.toml` — team overrides (commit)
 3. `{project-root}/_bmad/custom/{skill-name}.user.toml` — personal overrides (gitignore)
 
-Scalars override; arrays append. The root key is `[workflow]` for all four PM skills — a mismatched root key means overrides are silently ignored.
+Scalars override; arrays append. The root key is `[workflow]` for both PM skills — a mismatched root key means overrides are silently ignored.
 
 **Shared by all PM skills:**
 
@@ -74,7 +72,7 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 | `activation_steps_append` | `[]` | Extra steps to run after activation |
 | `persistent_facts` | `["file:{project-root}/project-context.md", "file:{project-root}/docs/project-context.md"]` | Files always loaded into skill context |
 | `max_fix_iterations` | `3` | Fix-loop cap for CODE and MIXED work. Each iteration is a turn multiplier inside an already-long session — see Fix loop below |
-| `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (every PM skill except `l3io-help`). Self-monitored, not mechanically enforced |
+| `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (both PM skills). Self-monitored, not mechanically enforced |
 
 **`l3io-execute`:**
 
@@ -92,14 +90,6 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 | `auto_elaborate` | `false` | `true` elaborates thin stories without confirmation; `false` prompts first |
 | `include_estimates` | `true` | `false` skips the estimate step entirely |
 | `plan_output` | `"markdown"` | `"markdown"` writes `plan-{date}-v{n}.yaml`; `"console"` prints a summary only |
-
-**`l3io-sync`:**
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `github_auth_method` | `"mcp"` | Preferred auth path for GitHub operations — `"mcp"` or `"gh-cli"`. A preference, not a guarantee: `mcp` falls through to the `gh` CLI check when no `mcp__github*` tools are present, rather than blocking. See [Sync Reference](#sync-reference) |
-
-`l3io-help` ships no keys of its own beyond the shared ones above.
 
 ## Plan Reference
 
@@ -128,7 +118,7 @@ Full plan mode writes an **immutable, versioned snapshot** plus a stable pointer
 | File | Purpose |
 |---|---|
 | `{planning_artifacts}/plan-{date}-v{n}.yaml` | The plan snapshot — the only source for the phases list. Immutable once written; version auto-increments per day, resets on a new date, and a re-check before writing refuses to overwrite an existing file. Its per-phase `estimate` blocks are a point-in-time report stamped `estimates_as_of`; estimates are authoritative in the state node files, not here |
-| `{planning_artifacts}/plan-output-meta.yaml` | Stable pointer — `current_plan`, `generated`, `readiness`, `phase_count`. Written only after the snapshot it names is confirmed. Deliberately carries no per-phase data: `l3io-execute` resolves the plan through this file but reads phases from the snapshot, and `l3io-help` needs only the count |
+| `{planning_artifacts}/plan-output-meta.yaml` | Stable pointer — `current_plan`, `generated`, `readiness`, `phase_count`. Written only after the snapshot it names is confirmed. Deliberately carries no per-phase data: `l3io-execute` resolves the plan through this file but reads phases from the snapshot |
 | `{planning_artifacts}/readiness-report.md` | Per-epic readiness with gap detail |
 | `{planning_artifacts}/elaboration-summary.md` | Which stories were elaborated, and any deviations |
 
@@ -373,164 +363,13 @@ Closure ends with a commit checkpoint that stages `state/`, the sprint's artifac
 
 Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
 
-## Help Reference
-
-`l3io-help` is **read-only**. It calls no `pm-status.py` write verb, never self-installs
-`pm-status.py` (unlike the other three PM skills), and prints its recommendations as commands
-for you to run — including the stale-lock `clear-lock` suggestion, which it shows but does not
-execute.
-
-### Modes
-
-| Invocation | What it does |
-|---|---|
-| *(none)* | Health snapshot plus a next-action recommendation |
-| `progress` | Forwards to `/l3io-doctor stats` for the plan-aware progress tree. See [Progress Reporting](#progress-reporting) |
-| `list plan` | Enumerates every plan snapshot, classifies each as unstarted / in progress / complete against current state, and prints the YAML to repoint `plan-output-meta.yaml` |
-
-`setup`, `configure`, and `install` are not recognized arguments — module setup is not routed
-through this skill. `/l3io-setup` is the module's setup entry point.
-
-`list plan` still runs config resolution and the layout gate first, then skips the
-recommendation sections; a legacy tree short-circuits it to the migration recommendation,
-because the epic status probes only understand the sharded layout. `progress` runs neither
-step — it is a pure forwarder to `/l3io-doctor stats`, whose own layout check
-(`steps/stats.md` Step ST1) reproduces both branches of this skill's gate that mattered: the
-multi-layout `BLOCK` (matching the Critical severity `l3io-doctor`'s health-check
-Check 2b uses) and the repointed-`implementation_artifacts` orphan check (matching this
-skill's `step-02-detect-layout.md`) — instead of duplicating either check here.
-
-### The layout gate
-
-Before any recommendation, in every mode that still reads state directly here (the default
-flow and `list plan` — `progress` no longer does, see above), it **counts** rather than stops
-at the first hit — sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat
-`sprint-status.yaml`:
-
-| Layouts found | Outcome |
-|---|---|
-| Two or more | `BLOCKED` — an earlier migration did not finish. No state is read and no recommendation is offered |
-| Exactly one, legacy | One recommendation only: `/l3io-doctor migrate-state`. It never suggests creating epics or running a plan, because a legacy tree means work already exists |
-| Exactly one, sharded | Proceeds normally |
-| None | Possibly a first run — but not trusted until the orphan check below passes |
-
-**Orphan check.** Before accepting "nothing exists yet", it probes git and the filesystem for a
-`state/active/epic-*/epic.yaml` outside the configured root, which is the signature of
-`implementation_artifacts` having been repointed after state already existed. A hit is
-`BLOCKED`, not an invitation to start fresh. Only when both probes come back empty does the
-first-run recommendation become reachable.
-
-### Presence, and no staleness check
-
-**Presence** is a file-exists test on the installed package entry point
-(`{project-root}/_bmad/scripts/pm-status/__main__.py`), checked by every mode that
-reads state directly here — the default recommendation flow and `list plan`. When absent, the
-state read falls back to parsing each `epic.yaml` directly. `progress` no longer performs this
-check itself: it forwards to `/l3io-doctor stats`, which self-installs `pm-status.py` at
-its own activation and handles absence there instead.
-
-l3io-help does **not** check staleness. `module.yaml` lives only at the module's home
-(`l3io-setup/assets/module.yaml`), not at this skill's own root, and reading a sibling
-skill's path from here would be the cross-skill path read this package avoids elsewhere. So
-presence is the only signal this skill reports; it never guesses at version freshness.
-
-### What it reads, and never writes
-
-Reads: epic nodes under `active/` and `planned/` (or `show --epic` when the helper is present),
-`list-issues --all --format json` with a `cat` fallback, `plan-output-meta.yaml`, a
-`git check-ignore` health probe on the state root, and — in `list plan` — every
-`plan-*-v*.yaml` snapshot plus a state-folder probe per epic key.
-
-Writes: nothing. No state file, no write verb, no pointer edit. `list plan`'s repoint
-instructions are printed for you to apply.
-
-## Sync Reference
-
-`l3io-sync` maps l3io-pm state onto GitHub Issues. Every remote call is made by the agent
-through GitHub MCP tools or the `gh` CLI; the three helper scripts
-(`detect-platform.py`, `drift-report.py`, `sync-state.py`) are local-computation only and never
-touch the network.
-
-### Modes
-
-| Argument | What it does |
-|---|---|
-| *(none)* or `status` | Drift report only. Mutates nothing |
-| `setup` | Detects the platform, verifies auth, verifies or creates `_bmad/sync-state.yaml` |
-| `push` | Creates issues for unmapped entities, edits issues for changed ones, records mappings |
-| `pull` | Reads mapped issue state and marks stories `done` whose issue closed as completed |
-| `sync` | `push` in full, then `pull` in full — never interleaved, so creations land before the re-read |
-
-Note that `setup` here selects the sync-setup mode, **not** shared module setup — this is the
-one PM skill where `setup` means something else. `configure` and `install` are not recognized
-arguments here either: module setup is not routed through this skill; `/l3io-setup` is the
-module's setup entry point.
-
-### Platform detection and auth
-
-`detect-platform.py` reads the git remote (`origin`, then `upstream`, then the first remote),
-normalises SSH form to HTTPS, and recognises **GitHub only**. Anything else returns `unknown`
-and the run blocks — there is no GitLab, Azure DevOps or Jira support today, despite the
-config template's schema implying a future `platform` choice.
-
-`github_auth_method` is a *preference, not a guarantee*. With `mcp`, it checks for
-`mcp__github*` tools in the current tool set and **falls through** to the `gh` CLI rather than
-blocking when none are present; the `gh-cli` path runs `gh auth status`. If neither succeeds the
-run blocks. The resolved method is bound separately from the configured preference, because they
-differ whenever the fallback fires.
-
-### `_bmad/sync-state.yaml`
-
-Managed only by `sync-state.py` — never hand-edited. A missing file loads as empty state at
-every mode rather than erroring, and materialises the first time `push` records a mapping.
-
-```yaml
-version: 1
-mappings:
-  - bmad_key: E001-S02-003        # required — the only field upsert enforces
-    bmad_type: story              # story | sprint | epic | backlog (convention, not enforced)
-    bmad_path: "..."              # story markdown; null for epics and sprints
-    remote_id: 4821               # GitHub issue number
-    remote_url: "https://github.com/..."
-    last_synced_hash: "a1b2c3d4"  # 8-char content fingerprint
-    last_synced_at: "2026-09-12T10:00:00Z"
-```
-
-The skeleton also carries a top-level `last_sync` key that **nothing writes** — treat it as
-reserved, not as a timestamp you can rely on. `upsert` validates only `bmad_key` and *replaces*
-an entry wholesale, so a partial blob overwrites the previous mapping rather than merging into
-it.
-
-`_bmad/sync-config.yaml` is separate and optional, created best-effort during `setup`. Its own
-header states it is not yet read by any of the three scripts: its `field_rules` and
-`status_labels` are reserved for a feature that does not exist. Do not rely on field-level
-conflict authority.
-
-### Drift detection and conflict model
-
-`drift-report.py` walks `state/{active,planned,archived}/`, collects every epic, sprint, story
-and backlog item, fingerprints each as an 8-character `sha256` over its fields, and sorts the
-results into three buckets against the recorded hashes: `unmapped_local` (never pushed),
-`changed_local` (fingerprint moved), and `missing_local` (mapping exists, entity gone). When the
-state root is absent it still exits 0 with an empty manifest but reports
-`state_root_found: false`, deliberately distinct from "walked the tree and found no drift".
-
-**Push wins by construction.** There is no field-level resolver: `push` overwrites the remote
-issue with current local content. `pull` transitions a story to `done` only when its issue closed
-as *completed* — a `not planned` or `duplicate` close is deliberately left alone, because
-`set-status done` resolves the story's `resolves:` backlog items as fixed, which those closes are
-not. Sprint, epic and backlog mappings are reported but never auto-transitioned; no mapping from
-issue state to those statuses is defined. `missing_local` entries are reported and left intact
-unless you confirm removal, which clears the mapping irreversibly.
-
 ## Relationship to bmad-loop
 
 `bmad-loop` is a separate third-party BMad module — an unattended per-story orchestrator that
 drives `bmad-build-auto` (BMad's autonomous dev primitive, formerly `bmad-dev-auto`). It ships
 three skills of its own: `bmad-loop-setup`, `bmad-loop-sweep`, `bmad-loop-resolve`. When a
 project has bmad-loop installed alongside this package, `l3io-doctor check-deps` reports
-each of them under `related_present`, and `l3io-help`'s recommendation appends a one-paragraph
-overlap note (`skills/l3io-pm/l3io-help/steps/step-05-recommend.md`).
+each of them under `related_present`.
 
 **The two overlap. Neither replaces the other.** Both drive an unattended dev loop over a queue
 of stories, and both write status back to disk. The tables below name what each covers so a
@@ -798,7 +637,7 @@ step files name no CRITICAL tier for legacy `bmad-ux-review`.
 | `sync-agent-instructions` | `--runtime {claude,codex,copilot,other} --project-root P [--body-file F] [--version V] (--apply \| --remove \| --check)` — creates, replaces or removes the marker-wrapped l3io block in the running harness's AI instruction file (`CLAUDE.md`, `.github/copilot-instructions.md`, or `AGENTS.md`), never a file for a harness that is not running and never deleting the file. **Two halves, and both are load-bearing:** it never CREATES a block in another harness's file — an `AGENTS.md` with no block of ours is left byte-identical, even when it exists with other content — and it always REFRESHES one already there, because that block carries our marker and our version, so a stale copy of our own instructions is not neutrality. It refreshes rather than removes, since a project may still use the other harness; `--remove` strips the block from every file that has one. The read-modify-write runs under a lock on `_bmad/.agent-instructions.lock`. Exit `0` = acted or already correct; exit `1` = `--check` found no block; exit `2` = usage error, an undecodable file, or ambiguous markers (nothing written); exit `3` = this harness's block is current but ANOTHER harness's file holds a stale copy, naming the file and both versions — `--apply` repairs it. A block elsewhere does not satisfy exit 1 for this harness |
 | `dump-plan` | `--state-root` — the planned tree plus read-only context, as JSON. Read-only; takes no lock. Planned epics carry `depends_on`, `estimate` and per-story `classification`; **active and archived appear as keys and dependencies only**, because they are read-only input and a consumer able to see their estimates would be tempted to re-plan them. This is the one read interface for anything needing a plan's shape: check 26 forbids any file under `skills/` from assembling a state path, so `l3io-plan`'s reorg analyzer asks for the tree rather than walking it. |
 | `retire-epic` | `--state-root --epic ID --reason TEXT` — `move-epic --to archived` plus `retired_reason` and `retired_at` on the epic node. **Epic-level only**: `planned/`/`active/`/`archived/` are folders of epic directories, so a single retired story has nowhere to go. Refuses an empty reason — an epic retired without one leaves nobody able to judge later whether it should come back. **Never deletes.** |
-| `reparent-story` | `--state-root --artifacts-root --story K --to-epic E --to-sprint SP` — moves a **planned** story to another sprint, re-keying it. Both trees move together (state node and story document, preserving an optional `-slug`), inbound `depends_on` and both backlog story-key fields (`story` and `ref`, in `issues.yaml` and `issues-resolved.yaml`) are repointed, the old key is appended to `previous_keys`, and the source sprint's key high-water is raised so the vacated key is never reissued — a reused key would silently retarget its remote issue in `l3io-sync`'s mapping to different work. Refuses a story outside `planned/`: its actuals, calibration samples and `events.jsonl` history are keyed to its current key and are not moved. Refuses a **destination** outside `planned/` for the same reason — `sprint_file` resolves through every bucket, so gating only the source would let planned work land in an archived epic, sitting under `archived/` while still reading `status: backlog`. |
+| `reparent-story` | `--state-root --artifacts-root --story K --to-epic E --to-sprint SP` — moves a **planned** story to another sprint, re-keying it. Both trees move together (state node and story document, preserving an optional `-slug`), inbound `depends_on` and both backlog story-key fields (`story` and `ref`, in `issues.yaml` and `issues-resolved.yaml`) are repointed, the old key is appended to `previous_keys`, and the source sprint's key high-water is raised so the vacated key is never reissued — a reused key would silently attach that key's history to different work. Refuses a story outside `planned/`: its actuals, calibration samples and `events.jsonl` history are keyed to its current key and are not moved. Refuses a **destination** outside `planned/` for the same reason — `sprint_file` resolves through every bucket, so gating only the source would let planned work land in an archived epic, sitting under `archived/` while still reading `status: backlog`. |
 | `reorg-log` | `--state-root [--hash] [--record FILE] [--list] [--show ID] [--format text\|json]` — the reorg journal (`state/reorg-log.yaml`, committed). `--hash` prints the planned tree's **placement** digest — epic/sprint/story placement only, so re-estimating between a reorg and its undo does not invalidate the undo, while a story added or removed does. Capture it **before** applying the first operation and carry it as the record's `pre_hash`; `--record` appends one reorg's rationale and operations and prints its id (`R0001`). A record whose operations include a kind `reorg-undo` cannot invert, or that omits a field undo needs, is **refused** — an entry that looks undoable and is not is worse than no entry. |
 | `reorg-undo` | `--state-root --artifacts-root --id R0001 [--check]` — inverts a recorded reorg through the same `reparent-story`/`move-epic` primitives, in **reverse** operation order so an epic is un-retired before work moves back into it. **Refuses** when the placement digest no longer matches what was recorded: an undo replays placements derived from a plan that no longer exists. Restores **placement, not keys** — the allocator's high-water never decreases, so a story returns to its original sprint with a new number and the whole journey stays in `previous_keys`. A sprint the reorg created is left standing, empty; deletion is the one thing this never does unasked. `--check` tests the guard and reports without moving anything. |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
@@ -896,7 +735,6 @@ Each node's `flags` describe only that node — an epic is not marked stuck beca
 | Surface | Invocation |
 |---|---|
 | CLI | `pm-status.py report --state-root S [--plan P] [--format tree\|json\|md] [--out F] [--all] [--watch N]` |
-| Help | `/l3io-help progress` |
 | Execute | Renders at phase start/end, and at sprint boundaries only when the phase holds a single epic |
 | Doctor | `/l3io-doctor stats` |
 
@@ -913,7 +751,7 @@ The `md` report regenerates at sprint and epic closure boundaries, not per trans
 | No `events.jsonl` | Falls back to `updated_at`; dwell marked approximate |
 | No plan pointer or dangling snapshot | State hierarchy with `plan: null`, no phase framing |
 | Legacy state layout | Callers short-circuit to the `migrate-state` recommendation |
-| `pm-status.py` not self-installed | `/l3io-help` reads `epic.yaml` directly; `stats` falls back to counts only |
+| `pm-status.py` not self-installed | `stats` falls back to counts only |
 | Unparseable node file | Skipped, recorded as an `unreadable` flag, walk continues |
 
 ## Metrics Contract
@@ -1044,8 +882,8 @@ Dependency declarations and actual invocations do not currently agree in both di
 
 | Skill | Declared | Invoked |
 |---|---|---|
-| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, `l3io-setup/assets/module.yaml`'s post-install notes, and `l3io-doctor/assets/bmad-dependencies.json` | **Never** — the dev loop is develop → code review → fix → done |
-| legacy `bmad-create-story` | **Absent** from `l3io-setup/assets/module.yaml`'s post-install notes (it documents the in-package-agent fallback instead) | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
-| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Declared in `l3io-doctor/assets/bmad-dependencies.json` (module.yaml's dependency declarations consolidated there and into `l3io-setup/assets/module.yaml` when per-skill `module.yaml` files were removed) | Yes — plan step-02 readiness check |
+| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, and `l3io-doctor/assets/bmad-dependencies.json` | **Never** — the dev loop is develop → code review → fix → done |
+| legacy `bmad-create-story` | Declared `deprecated` in `l3io-doctor/assets/bmad-dependencies.json`; the in-package agent covers its absence | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
+| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Declared in `l3io-doctor/assets/bmad-dependencies.json` | Yes — plan step-02 readiness check |
 
 The `tests/` directories in the artifact layout are real but are not written by a QA phase. Treat the QA dependency as aspirational until a step actually calls it.

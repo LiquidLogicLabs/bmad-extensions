@@ -17,9 +17,8 @@ default scope; under `stats` the table is printed whenever there is at least one
 
 Load config (same as layout cleanup). Run the same three-way count Check 2b uses (Check 2b in
 `steps/health-check.md` is the source of the multi-layout condition and its Critical severity
-below — this makes a third copy of layout detection, alongside Check 2b and
-`l3io-help/steps/step-02-detect-layout.md`; keep the multi-layout branch in sync with Check 2b's
-condition and severity if either changes):
+below — this makes a second copy of layout detection, alongside Check 2b; keep the
+multi-layout branch in sync with Check 2b's condition and severity if either changes):
 
 ```bash
 SHARDED=$([ -d "{pm_state_root}" ] && echo 1 || echo 0)
@@ -54,10 +53,7 @@ Apply the first matching rule:
     --project-root {project-root} --reachability --format json
   ```
   It prints every state tree it can find outside `{implementation_artifacts}` and exits 4 when
-  there is one. This used to be an inline `git ls-files` + `find` pair carried here and in
-  `l3io-help/steps/step-02-detect-layout.md`, with a comment asking the next person to keep
-  the two in sync; `scripts/tests/test-detect-layout.py` now covers it instead. **pm-help still
-  carries its own copy** — the remaining one.
+  there is one; `tests/l3io-doctor/test-detect-layout.py` covers it.
   If either prints a path that is not under `{implementation_artifacts}/state`, a confidently
   empty dashboard over existing state elsewhere is the same "wrong beats a refusal" failure as
   the multi-layout case above, so **BLOCK**. Print and exit — do not print "nothing to report":
@@ -184,11 +180,7 @@ warrants them:**
 - If the tree contains `⚠ STALE LOCK`, append this recommendation for each affected epic:
   `Epic {key} has a stale lock (claimed {N}m ago). Run: uv run {pm_status} clear-lock
   --state-root {pm_state_root} --epic {key}`. Do not re-derive stale-lock state yourself — the
-  report already computed it from `_lock.ttl_minutes`. (The same remedy also appears in
-  `l3io-help/steps/step-05-recommend.md` — a cross-skill duplication. `check:docs`
-  check 4 validates each copy against the real CLI, so a renamed subcommand or a flag that
-  stops existing fails CI in both; what nothing checks is the two copies saying *different*
-  things, so keep them in sync by hand if the remedy changes.)
+  report already computed it from `_lock.ttl_minutes`.
 - If the tree ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
   once state/events.jsonl accumulates transitions — it starts recording on the next
   /l3io-execute run.`

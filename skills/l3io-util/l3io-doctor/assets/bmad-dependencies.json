@@ -31,7 +31,7 @@
 
     { "name": "bmad-loop", "status": "related", "module": "bmad-loop",
       "note": "unattended per-story orchestrator around bmad-build-auto; l3io-execute is our own epic-level orchestrator — the two overlap. See docs/l3io-pm-reference.md §Relationship to bmad-loop.",
-      "reason": "third-party orchestrator that ships with its own installer path; when present, l3io-help surfaces the overlap. Never dispatched from this package." },
+      "reason": "third-party orchestrator that ships with its own installer path; when present, l3io-doctor check-deps reports the overlap. Never dispatched from this package." },
     { "name": "bmad-loop-setup", "status": "related", "module": "bmad-loop",
       "note": "bmad-loop's setup skill; presence implies bmad-loop is installed on this project." },
     { "name": "bmad-loop-sweep", "status": "related", "module": "bmad-loop",

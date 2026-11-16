@@ -21,8 +21,8 @@ BMad 6.10 keeps central config in four TOML files, merged in order (later wins):
 Layers 1–2 are **regenerated on every install** — never write to them. Layers 3–4 are
 never touched by the installer and are the only correct destination for settings a skill
 records (see §5 below, and the module home's own setup procedure —
-`l3io-setup/assets/module-setup.md` for the `l3io-pm` module, and the same path inside
-each standalone module's one skill).
+`l3io-doctor/assets/module-setup.md`, and the same path inside each other standalone
+module's one skill; `l3io-pm` has no setup skill, and `bmad setup l3io-pm` configures it).
 
 There is **no `{project-root}/_bmad/config.yaml`**. Earlier versions of these skills read
 one; BMad has not created that file since the TOML migration, so the read always missed
@@ -145,10 +145,11 @@ the base.
 is the normal state — none of the l3io modules declare required settings, so a correct
 install produces no section at all. Bind the defaults from §3 and carry on.
 
-**This applies to a module's home only** — the four skills that carry a module manifest and a
-setup procedure of their own (`l3io-setup/assets/module.yaml` and
-`l3io-setup/assets/module-setup.md`, and the same two paths inside `l3io-doctor`,
-`l3io-sec-redteam` and `l3io-arch-review`). A module home loads that setup procedure only when:
+**This applies to a module's home only** — the three skills that carry a module manifest and a
+setup procedure of their own (`l3io-doctor/assets/module.yaml` and
+`l3io-doctor/assets/module-setup.md`, and the same two paths inside `l3io-sec-redteam` and
+`l3io-arch-review`). A module home loads that setup
+procedure only when:
 
 - the user explicitly passes `setup` or `configure`; or
 - a skill-specific first-run artifact is genuinely absent (for `l3io-sec-redteam`, the
@@ -157,13 +158,12 @@ setup procedure of their own (`l3io-setup/assets/module.yaml` and
 Never treat a missing config section as the trigger. That mistake is what made every
 invocation open with "No {module} section in config — loading module setup first."
 
-The four `l3io-pm` operational skills — `l3io-execute`, `l3io-plan`, `l3io-help`,
-`l3io-sync` — carry no setup procedure of their own (it ships only to the four module homes
-above, e.g. `l3io-setup/assets/module-setup.md`) and never load it, regardless of
-argument: `/l3io-setup` is the module's setup entry point for all of them.
+The `l3io-pm` skills — `l3io-execute` and `l3io-plan` — carry no setup procedure of their own
+and never load one, regardless of argument: `bmad setup l3io-pm` is the module's setup entry
+point for both.
 
 At most once ever, per project — not per session — an **orchestrator** may mention that
-`/l3io-setup` exists, and only when there is something to mention. There is no notion of
+`bmad setup l3io-pm` exists, and only when there is something to mention. There is no notion of
 "session" that outlives one skill invocation: `{session_id}` (`step-00-activate.md` §7) is
 bound fresh per invocation and no caller of `notice` is ever a dispatched subagent that could
 inherit one from a parent, so a per-session key would never repeat — it would fire on every
@@ -183,7 +183,7 @@ would be false the moment it printed — the person just did.
 ```bash
 if [ "{l3io_pm_section_absent}" = "true" ]; then
   uv run {pm_status} notice --state-root {pm_state_root} --key setup-pointer && \
-    echo "l3io-pm currently has no project-level configuration. /l3io-setup configures it if you want to."
+    echo "l3io-pm currently has no project-level configuration. bmad setup l3io-pm configures it if you want to."
 fi
 ```
 
@@ -191,7 +191,7 @@ Exit 1 from `notice` means this key was already recorded for this project — sa
 further, permanently, for that key. Exit 2 means something actually failed recording it (never
 conflated with exit 1); note it in passing but never halt on it — the module works without
 settings, which is why none are declared, and this check is never a trigger for setup itself —
-no argument to `l3io-execute` or `l3io-plan` loads module setup; `/l3io-setup` is the
+no argument to `l3io-execute` or `l3io-plan` loads module setup; `bmad setup l3io-pm` is the
 module's setup entry point, exactly as above.
 
 **Wired into `l3io-execute` and `l3io-plan` only — a placement choice, not a technical
@@ -199,11 +199,9 @@ constraint.** Nothing about `notice` requires an orchestrator, a session, or any
 either of those two skills alone would have: the mechanism above works identically wherever
 it is called. The restriction is about *where a user should learn this*, not what the
 mechanism can support — `l3io-execute`/`l3io-plan` are where someone is about to run PM
-work and would act on the pointer; `l3io-help` is where someone reads status, and
-`l3io-sync` is GitHub sync, neither the moment to introduce a setup step. Do not add it to
-either on the theory that the once-per-project mechanism would now support it — it would, and
-that is exactly why this is a placement decision worth stating rather than a limitation to
-"fix".
+work and would act on the pointer. Do not add it to the other modules' skills on the theory
+that the once-per-project mechanism would now support it — it would, and that is exactly why
+this is a placement decision worth stating rather than a limitation to "fix".
 
 ## 6. Detecting whether another l3io module is installed
 

@@ -1,0 +1,17 @@
+# Skills l3io-pm no longer ships. `bmad setup` offers to delete any still installed and moves a
+# renamed skill's `_bmad/custom/` files to the new name. A retired name is never reused.
+#
+# The l3io-pm-* names were deprecated forwarders for the 3.1.3 rename. l3io-help, l3io-sync and
+# l3io-setup are replaced by v7 itself: help/help.md feeding the `bmad` skill, v7's ticket
+# stores, and bmod.toml config questions (design spec §14.3).
+renamed = [
+  { from = "l3io-pm-execute", to = "l3io-execute" },
+  { from = "l3io-pm-plan", to = "l3io-plan" },
+]
+removed = [
+  "l3io-pm-help",
+  "l3io-pm-sync",
+  "l3io-help",
+  "l3io-sync",
+  "l3io-setup",
+]

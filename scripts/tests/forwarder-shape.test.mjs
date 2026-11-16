@@ -104,16 +104,13 @@ test("SKILL.md with no frontmatter, or unparseable frontmatter, yields nothing",
   assert.equal(declaresForwarder(bad), false);
 });
 
-test("the repo's own four forwarders satisfy every clause", (t) => {
-  // Derived, not listed: whatever skills/ actually holds. If a real forwarder stopped
-  // satisfying these, the view checker would stop exempting it and smoke:install would fail.
+test("the repo ships no forwarders: a retired name goes in retired.toml instead", () => {
+  // v7 retires a name through the module record's retired.toml, and `bmad setup` offers to
+  // delete any skill it lists. A forwarder kept at a retired name would be installed and then
+  // offered for deletion on the same setup. Derived, not listed: whatever skills/ holds.
   const repo = path.resolve(import.meta.dirname, "..", "..");
   const dirs = skillDirs(repo)
     .map((rel) => path.join(repo, rel))
     .filter((d) => declaresForwarder(d));
-  assert.ok(dirs.length >= 4, `expected at least 4 forwarders, found ${dirs.length}`);
-  for (const d of dirs) {
-    assert.ok(isBareForwarderShape(d), `${path.basename(d)} is not a bare forwarder shape`);
-    assert.ok(forwarderTarget(d), `${path.basename(d)} names no target`);
-  }
+  assert.deepEqual(dirs.map((d) => path.basename(d)), []);
 });

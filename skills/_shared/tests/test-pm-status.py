@@ -13476,7 +13476,7 @@ class TestStoryKeyAllocator(unittest.TestCase):
 
     The bug it closes only becomes reachable when a story can MOVE: deriving from the disk
     alone makes a vacated number reusable, and a reused key silently retargets that key's
-    remote issue in `l3io-sync`'s mapping to different work, with nothing erroring.
+    remote issue in an issue mirror's mapping to different work, with nothing erroring.
     """
 
     def setUp(self):

@@ -101,18 +101,11 @@ if it is shorter; placeholders in braces match whatever they hold at runtime.
 **Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. The
 phase status-line template (`BLOCKED: [one-line reason]`, indented in
 `execute/step-05-epic-loop.md`) is a report format, not a halt, and is deliberately out of
-scope. Outside the inventory, and so not among the 24, are `BLOCKED:` lines this scope does not reach:
+scope. Outside the inventory, and so not among the 22, are `BLOCKED:` lines this scope does not reach:
 
 - `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blocked pending external
   resolution`) — a genuine halt, indented.
 - `skills/l3io-util/l3io-doctor/steps/redrive.md:103` — a halt in a doctor mode, not an orchestrator step.
-- `skills/l3io-pm/l3io-help/steps/step-02-detect-layout.md:26` and `:69` — column-0 halts that **repeat**
-  two conditions converted above (multiple state layouts; state outside
-  `implementation_artifacts`). They stay halts **deliberately**: `l3io-help` is an advisory skill
-  that recommends the next action and does not itself run migrations or write configuration, so
-  converting them would make a read-only skill mutate a project. Its step file describes its
-  probe as the same three-way probe `step-00-activate.md` runs, reporting where that step
-  remediates.
 
 ## Re-entry
 
@@ -148,16 +141,14 @@ convert them, whatever remedy appears to exist.
 |---|---|---|
 | `step-02-scope-resolve: {epic_key} is owned by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-05-epic-loop: {epic_key} lock held by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
-| `step-02-detect-platform: authentication unavailable.` | **ABSOLUTE.** Never touch credentials | `absolute` |
 | `sprint-closure: sprint {sprint_num} of {epic_key} — {N}` | External dependency; no remedy exists | `halt` |
 | `step-02-readiness-check: readiness gate — red. Do not` | Aggregate of per-story findings; no single remedy | `halt` |
 | `step-02-scope-resolve: unrecognized scope argument.` | User input error | `halt` |
 | `step-02-scope-resolve: {epic_key} not found under {pm_state_root} —` | User input error | `halt` |
 | `step-03-dev-loop: story {story_key} depends on {dep_key}, which` | Ordering fact, not a defect | `halt` |
 | `step-04-arch-gate: arch gate — {N} blocking findings` | Requires design decisions | `halt` |
-| `step-02-detect-platform: platform detection failed.` | Environment, not state | `halt` |
 | `step-02-story-prep: story {story_key} still missing required acceptance` | Content authoring | `halt` |
-| `step-00-activate: l3io-setup/scripts/pm_status/__main__.py is missing beside this skill.` | The install itself is broken | `halt` |
+| `step-00-activate: l3io-execute/scripts/pm_status/__main__.py is missing beside this skill.` | The install itself is broken | `halt` |
 | `step-00-activate: BMad v7 detected ({evidence_path}). This is` | Wrong product line, not a defect: l3io 3.x supports BMad 6.x only, and the remedy is installing l3io 4.x, which no step can do | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
 | `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |

@@ -111,7 +111,8 @@ confirm, because it is the one thing an undo does not put back. A story returns 
 it came from with a **new number**: the allocator's high-water never decreases, which is what
 stops a vacated key being reissued to different work and silently retargeting its remote issue.
 The chain of `previous_keys` records the whole journey, oldest first, so a story reorganised
-and then un-reorganised is still reconcilable on the next `/l3io-sync`. The command prints every
+and then un-reorganised is still reconcilable by any issue mapping that held an old key. The
+command prints every
 `old -> new` pair; quote them.
 
 **A retired epic comes back.** Retirement moved it to `archived/` and never deleted it, so undo
@@ -146,8 +147,7 @@ Restored (new keys — placement comes back, numbers do not):
 Left standing: E003 sprint 01 was created by the reorg and is now empty. Nothing is deleted
 unasked — say so if you want it removed.
 
-Next: run /l3io-plan to write a plan snapshot that reflects the restored shape, and
-/l3io-sync to reconcile the keys with their issues.
+Next: run /l3io-plan to write a plan snapshot that reflects the restored shape.
 ```
 
 Omit the "Left standing" paragraph when the command reported no such sprints.

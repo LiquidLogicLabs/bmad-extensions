@@ -109,7 +109,7 @@ strictly better than publishing a dangling one.
 This file is a **pointer plus summary scalars — never a second copy of the plan.** It used to
 repeat the whole `phases:` list, giving the plan two sources of truth that could diverge under
 hand-editing while no consumer benefited: `l3io-execute` reads phases only from the snapshot,
-and `l3io-help` wants nothing but the count. Write `phase_count` and leave the list to the
+and a status reader wants nothing but the count. Write `phase_count` and leave the list to the
 snapshot.
 
 Write `{planning_artifacts}/plan-output-meta.yaml` (overwrite):

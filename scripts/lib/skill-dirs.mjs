@@ -7,7 +7,8 @@
 // through. The walk stops at a skill, because everything beneath it is that skill's payload.
 //
 // A module record (`bmod-<code>/`, holding `bmod.toml`) is not a skill, but its files are
-// owned, so strayFiles() treats it as an owner too.
+// owned, so strayFiles() treats it as an owner too. A `bmod-<code>/` folder holding only
+// `retired.toml` is a record as well: the module retires names before its `bmod.toml` exists.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -69,6 +70,8 @@ export function strayFiles(root = DEFAULT_ROOT) {
       return;
     }
     if (entries.some((e) => e.isFile() && (e.name === "SKILL.md" || e.name === "bmod.toml"))) return;
+    if (path.posix.basename(rel).startsWith("bmod-") &&
+        entries.some((e) => e.isFile() && e.name === "retired.toml")) return;
     for (const e of entries) {
       if (e.isDirectory()) {
         if (IGNORED_DIRS.has(e.name) || (rel === "skills" && e.name === SHARED)) continue;

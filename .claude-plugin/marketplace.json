@@ -13,14 +13,13 @@
     "sprint-execution",
     "epic-execution",
     "red-team",
-    "security",
-    "sync"
+    "security"
   ],
   "plugins": [
     {
       "name": "l3io-pm",
       "source": "./skills",
-      "description": "PM orchestration for LiquidLogicLabs delivery teams — plan, execute, help, and sync.",
+      "description": "PM orchestration for LiquidLogicLabs delivery teams — plan and execute.",
       "version": "3.7.1",
       "author": {
         "name": "Shawn Anderson",
@@ -28,14 +27,7 @@
       },
       "skills": [
         "./skills/l3io-pm/l3io-execute",
-        "./skills/l3io-pm/l3io-plan",
-        "./skills/l3io-pm/l3io-help",
-        "./skills/l3io-pm/l3io-sync",
-        "./skills/l3io-pm/l3io-setup",
-        "./skills/l3io-pm/l3io-pm-execute",
-        "./skills/l3io-pm/l3io-pm-plan",
-        "./skills/l3io-pm/l3io-pm-help",
-        "./skills/l3io-pm/l3io-pm-sync"
+        "./skills/l3io-pm/l3io-plan"
       ]
     },
     {

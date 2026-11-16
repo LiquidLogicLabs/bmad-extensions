@@ -406,12 +406,19 @@ const LIVE_DOCS = liveDocFiles();
 // The module a skill's directory belongs to, from that module's own module.yaml `code:`.
 // assets/module.yaml is the target module home; a skill-root module.yaml is a not-yet-migrated
 // module. Read both so a partial migration does not silently count zero modules.
+//
+// A skill with no module.yaml takes its module from the folder it sits in: ADR-0021 lays the
+// repository out as `skills/<code>/<skill>/`, so the folder IS the module code. l3io-pm has no
+// module.yaml since its 6.x setup skill was retired, and without this its skills would belong
+// to no module at all.
 function moduleCodeOf(skill) {
   for (const rel of [`${skillRel(skill)}/assets/module.yaml`, `${skillRel(skill)}/module.yaml`]) {
     if (!exists(rel)) continue;
     const m = read(rel).match(/^code:\s*(\S+)/m);
     if (m) return m[1];
   }
+  const parts = skillRel(skill).split("/");
+  if (parts.length === 3 && parts[1].startsWith("l3io-")) return parts[1];
   return null;
 }
 
@@ -2052,7 +2059,7 @@ function checkSpecAlignSurface() {
 // quote is checked. Caught in practice: the cap was stated as a flat 10 in six places and
 // went stale in all of them the moment it became configurable.
 // ---------------------------------------------------------------------------
-const PM_SKILLS = ["l3io-execute", "l3io-plan", "l3io-sync", "l3io-help"];
+const PM_SKILLS = ["l3io-execute", "l3io-plan"];
 
 function tomlInt(text, key) {
   const m = text.match(new RegExp(`^${key}\\s*=\\s*(\\d+)`, "m"));
@@ -2060,7 +2067,7 @@ function tomlInt(text, key) {
 }
 
 function checkConfigValues() {
-  // The four PM skills must agree with each other first — a doc cannot match all of them
+  // The PM skills must agree with each other first — a doc cannot match all of them
   // if they disagree, and a per-skill divergence is itself a defect.
   const defaults = {};
   for (const key of ["max_fix_iterations", "max_fix_iterations_non_code"]) {
@@ -2112,10 +2119,10 @@ function checkConfigValues() {
       }
     }
   }
-  // max_turns_per_story — only in pm-execute, pm-plan, pm-sync (pm-help omitted by design)
+  // max_turns_per_story — in every PM skill
   {
     const seen = new Map();
-    for (const skill of ["l3io-execute", "l3io-plan", "l3io-sync"]) {
+    for (const skill of PM_SKILLS) {
       const p = `${skillRel(skill)}/customize.toml`;
       if (!exists(p)) continue;
       const v = tomlInt(read(p), "max_turns_per_story");
@@ -2161,7 +2168,6 @@ function checkConfigValues() {
 // ---------------------------------------------------------------------------
 const STATUS_FOLDERS = ["planned", "active", "archived"];
 const PHRASE_TABLE_FILES = [
-  `${skillRel("l3io-help")}/SKILL.md`,
   `${skillRel("l3io-doctor")}/SKILL.md`,
 ];
 
@@ -3498,15 +3504,11 @@ function checkDocsCheckCount() {
 // the skills/ directory and each skill's own module.yaml -- never type them, and require an
 // unmatched claim sentence to fail rather than silently stop being checked.
 //
-// module.yaml now lives at each module's home (assets/module.yaml -- a dedicated *-setup skill
-// for a multi-skill module, or the skill itself for a standalone one); codeOf() also reads the
-// skill-root location so a not-yet-migrated module still counts. A module's home can exist
-// before it is a full skill -- l3io-setup carries assets/module.yaml from the day this
-// relocation lands, but its SKILL.md does not arrive until a later task -- so "skills" counts
-// only directories that carry a SKILL.md, while "modules" is derived from every module.yaml
-// regardless. "pmSkills" then excludes the module's own home directory from its delivery
-// skills, per check-module.mjs's convention that a home shared across multiple skills is a
-// dedicated *-setup skill, never one of the module's own skills.
+// module.yaml lives at each standalone module's home (assets/module.yaml, plus the skill-root
+// copy); a skill without one takes its module from its `skills/<code>/` folder (moduleCodeOf).
+// "skills" counts only directories that carry a SKILL.md. "pmSkills" counts l3io-pm's delivery
+// skills, excluding a dedicated *-setup home should one exist, per check-module.mjs's
+// convention that such a home is never one of the module's own skills.
 //
 // Caught in practice: "seventeen checks" drifted because nothing compared it to anything
 // (check 18 closed that gap); every other hand-written count here -- eight skills, four
@@ -3522,13 +3524,11 @@ function derivedCounts() {
     const code = moduleCodeOf(dir);
     if (code) homeOfCode.set(code, dir);
   }
-  // A directory is a real, installable skill only once it carries a SKILL.md -- a module home
-  // created ahead of its SKILL.md (l3io-setup, until a later task fills it in) is
-  // infrastructure, not yet a skill.
+  // A directory is a real, installable skill only once it carries a SKILL.md.
   const skillDirs = dirs.filter((dir) => exists(`${skillRel(dir)}/SKILL.md`));
-  const pmHome = homeOfCode.get("l3io-pm");
+  // A dedicated *-setup home is infrastructure, not one of the module's delivery skills.
   const pmSkills = skillDirs.filter((dir) =>
-    (dir === "l3io-pm" || dir.startsWith("l3io-pm-")) && dir !== pmHome).length;
+    moduleCodeOf(dir) === "l3io-pm" && !dir.endsWith("-setup")).length;
   return {
     skills: skillDirs.length,
     modules: homeOfCode.size,
@@ -4384,7 +4384,6 @@ function checkDoctorModeKeywords() {
 // docs/superpowers/plans/2026-09-24-followup-pm-status-exists-verb.md tracks the follow-up.
 //
 // check26:allow SITES (state-existence read probes, not path-assembly violations):
-//   skills/l3io-help/steps/mode-list-plan.md   — ls -d to find which bucket holds the epic
 //   skills/l3io-doctor/steps/health-check.md — diff <(ls ...) state/artifact mirror check
 
 export const RESOLVER_START_MARKER =

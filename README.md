@@ -73,9 +73,9 @@ whereas `update-ai-rules` edits *your own* prose where it still describes a lega
 
 | Module | Skills | Description |
 |--------|--------|-------------|
-| **l3io-pm** | `l3io-plan`, `l3io-execute`, `l3io-help`, `l3io-sync`, `l3io-setup` | Sprint and epic execution orchestration — dependency-aware phased planning, full lifecycle from story preparation through closure reviews, plan-aware progress reporting, and GitHub Issues sync |
+| **l3io-pm** | `l3io-plan`, `l3io-execute` | Sprint and epic execution orchestration — dependency-aware phased planning, full lifecycle from story preparation through closure reviews, and plan-aware progress reporting |
 | **l3io-sec** | `l3io-sec-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
-| **l3io-util** | `l3io-doctor` | **Required when using `l3io-pm`** (declared in `skills/l3io-pm/l3io-setup/assets/module.yaml`'s `dependencies:` list; `l3io-help` forwards `progress` here and invokes `check-pm-status` at every activation). Project state diagnostics & housekeeping — health check that reports findings and proposes an ordered fix plan (default); `stats` renders the plan-aware progress dashboard; `check-pm-status` verifies the installed `pm-status.py` is current; migrate a legacy state layout to the sharded state tree; reorganize legacy flat artifacts into the standard epic/sprint folder structure; harvest `bmad-defer:` deferred-shortcut code markers into the backlog. *(Renamed from `l3io-util-cleanup` in 2.1.0; that deprecated forwarder was removed in 3.0.0. See `docs/upgrading.md`.)* |
+| **l3io-util** | `l3io-doctor` | **Required when using `l3io-pm`** (the PM skills forward migrations, health checks and the progress dashboard here). Project state diagnostics & housekeeping — health check that reports findings and proposes an ordered fix plan (default); `stats` renders the plan-aware progress dashboard; `check-pm-status` verifies the installed `pm-status.py` is current; migrate a legacy state layout to the sharded state tree; reorganize legacy flat artifacts into the standard epic/sprint folder structure; harvest `bmad-defer:` deferred-shortcut code markers into the backlog. *(Renamed from `l3io-util-cleanup` in 2.1.0; that deprecated forwarder was removed in 3.0.0. See `docs/upgrading.md`.)* |
 | **l3io-arch** | `l3io-arch-review` | Engineering-standards architecture guardrails and review — applies universal best practices (separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams) plus per-stack overlays (Python, Node.js, .NET, GitHub Actions) at new-project design time, during an architectural review, or when recording an architecture/technology decision (ADR) |
 
 ## Quick Start
@@ -247,9 +247,6 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 |---------------|--------------|
 | `/l3io-plan` | Validate readiness, elaborate stories, estimate, analyze epic `depends_on` declarations, and produce a phased parallel-optimized execution plan — critical path and wall-clock estimates, written as a dated snapshot plus the `plan-output-meta.yaml` pointer. `/l3io-plan estimate [E{nnn}\|E{nnn}-S{nn}]` re-estimates only. `/l3io-plan reorg` proposes a better **shape** for a plan that is legal but badly grouped — it measures the current plan, proposes one improvement with its evidence, and renders it as a plan summary to accept or reject in about a minute. It writes planned work only; retiring an epic archives it rather than deleting it, and every reorg is journaled so "undo that reorg" works. `/l3io-plan lanes` partitions the plan across developers who each have their **own clone** — it proposes which epics each lane owns, reports what the partition costs (cross-lane dependencies and lanes left idle in a phase), shows one lane's view of the plan, and carries the protocol that keeps two clones from colliding. One epic is one lane; lanes stay entirely off unless setup recorded `lane_count` above 1 |
 | `/l3io-execute` | Run the plan — full, single epic (`E001`), or single sprint (`E001-S01`). Dispatches **one agent to prep the sprint, one per story, one to close it** — short sessions, because cost grows with the turns a session accumulates. Per story: dev → code review → fix loop (capped at `max_fix_iterations`, default 3). At sprint and epic closure: retro → clean-release + adversarial (one call) → red team → UX → arch drift → auto-triage + closure fix loop (same cap). Nothing closes until all Critical/High/Medium findings are resolved; Low findings auto-defer to the backlog with no prompts. Renders a plan-aware progress tree at each phase boundary |
-| `/l3io-help` | Read project state and recommend the exact next action. `/l3io-help progress` forwards to `/l3io-doctor stats` for the plan-aware progress tree — which phase, epic, sprint, and stories are in flight, with per-status dwell times and stuck-item flags |
-| `/l3io-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` (default) |
-| `/l3io-setup` | Record `l3io-pm`'s project-level settings in the BMad config and register its capabilities for the help system. Runs only on an explicit `setup` or `configure` request — never implicitly |
 | `/l3io-sec-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
 | `/l3io-doctor` | **Run without arguments** for a project health check — scans for all known issues (stale file naming, unsplit status, schema gaps, flat artifacts, sort order, untracked debt markers, AI instruction references, ADRs left in the old per-epic home, story spec pointers, and spec-index freshness) and proposes the right actions in order with a single confirmation. Or pass a keyword to skip directly to a specific mode. **The following is a selection, not the full set** — `/l3io-doctor help` prints every keyword, and [`docs/l3io-util-reference.md`](docs/l3io-util-reference.md) documents each one: `check` (read-only diagnostic only), `stats` (plan-aware progress dashboard), `backlog` / `issues` (aliases for `stats` that always print the per-item backlog table), `check-deps` (verify the BMad skills this package dispatches resolve here), `migrate-state` (legacy state layout → the sharded state tree), `clean-layout` (reorganize flat artifacts; `layout-cleanup` alias kept), `harvest-debt` (sweep for `bmad-defer:` markers), `migrate-adrs` (move ADRs from the old per-epic home to `docs/adr/`), `triage` (audit the issues backlog and close what is already fixed), `clean-legacy` (remove migration backups) |
 | `/l3io-arch-review` | Apply engineering standards in one of three modes: **design** (new-project guardrails — boundaries, initial ADRs, docs skeleton), **review** (audit a design/component/diff → severity-graded findings against every principle, with a BLOCKER/MAJOR gate), or **decision** (weigh options against the standards and record an ADR). Auto-detects the stack and loads the matching overlay (Python, Node.js, .NET, GitHub Actions). Wire it into core `bmad-architecture` / `bmad-code-review` via `bmad-customize` for automatic application |
@@ -340,18 +337,9 @@ skills/
                          write-module-config.py, tests/, status-files.md, metrics-contract.md,
                          calibration-model.md, config-resolution.md, module-setup.md, steps/
   l3io-pm/               module folder
-    l3io-setup/          SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
+    bmod-l3io-pm/        module record: retired.toml (skills this module no longer ships)
     l3io-plan/           SKILL.md, customize.toml, references/, scripts/, steps/
-    l3io-execute/        SKILL.md, customize.toml, references/, scripts/, steps/
-    l3io-help/           SKILL.md, customize.toml, references/, steps/
-    l3io-sync/           SKILL.md, customize.toml, references/, assets/, scripts/, steps/
-    l3io-pm-execute/     SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-execute (removed in 4.0.0)
-    l3io-pm-help/        SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-help (removed in 4.0.0)
-    l3io-pm-plan/        SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-plan (removed in 4.0.0)
-    l3io-pm-sync/        SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-sync (removed in 4.0.0)
-                         (there is deliberately NO l3io-pm-setup forwarder — a second
-                          *-setup directory makes BMad's find_setup_skill() a lottery;
-                          see docs/upgrading.md → 3.1.8)
+    l3io-execute/        SKILL.md, customize.toml, references/, scripts/ (incl. pm_status/), steps/
   l3io-sec/              module folder
     l3io-sec-redteam/    SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
   l3io-util/             module folder
@@ -368,7 +356,7 @@ those are regenerated by `npm run sync:scripts` and must never be hand-edited. C
 `npm run check:scripts` to fail the build on drift.
 
 Module setup lives at each module's **home**: `l3io-pm` — the package's only multi-skill
-module — has a dedicated `l3io-setup` skill; the three single-skill modules (`l3io-util`,
+module — is configured by `bmad setup l3io-pm`; the three single-skill modules (`l3io-util`,
 `l3io-sec`, `l3io-arch`) each embed setup (`assets/module-setup.md` + config `scripts/`) and
 self-register. Setup never runs implicitly — only on an explicit `setup`, `configure`, or
 `install` request. An absent `[modules.<code>]` config section is normal, not a first-run

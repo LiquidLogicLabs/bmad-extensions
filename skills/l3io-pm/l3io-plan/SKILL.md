@@ -19,7 +19,7 @@ Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skil
 
 If the script fails, resolve the `workflow` block by reading `{skill-root}/customize.toml`, then `{project-root}/_bmad/custom/l3io-plan.toml` (team), then `{project-root}/_bmad/custom/l3io-plan.user.toml` (personal) in order. Scalars override, arrays append.
 
-`setup`, `configure`, and `install` are not recognized arguments here — `/l3io-setup` is the module's setup entry point. Config itself is resolved in step-00-activate per `{skill-root}/references/config-resolution.md`; an absent `modules.l3io-pm` section means the module has no overrides, not that it needs setup.
+`setup`, `configure`, and `install` are not recognized arguments here — `bmad setup l3io-pm` is the module's setup entry point. Config itself is resolved in step-00-activate per `{skill-root}/references/config-resolution.md`; an absent `modules.l3io-pm` section means the module has no overrides, not that it needs setup.
 
 ## Execution
 
@@ -37,7 +37,7 @@ all:
 ```bash
 if [ "{l3io_pm_section_absent}" = "true" ]; then
   uv run {pm_status} notice --state-root {pm_state_root} --key setup-pointer && \
-    echo "l3io-pm currently has no project-level configuration. /l3io-setup configures it if you want to."
+    echo "l3io-pm currently has no project-level configuration. bmad setup l3io-pm configures it if you want to."
 fi
 ```
 

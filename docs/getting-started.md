@@ -30,7 +30,7 @@ short agents beat one long one.
 | **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the state contract, and the pre-execution gates |
 | **Contributor** to this package | [CONTRIBUTING.md](../CONTRIBUTING.md) — note that `skills/_shared/` holds the only editable copies of shared files |
 
-New to the twelve skills? (Eight canonical plus four deprecated forwarders from the 3.1.3 rename.) [Skills and sequence](skills-and-sequence.md) explains why each one
+New to the five skills? [Skills and sequence](skills-and-sequence.md) explains why each one
 exists and which of them run automatically rather than being invoked. When something stops with
 a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar terms are in the
 [Glossary](glossary.md).
@@ -64,8 +64,7 @@ Node.js is **not** needed to use the skills — only to develop this package its
 
 You can install all four modules or only the ones you need — but `l3io-util` is required
 whenever `l3io-pm` is installed (it provides the doctor that PM skills forward to for
-migrations, the progress dashboard, and the `check-pm-status` mode). Declared in
-`skills/l3io-pm/l3io-setup/assets/module.yaml`'s `dependencies:` list; the marketplace bundle
+migrations, the progress dashboard, and the `check-pm-status` mode). The marketplace bundle
 ships all four together so a standard install always carries `l3io-util`.
 
 | Module | Install if you want |
@@ -77,7 +76,7 @@ ships all four together so a standard install always carries `l3io-util`.
 
 All four modules are installed by the same `npx bmad-method install` command. No module
 configures itself on first use — every setting has a default, so installing is enough to run.
-`l3io-pm`, the only multi-skill module, has a dedicated `/l3io-setup` skill for when you do
+`l3io-pm`, the only multi-skill module, is configured with `bmad setup l3io-pm` when you do
 want to change a setting; the other three self-register from their own single skill on an
 explicit `configure` request.
 
@@ -111,7 +110,7 @@ this package probes both layouts and both name generations and resolves whicheve
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
 (the installer prompts for which IDEs to target).
 
-This installs all twelve skills and registers the four modules in `.claude-plugin/marketplace.json` (eight canonical plus four deprecated forwarders from the 3.1.3 rename).
+This installs all five skills and registers the four modules in `.claude-plugin/marketplace.json`.
 
 ### Verify the install
 
@@ -160,13 +159,13 @@ No module needs configuring to work — every setting has a default. Run a modul
 
 ### l3io-pm
 
-`l3io-pm` is the only multi-skill module, so it has a dedicated `/l3io-setup` skill. Run it
-only when you want to record a project-level setting; every PM skill resolves config at
+`l3io-pm` is the only multi-skill module, and it is configured with `bmad setup l3io-pm`. Run
+it only when you want to record a project-level setting; every PM skill resolves config at
 activation via `_bmad/scripts/resolve_config.py` and uses sensible defaults when
 `modules.l3io-pm` is absent — which is the normal state for a fresh install, not a trigger for
 setup to run automatically.
 
-Key settings (with defaults) — what `/l3io-setup` collects and writes:
+Key settings (with defaults) — what `bmad setup l3io-pm` collects and writes:
 
 - `implementation_artifacts` — default: `{output_folder}/implementation-artifacts`
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
@@ -177,8 +176,8 @@ Key settings (with defaults) — what `/l3io-setup` collects and writes:
   the personal, gitignored layer and never to the committed one
 
 `output_folder` (default `{project-root}/_bmad-output`) is **not** one of them. It is a core
-setting (`core.output_folder`) that the BMad installer owns, and `/l3io-setup` deliberately
-refuses to collect or write it — asking again invites an answer that silently loses on the next
+setting (`core.output_folder`) that the BMad installer owns, and this module's setup deliberately
+does not collect or write it — asking again invites an answer that silently loses on the next
 install. Change it through BMad's own config, not through this module's setup.
 
 Both paths resolve from `modules.l3io-pm` for **all four** l3io modules: there is one artifact
@@ -338,7 +337,7 @@ a `flock` guards one filesystem. Two developers with their **own clones** share 
 is committed to git, so between developers concurrency is mediated by `git merge` instead. Lanes
 are how the plan is partitioned so that merge has nothing to decide.
 
-Turn them on by running `/l3io-setup` and answering its question about how many developers will
+Turn them on by running `bmad setup l3io-pm` and answering its question about how many developers will
 work this project. The answer is recorded as `lane_count` in the committed team config layer —
 `1` means single-developer, deliberately, and is behaviourally identical to never having been
 asked. Each developer then records *which* lane they are in their own gitignored
@@ -431,10 +430,10 @@ A full epic run is long. Three ways to see where it is, all read-only.
 **Ask, at any time:**
 
 ```
-/l3io-help progress
+/l3io-doctor stats
 ```
 
-Forwards to `/l3io-doctor stats`, which renders the plan-aware tree — which phase, which
+This renders the plan-aware tree — which phase, which
 epic, which sprint, and which stories are in flight, with how long each has sat in its current
 status and a `⚠ stuck` marker past the threshold (4h for a story in `review` or `in-progress`):
 

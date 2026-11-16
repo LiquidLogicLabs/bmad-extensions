@@ -33,11 +33,11 @@ enforces all of it; `docs/bmad-module-yaml-discovery.md` has the measured contra
 **A plugin's `skills` array decides whether its authored `module-help.csv` is used at all.**
 BMad's `PluginResolver` tries five strategies per plugin in `.claude-plugin/marketplace.json`;
 the fifth **synthesizes** a stub catalog from `SKILL.md` frontmatter and the install still exits
-0, with no warning, ignoring every authored CSV. `l3io-pm` reaches strategy 2 only because
-`skills/l3io-pm/l3io-setup/` is named `*-setup` and carries both module files; the other three reach
-strategy 3 only because `_trySingleStandalone` requires **exactly one** existing skill. Adding a
-second skill to any of those three plugins — nothing deleted, every file where it was — drops
-that module to synthesis. `check:module` rule 8 mirrors the resolver's conditions and fails on
+0, with no warning, ignoring every authored CSV. The three single-skill modules reach strategy
+3 only because `_trySingleStandalone` requires **exactly one** existing skill. Adding a second
+skill to any of those plugins — nothing deleted, every file where it was — drops that module to
+synthesis. `l3io-pm` carries a v7 record (`skills/l3io-pm/bmod-l3io-pm/`), so rules 8 and 9
+skip it: v7 installs it without PluginResolver and its menu is not a CSV. `check:module` rule 8 mirrors the resolver's conditions and fails on
 anything that would land on strategy 5; run it with `-v` to see the strategy it derived per
 plugin.
 
@@ -267,9 +267,8 @@ changes** — `npm run sync:scripts` does not do it for you.
 
 A skill is a directory with a `SKILL.md`, at any depth under `skills/` (`skillDirs()`). That is
 what BMad installs and what the marketplace declares, and it excludes `skills/_shared/`, which
-ships nothing. All twelve skills have a
-manifest, the four deprecated forwarders included: a forwarder ships a `SKILL.md`, so it is
-payload, and `clean-payload.py` cannot see a directory that has no manifest. `check:module`'s
+ships nothing. Every skill has a manifest: a `SKILL.md` is payload, and `clean-payload.py`
+cannot see a directory that has no manifest. `check:module`'s
 bare-forwarder rule therefore allows `payload-manifest.json` as a third file — it is a
 *description* of payload rather than payload, and a second module home is made by
 `module.yaml`/`module-help.csv`, which BMad's PluginResolver reads, never by a checksum file

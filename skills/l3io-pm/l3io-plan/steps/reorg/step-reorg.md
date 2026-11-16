@@ -242,9 +242,9 @@ MOVES
   {plain-language list: what moves, and what stays}
 
 Keys change. A moved story is re-keyed — E007-S02-004 becomes E003-S01-005 — because the key
-encodes the epic and sprint. The old key is kept in the story's previous_keys, so GitHub issue
-mappings reconcile on the next /l3io-sync. If you have an old key written down somewhere, that
-is the one it becomes.
+encodes the epic and sprint. The old key is kept in the story's previous_keys, so an issue
+mapping that held the old key can still find the story. If you have an old key written down
+somewhere, that is the one it becomes.
 
 Nothing is deleted. A retired epic is moved to archived/ with the reason recorded, and undo
 brings it back. Undo restores where work sits, not the numbers: an undone story returns to the
@@ -600,8 +600,7 @@ Journal entry: {reorg_id}
 Undo: ask for it in plain language — "undo that reorg" — and name the entry if there is more
 than one. There is no flag.
 
-Next: run /l3io-plan to write a plan snapshot that reflects the new shape, and /l3io-sync to
-reconcile the re-keyed stories with their issues.
+Next: run /l3io-plan to write a plan snapshot that reflects the new shape.
 ```
 
 If the user declined, print instead:

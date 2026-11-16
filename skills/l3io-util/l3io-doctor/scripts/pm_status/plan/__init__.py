@@ -422,7 +422,7 @@ def dump_plan(state_root: str) -> dict:
 
     WHAT IS AND IS NOT INCLUDED. `planned` carries the writable set, with the fields an
     analyzer reasons over: `depends_on`, `estimate`, `classification` and `previous_keys`
-    (the last for `l3io-sync`, which needs it to distinguish re-keyed from deleted).
+    (the last for an issue mirror, which needs it to distinguish re-keyed from deleted).
     `active` carries
     only KEYS and their dependencies -- enough to constrain ordering, nothing more, because
     active work is read-only input and a consumer that could see its estimates would be
@@ -484,7 +484,7 @@ def dump_plan(state_root: str) -> dict:
                     # stpath, not spath: a refusal must name the file that holds the defect,
                     # and the sprint.yaml beside it is not where anyone would look.
                     "depends_on": [str(v) for v in deps_list(st, stpath)],
-                    # The whole chain, oldest first. `l3io-sync` reads this to tell a
+                    # The whole chain, oldest first. An issue mirror reads this to tell a
                     # RE-KEYED story from a DELETED one: without it a reorg produces a
                     # `missing_local` for the old key AND an `unmapped_local` for the new,
                     # which pushes as a duplicate issue plus an orphaned one.

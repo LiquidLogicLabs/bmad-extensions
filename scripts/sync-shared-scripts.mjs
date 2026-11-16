@@ -6,27 +6,24 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm-status.py → scripts/ in exactly ONE skill per module that self-installs it to
-//   {project-root}/_bmad/scripts/pm-status/__main__.py: `l3io-setup` for the l3io-pm module, and
-//   `l3io-doctor` for the (standalone) l3io-util module. Task 11A cut this from four
-//   payload copies to two — pm-execute, pm-plan, and pm-sync used to each carry their own
-//   copy and self-install identical bytes to the identical destination; now they read
-//   `{skill-root}/../l3io-setup/scripts/pm_status/__main__.py` at activation
-//   (`steps/shared/step-00-activate.md` §2) instead, because `.claude-plugin/marketplace.json`
-//   installs the whole `l3io-pm` plugin — all five of its skills — as one unit, so
-//   `l3io-setup` is guaranteed to land beside them. `/l3io-setup` itself stays optional:
-//   nothing about that read requires the setup skill to ever have been *run*, only installed.
+//   pm_status/ → scripts/ in exactly ONE skill per module, which self-installs it to
+//   {project-root}/_bmad/scripts/pm-status/__main__.py: `l3io-execute` for the l3io-pm module,
+//   and `l3io-doctor` for the (standalone) l3io-util module. `l3io-plan` reads
+//   `{skill-root}/../l3io-execute/scripts/pm_status/__main__.py` at activation
+//   (`steps/shared/step-00-activate.md` §2) rather than carrying its own copy, because the
+//   l3io-pm module installs its skills together, so `l3io-execute` lands beside it.
 //   check:module (`checkPmStatusSingleton`) guards against a second copy reappearing inside
 //   one module.
 //   spec-align.py → scripts/ in l3io-execute (arch gate, story prep, closures) and
 //   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
 //   status-files.md / metrics-contract.md → references/ in PM skills
-//   auto-remediation.md → references/ in l3io-execute, l3io-plan, l3io-sync
+//   auto-remediation.md → references/ in l3io-execute, l3io-plan
 //   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
 //   merge-config.py / merge-help-csv.py / write-module-config.py / module-setup.md →
-//   scripts/ and assets/ in each module's HOME only (the *-setup skill for a multi-skill
-//   module, the skill itself for a standalone one) -- only the module home performs setup.
+//   scripts/ and assets/ in each standalone module's HOME only (the skill itself) -- only the
+//   module home performs setup. l3io-pm has no 6.x setup home: v7's bmod.toml config
+//   questions replace it.
 //   merge-config.py / merge-help-csv.py are the two scripts BMad's module validator
 //   requires by name; see their own docstrings for why they are not the scaffolder's
 //   versions.
@@ -110,7 +107,7 @@ const specAlignFiles = [
 // The canonical story AC dimension reference, shipped to the two skills that enrich stories.
 const acDimensionFiles = [{ src: path.join(sharedDir, "ac-dimensions.md"), rel: "references/ac-dimensions.md" }];
 
-// The auto-remediation contract: delivered to the three skills carrying
+// The auto-remediation contract: delivered to the skills carrying
 // steps/shared/step-00-activate.md, whose halts it governs.
 const autoRemediationFiles = [
   { src: path.join(sharedDir, "auto-remediation.md"), rel: "references/auto-remediation.md" },
@@ -134,7 +131,7 @@ const allSkillFiles = [
 // skill itself for standalone ones. Syncing them into every operational skill would ship
 // four copies of a procedure only one of them runs.
 const moduleHomeDirs = [
-  "l3io-setup", "l3io-doctor", "l3io-sec-redteam", "l3io-arch-review",
+  "l3io-doctor", "l3io-sec-redteam", "l3io-arch-review",
 ].map(skillDir);
 
 const moduleHomeFiles = [
@@ -166,18 +163,16 @@ const pmRefFiles = [
   { src: path.join(sharedDir, "calibration-model.md"), rel: path.join("references", "calibration-model.md") },
 ];
 
-// The rule for who SHIPS a pm-status.py payload copy (Task 11A, superseding the note this
-// replaced): exactly one skill per module -- the module's home, since a home is guaranteed to
-// be co-installed with every operational skill in that module. A skill that merely INVOKES
-// {pm_status} does not need its own copy; it can read a sibling module-home's copy instead
-// (pm-execute/pm-plan/pm-sync do, from l3io-setup). l3io-doctor is its own,
-// standalone module with no sibling *-setup to read from, so it remains a shipper too --
-// see newUtilDoctorDirs below.
+// The rule for who SHIPS a pm_status payload copy: exactly one skill per module, which is
+// co-installed with every other skill in that module. A skill that merely INVOKES {pm_status}
+// does not need its own copy; it reads that sibling's copy instead (l3io-plan reads
+// l3io-execute's). l3io-doctor is its own, standalone module, so it ships one too -- see
+// newUtilDoctorDirs below.
 // Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs groups below.
 const pmScriptDirs = [];
 
 // All PM skills that reference status-files.md
-// Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs / newPmSyncDirs groups below.
+// Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs groups below.
 const allPmDirs = [];
 
 // New skill directories (created in Tasks 5-9)
@@ -187,21 +182,14 @@ const newPmPlanDirs = [
 const newPmExecuteDirs = [
   skillDir("l3io-execute"),
 ];
-const newPmSyncDirs = [
-  skillDir("l3io-sync"),
-];
 
-// l3io-pm's module home: the ONE l3io-pm skill that carries pm-status.py (Task 11A). Guaranteed
-// to be installed alongside pm-execute/pm-plan/pm-sync because the marketplace manifest
-// installs the whole l3io-pm plugin as one unit — see the sync-groups comment above.
-const newPmSetupDirs = [
-  skillDir("l3io-setup"),
-];
+// The ONE l3io-pm skill that carries the pm_status package; l3io-plan reads it as a sibling.
+const pmStatusShipperDirs = newPmExecuteDirs;
 
 // Skills that invoke {pm_status} but are not part of the l3io-pm module: they need
 // pm-status.py to self-install/heal from, but not its test suite. Currently: l3io-doctor,
 // the documented post-upgrade entry point (see docs/upgrading.md), a different, standalone
-// module with no sibling *-setup skill to read from.
+// module with no l3io-pm sibling to read from.
 const newUtilDoctorDirs = [
   skillDir("l3io-doctor"),
 ];
@@ -209,8 +197,8 @@ const newUtilDoctorDirs = [
 // Every skill in the package — the four l3io modules' skills all resolve config, so all of
 // them carry config-resolution.md (allSkillFiles above); the setup procedure itself is a
 // module-home concern (moduleHomeFiles). Derived through skillDirs(), never hand-enumerated:
-// a hand-kept list here drifted silently once already (l3io-setup was absent from it and
-// so absent from the check:scripts comparison too).
+// a hand-kept list here drifts silently, and a skill missing from it is missing from the
+// check:scripts comparison too.
 // A forwarder skill is a minimal dispatcher that carries only SKILL.md + customize.toml and
 // exists to keep an old skill name working through a rename cycle. Its SKILL.md frontmatter
 // description starts with "DEPRECATED forwarder" — that is the derived signal, so a forwarder
@@ -271,12 +259,6 @@ const executeStepFiles = [
   { src: path.join(sharedDir, "steps", "closure", "epic-closure.md"), rel: path.join("steps", "closure", "epic-closure.md") },
 ];
 
-const syncStepFiles = [
-  { src: path.join(sharedDir, "steps", "sync", "step-02-detect-platform.md"), rel: path.join("steps", "sync", "step-02-detect-platform.md") },
-  { src: path.join(sharedDir, "steps", "sync", "step-03-operations.md"),       rel: path.join("steps", "sync", "step-03-operations.md") },
-  { src: path.join(sharedDir, "steps", "sync", "step-04-resolve.md"),           rel: path.join("steps", "sync", "step-04-resolve.md") },
-];
-
 // Combined sync manifest: [{files, dirs, skipMissing}]
 const syncGroups = [
   // Config contract + setup procedure + its writer script into every skill
@@ -285,17 +267,15 @@ const syncGroups = [
   { files: pmScriptFiles, dirs: pmScriptDirs },
   { files: pmRefFiles, dirs: allPmDirs },
   // New: shared steps into new skills (dirs only created in Tasks 5-9; skip missing dirs)
-  { files: sharedStepFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs, ...newPmSyncDirs], skipMissing: true },
+  { files: sharedStepFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   { files: planStepFiles, dirs: newPmPlanDirs, skipMissing: true },
   { files: executeStepFiles, dirs: newPmExecuteDirs, skipMissing: true },
-  { files: syncStepFiles, dirs: newPmSyncDirs, skipMissing: true },
-  // pm-status.py into l3io-pm's module home ONLY (Task 11A) -- pm-execute/pm-plan/pm-sync
-  // read it from there at activation (`{skill-root}/../l3io-setup/scripts/pm_status/__main__.py`,
-  // step-00-activate.md §2) instead of each carrying its own copy.
-  { files: pmScriptFiles, dirs: newPmSetupDirs, skipMissing: true },
+  // the pm_status package into ONE l3io-pm skill -- l3io-plan reads it from there at
+  // activation (`{skill-root}/../l3io-execute/scripts/pm_status/__main__.py`,
+  // step-00-activate.md §2) instead of carrying its own copy.
+  { files: pmScriptFiles, dirs: pmStatusShipperDirs, skipMissing: true },
   // status-files.md into new PM skills (plan + execute)
   { files: pmRefFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  { files: pmRefFiles, dirs: newPmSyncDirs, skipMissing: true },
   // pm-status.py (no tests) into l3io-doctor — it invokes {pm_status} and self-installs
   // it at activation but is not a PM execution skill; see pmStatusOnlyFiles above.
   { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
@@ -306,8 +286,8 @@ const syncGroups = [
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
   // the canonical AC dimension reference into the two skills that enrich stories
   { files: acDimensionFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  // the auto-remediation contract into the three skills whose halts it classifies
-  { files: autoRemediationFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs, ...newPmSyncDirs], skipMissing: true },
+  // the auto-remediation contract into the skills whose halts it classifies
+  { files: autoRemediationFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   // the agent instruction block body, into each module's home only
   { files: agentInstructionFiles, dirs: moduleHomeDirs },
   // The two BMad-validator-required merge scripts, into each module's home only.

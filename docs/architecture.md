@@ -53,8 +53,6 @@ l3io-execute  (normal mode — epic orchestrator)
                        |                   Reviewer Gate; skip if neither is present)
                        \-- spawns --> l3io-arch-review Mode B (drift audit, if installed)
 
-l3io-help            (read-only — recommends the next action)
-l3io-sync            (bidirectional GitHub Issues sync)
 l3io-sec-redteam        (also invocable standalone)
 l3io-doctor       (standalone only — migration utilities)
 l3io-arch-review        (standalone, plus invoked by the gate and drift reviews above)
@@ -349,7 +347,7 @@ Scalar values override; array values append. `resolve_customization.py` performs
 
 | Skill type | Root key |
 |---|---|
-| Workflow / utility (pm-execute, pm-plan, pm-help, pm-sync, util-doctor, arch-review) | `[workflow]` |
+| Workflow / utility (l3io-execute, l3io-plan, l3io-doctor, l3io-arch-review) | `[workflow]` |
 | Memory agent (l3io-sec-redteam) | `[agent]` |
 
 See [l3io-pm-reference.md](l3io-pm-reference.md#workflow-customization) for the shipped keys and their defaults.
