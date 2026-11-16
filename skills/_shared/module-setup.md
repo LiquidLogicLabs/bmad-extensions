@@ -34,9 +34,9 @@ Setup does **not**:
 
 - write `_bmad/config.yaml` or `_bmad/config.user.yaml` — BMad has no such files, and
   creating them forks config into a file no resolver reads;
-- collect or write core settings (`user_name`, `communication_language`,
-  `document_output_language`, `output_folder`) — the installer owns those, and asking again
-  invites an answer that silently loses on the next install;
+- collect or write core settings (anything under `core.`, such as `output_folder`) — the
+  installer owns those, and asking again invites an answer that silently loses on the next
+  install;
 - write a help CSV — the installer assembles `_bmad/_config/bmad-help.csv` from each
   module's own `module-help.csv` at install time.
 

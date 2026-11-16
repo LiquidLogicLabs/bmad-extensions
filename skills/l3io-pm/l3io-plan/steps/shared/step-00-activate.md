@@ -1,7 +1,5 @@
 # Step 00: Activate l3io-pm Module
 
-Communicate all responses in `{communication_language}`.
-
 This step runs first in every l3io-pm skill. Complete all actions in order before loading
 any subsequent step file.
 
@@ -77,7 +75,6 @@ once a section exists. This flag is never a trigger for setup itself — no argu
 skill triggers module setup; `bmad setup l3io-pm` is the module's setup entry point.
 
 Extract and bind from the resolved JSON:
-- `{communication_language}` — `core.communication_language` (default `English`)
 - `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)
 - `{implementation_artifacts}` — `modules.l3io-pm.implementation_artifacts`
   (default `{output_folder}/implementation-artifacts`)

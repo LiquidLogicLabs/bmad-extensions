@@ -5,8 +5,6 @@ description: Run the l3io-pm plan — full, single epic, or single sprint. Use w
 
 # l3io-execute
 
-Communicate all responses in `{communication_language}`.
-
 ## Conventions
 
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).

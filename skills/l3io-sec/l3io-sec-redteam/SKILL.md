@@ -36,7 +36,7 @@ Resolve config through BMad core's resolver — full contract in `references/con
 uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
 ```
 
-If the resolver is missing or fails, BMad core is not installed here — stop and tell the user to run the BMad installer. Resolve `research_cache_ttl_days` from `modules.l3io-sec` (default: 30), `core.communication_language` (default `English`), and the artifact paths from `modules.l3io-pm`.
+If the resolver is missing or fails, BMad core is not installed here — stop and tell the user to run the BMad installer. Resolve `research_cache_ttl_days` from `modules.l3io-sec` (default: 30) and the artifact paths from `modules.l3io-pm`.
 
 An absent `modules.l3io-sec` section is normal and is **not** a first-run trigger — this module declares no required settings. For this skill first-run is signalled by the **sanctum**, not by config (case 2 below).
 

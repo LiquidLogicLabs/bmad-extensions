@@ -1,7 +1,5 @@
 # Step 05: Epic Loop
 
-Communicate all responses in `{communication_language}`.
-
 Execute each epic in `{execution_phases}` order. Within a parallel phase, dispatch epics concurrently
 up to `{max_parallel_subagents}`. For each epic, promote it to active, claim the lock, dispatch sprint
 subagents sequentially, then trigger epic closure.
@@ -243,7 +241,6 @@ headless: true
 # Inherited activation — sections 1-7 of step-00-activate.md are ALREADY DONE for this
 # project. Do not resolve config, self-install, detect layout, create directories, list
 # epics, verify schema, or generate a session id. Use these bindings as given.
-communication_language: {communication_language}
 implementation_artifacts: {implementation_artifacts}
 planning_artifacts: {planning_artifacts}
 pm_status: {pm_status}
@@ -320,7 +317,6 @@ single_epic_phase: {single_epic_phase}
 headless: true
 
 # Inherited activation — as in 5a. Do not re-run sections 1-7.
-communication_language: {communication_language}
 implementation_artifacts: {implementation_artifacts}
 planning_artifacts: {planning_artifacts}
 pm_status: {pm_status}

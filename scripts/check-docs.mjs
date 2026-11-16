@@ -129,6 +129,14 @@
 //                    the block above probeToolRootParity(). KEPT on v7 and more relevant there:
 //                    `npx skills add` installs into .agents/skills, the first root v7's setup
 //                    reads, beside each chosen tool's own directory.
+//  39. v7-config-keys  no shipped file -- every file under a skill directory, synced copies
+//                    included, tests/ and payload-manifest.json excluded -- names
+//                    `user_name`, `communication_language` or `document_output_language`, binds
+//                    `{output_folder}` to anything but `core.output_folder`, or asks the
+//                    resolver for a bare `--key output_folder`. BMad v7's resolver returns
+//                    only core.project_name and core.output_folder, so each of those reads
+//                    resolves to nothing there, with no error. See the block above
+//                    v7ConfigKeys() for the KNOWN GAP.
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -4709,6 +4717,81 @@ export function probeToolRootParity(opts = {}) {
   return { violations, scanned };
 }
 
+// --- check 39: v7-config-keys ------------------------------------------------------- //
+// No shipped file reads a config key BMad v7 does not provide.
+//
+// v7's resolver returns `core.project_name` and `core.output_folder` and nothing else under
+// `core` (measured on the v7 fixture; docs/superpowers/notes/2026-11-v7-config-reads.md). Each
+// read of `user_name`, `communication_language` or `document_output_language` therefore
+// resolves to its default on v7 without a word, so the token is banned outright rather than
+// judged read-by-read: there is no shipped sentence that needs to name one.
+//
+// `output_folder` is the key v7 keeps, but only under `core.`. Two forms of a bare read are
+// caught: a line that BINDS the `{output_folder}` placeholder (a list item or table row that
+// opens with it and then names its source) without naming `core.output_folder`, and a
+// resolver call with `--key output_folder`. A USE of the placeholder (`{output_folder}/l3io/`)
+// is not a read and is not judged.
+//
+// Scope is derived: every file under every skillDirs() directory, which is what an install
+// copies -- the per-skill copies sync-shared-scripts.mjs writes included, so a canonical source
+// in skills/_shared/ is judged through the copies it ships as. Excluded exactly as the payload
+// manifest excludes them: `payload-manifest.json`, any `tests/` directory, `__pycache__/`.
+//
+// KNOWN GAP: a placeholder binding written in some other shape -- prose such as "set
+// {output_folder} from output_folder" -- is not recognised as a binding. Neither is a script
+// reading the key under a computed name.
+const V7_ABSENT_CORE_KEYS = ["user_name", "communication_language", "document_output_language"];
+const V7_ABSENT_KEY_RE = new RegExp(`\\b(${V7_ABSENT_CORE_KEYS.join("|")})\\b`, "g");
+// `- `{output_folder}` — …`, `| `{output_folder}` | … |`, `{output_folder}: …`, `{output_folder} = …`
+const OUTPUT_FOLDER_BINDING_RE = /^\s*(?:[-*]\s+|\|\s*)?`?\{output_folder\}`?\s*(?:—|–|-|:|=|\||->|←)\s*\S/;
+const BARE_OUTPUT_FOLDER_KEY_RE = /--key[ =]["']?output_folder\b/;
+
+function shippedSkillFiles() {
+  const out = [];
+  const walk = (rel) => {
+    for (const e of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })) {
+      const child = path.posix.join(rel, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "tests" && e.name !== "__pycache__") walk(child);
+      } else if (e.isFile() && e.name !== "payload-manifest.json") {
+        out.push(child);
+      }
+    }
+  };
+  for (const dir of [...SKILL_REL.values()].sort()) walk(dir);
+  return out;
+}
+
+export function v7ConfigKeys() {
+  const violations = [];
+  const files = shippedSkillFiles();
+  for (const rel of files) {
+    read(rel).split("\n").forEach((line, i) => {
+      const at = `${rel}:${i + 1}`;
+      for (const m of line.matchAll(V7_ABSENT_KEY_RE)) {
+        violations.push(`${at}: \`${m[1]}\` — BMad v7's resolver does not return this key, ` +
+                        `so the read silently falls back to a default`);
+      }
+      if (OUTPUT_FOLDER_BINDING_RE.test(line) && !line.includes("core.output_folder")) {
+        violations.push(`${at}: \`{output_folder}\` bound to something other than ` +
+                        `\`core.output_folder\` — v7 keeps the key only under core`);
+      }
+      if (BARE_OUTPUT_FOLDER_KEY_RE.test(line)) {
+        violations.push(`${at}: \`--key output_folder\` — the resolver key is ` +
+                        `\`core.output_folder\`; the bare key resolves to nothing`);
+      }
+    });
+  }
+  return { violations, scanned: files.length };
+}
+
+function checkV7ConfigKeys() {
+  const { violations, scanned } = v7ConfigKeys();
+  if (scanned === 0) failures.push("[check 39] no shipped skill file found — scope derivation broke");
+  for (const v of violations) failures.push(`[check 39] ${v}`);
+  if (verbose) console.log(`  v7-config-keys: ${scanned} file(s), ${violations.length} violation(s)`);
+}
+
 // --- check 30: subcommand-required -------------------------------------------------- //
 // Every documented invocation of a script that registers subparsers must name one.
 //
@@ -5222,6 +5305,7 @@ checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();
 checkDoctorKeywordUniqueness();
 checkRemediationCoverage();
+checkV7ConfigKeys();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

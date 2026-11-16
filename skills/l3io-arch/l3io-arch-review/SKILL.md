@@ -30,8 +30,7 @@ uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-ro
 ```
 
 If the resolver is missing or fails, BMad core is not installed here — stop and tell the
-user to run the BMad installer. Read `core.communication_language` (default `English`) and
-present all output in that language; take module settings from `modules.l3io-arch` and the
+user to run the BMad installer. Take module settings from `modules.l3io-arch` and the
 artifact paths from `modules.l3io-pm` (see the contract for defaults).
 
 An absent `modules.l3io-arch` section is normal and is **not** a first-run trigger — this

@@ -1,7 +1,5 @@
 # Sprint Step 03: Development Loop
 
-Communicate all responses in `{communication_language}`.
-
 Execute every story `{story_keys}` holds, in order: develop, code review, iterate on fixes.
 Write actuals and completion evidence when done.
 

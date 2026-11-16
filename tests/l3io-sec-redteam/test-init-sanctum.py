@@ -60,105 +60,73 @@ def tearDownModule():
                              f"cleanup: {', '.join(leaked[:5])}")
 
 
-# A stand-in for BMad core's resolver, at the path config-resolution.md §2 fixes it to. It is a
-# real script run as a real subprocess, so these tests drive the same code path a real project
-# does -- argv, exit code, stdout, JSON parse -- rather than a patched-out function whose
-# contract only this test believes in.
-#
-# Built from escaped-newline literals rather than a `"""..."""` block: a triple-quoted string
-# puts its own `# /// script` / `# ///` lines at column 0 of THIS file's real source text, which
-# a PEP 723 metadata scanner reads no differently than this file's own header above -- it does
-# not know Python string-literal syntax, only line patterns. That reads as two metadata blocks
-# in one script and `uv run test-init-sanctum.py` (this test, run directly, as CI runs it)
-# refuses with "multiple PEP 723 metadata blocks" before a single test executes. Escaped `\n`
-# keeps the header text identical once written to the stub file on disk, while every line of
-# this file's own source stays indented past column 0 and inside quotes, so it cannot itself
-# match `^# ///`. `test_a_failing_resolver_warns` below already uses this form for the same
-# reason.
-_STUB_RESOLVER = (
-    "#!/usr/bin/env python3\n"
-    "# /// script\n"
-    "# requires-python = \">=3.9\"\n"
-    "# ///\n"
-    "import json, sys\n"
-    "print(json.dumps({\"core\": {\"user_name\": \"Alice\", \"communication_language\": \"Welsh\"}}))\n"
-)
+_SKILL = _SCRIPT.parent.parent
+# Config keys BMad v7's resolver does not return. A rendered sanctum must not carry one as an
+# unsubstituted placeholder, and the script must not ask for one.
+_V6_ONLY_KEYS = ("user_name", "communication_language", "document_output_language")
 
 
-def _install_stub_resolver(project_root: Path, body: str = _STUB_RESOLVER) -> Path:
-    resolver = project_root / m.RESOLVER_REL
-    resolver.parent.mkdir(parents=True, exist_ok=True)
-    resolver.write_text(body)
-    resolver.chmod(0o755)
-    return resolver
+def _run_main(argv: list[str]) -> dict:
+    saved_argv = sys.argv
+    sys.argv = ["init-sanctum.py", *argv]
+    stdout = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout):
+            m.main()
+    finally:
+        sys.argv = saved_argv
+    return json.loads(stdout.getvalue())
 
 
-class TestResolveCoreConfig(unittest.TestCase):
-    """The config contract: four TOML layers via BMad core's resolver, never a config.yaml.
+class TestNoConfig(unittest.TestCase):
+    """The sanctum is born on BMad v7, whose core config has no user name and no language.
 
-    The script used to read `_bmad/config.yaml` and `_bmad/config.user.yaml` through a
-    hand-written line-splitter. Neither file has existed since the TOML migration, so the read
-    was a permanent no-op and every sanctum silently took the hardcoded defaults. These tests
-    pin the replacement, INCLUDING that a config.yaml is not consulted.
+    These run the real templates and references from the skill, so a placeholder added to any
+    of them later is caught here rather than in a user's BOND.md.
     """
 
-    def test_reads_the_resolver_output(self):
+    def test_no_rendered_file_carries_a_v6_only_placeholder(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
-            _install_stub_resolver(project_root)
-            warnings = []
-            config = m.resolve_core_config(project_root, warnings)
-            self.assertEqual(config.get("user_name"), "Alice")
-            self.assertEqual(config.get("communication_language"), "Welsh")
-            self.assertEqual(warnings, [])
+            result = _run_main([str(project_root), str(_SKILL), "--json"])
+            self.assertEqual(result["status"], "created")
+            self.assertEqual(result["warnings"], [])
+            sanctum = project_root / "_bmad" / "memory" / m.SKILL_NAME
+            rendered = sorted(sanctum.rglob("*.md"))
+            self.assertTrue(rendered, "the sanctum rendered no markdown at all")
+            for path in rendered:
+                text = path.read_text()
+                for key in _V6_ONLY_KEYS:
+                    self.assertNotIn("{" + key + "}", text, f"{path.name} carries {{{key}}}")
 
-    def test_accepts_a_bare_core_subtree(self):
+    def test_no_skill_source_names_a_v6_only_key(self):
+        sources = [*sorted((_SKILL / "assets").glob("*-template.md")),
+                   _SKILL / "references" / "first-breath.md", _SCRIPT]
+        for path in sources:
+            text = path.read_text()
+            for key in _V6_ONLY_KEYS:
+                self.assertNotIn(key, text, f"{path.name} names {key}")
+
+    def test_the_name_and_language_flags_are_gone(self):
+        for flag in ("--user-name", "--communication-language"):
+            with tempfile.TemporaryDirectory() as tmp, \
+                    contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit) as caught:
+                _run_main([tmp, str(_SKILL), "--json", flag, "x"])
+            self.assertEqual(caught.exception.code, 2, flag)
+
+    def test_the_config_resolver_is_not_run(self):
+        """Nothing the sanctum renders comes from config, so resolving it would be dead work."""
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
-            _install_stub_resolver(project_root, _STUB_RESOLVER.replace(
-                '{"core": {"user_name": "Alice", "communication_language": "Welsh"}}',
-                '{"user_name": "Bob", "communication_language": "Welsh"}'))
-            warnings = []
-            self.assertEqual(m.resolve_core_config(project_root, warnings).get("user_name"), "Bob")
-            self.assertEqual(warnings, [])
-
-    def test_missing_resolver_warns_rather_than_defaulting_in_silence(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            warnings = []
-            config = m.resolve_core_config(Path(tmp), warnings)
-            self.assertEqual(config, {})
-            self.assertEqual(len(warnings), 1)
-            self.assertIn("config resolver is not installed", warnings[0])
-
-    def test_a_failing_resolver_warns(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            project_root = Path(tmp)
-            _install_stub_resolver(project_root, "#!/usr/bin/env python3\n"
-                                   "# /// script\n# requires-python = \">=3.9\"\n# ///\n"
-                                   "import sys\nsys.stderr.write('boom\\n')\nsys.exit(1)\n")
-            warnings = []
-            self.assertEqual(m.resolve_core_config(project_root, warnings), {})
-            self.assertEqual(len(warnings), 1)
-            self.assertIn("could not resolve config", warnings[0])
-
-    def test_a_config_yaml_is_not_a_config_source(self):
-        """The regression itself: a `_bmad/config.yaml` on disk must change nothing."""
-        with tempfile.TemporaryDirectory() as tmp:
-            project_root = Path(tmp)
-            (project_root / "_bmad").mkdir(parents=True)
-            (project_root / "_bmad" / "config.yaml").write_text("user_name: Mallory\n")
-            (project_root / "_bmad" / "config.user.yaml").write_text("user_name: Mallory\n")
-            _install_stub_resolver(project_root)
-            warnings = []
-            config = m.resolve_core_config(project_root, warnings)
-            self.assertEqual(config.get("user_name"), "Alice",
-                             "config.yaml must not be read; the resolver is the only source")
-
-    def test_the_hand_rolled_yaml_reader_is_gone(self):
-        """Global rule 1: no hand-written parser. Re-adding one must fail here."""
-        self.assertFalse(hasattr(m, "parse_yaml_config"),
-                         "parse_yaml_config was removed with the config.yaml read; a "
-                         "hand-written YAML reader must not come back")
+            marker = project_root / "resolver-ran"
+            resolver = project_root / "_bmad" / "scripts" / "resolve_config.py"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text("from pathlib import Path\n"
+                                f"Path({str(marker)!r}).write_text('ran')\n"
+                                "print('{}')\n")
+            _run_main([str(project_root), str(_SKILL), "--json"])
+            self.assertFalse(marker.exists(), "init-sanctum.py ran the config resolver")
 
 
 class TestParseFrontmatter(unittest.TestCase):
@@ -182,11 +150,11 @@ class TestParseFrontmatter(unittest.TestCase):
 
 class TestSubstituteVars(unittest.TestCase):
     def test_replaces_placeholders(self):
-        result = m.substitute_vars("Hello {user_name}, born {birth_date}", {"user_name": "Alice", "birth_date": "2026-01-01"})
-        self.assertEqual(result, "Hello Alice, born 2026-01-01")
+        result = m.substitute_vars("At {project_root}, born {birth_date}", {"project_root": "/p", "birth_date": "2026-01-01"})
+        self.assertEqual(result, "At /p, born 2026-01-01")
 
     def test_unknown_placeholder_left_intact(self):
-        result = m.substitute_vars("Hello {unknown}", {"user_name": "Alice"})
+        result = m.substitute_vars("Hello {unknown}", {"birth_date": "2026-01-01"})
         self.assertIn("{unknown}", result)
 
 
@@ -227,17 +195,14 @@ class TestSanctumCreation(unittest.TestCase):
             (skill_path / "references").mkdir()
 
             # Stub template carrying a placeholder, to verify substitution happens
-            (skill_path / "assets" / "INDEX-template.md").write_text("# Index\n{user_name}\n")
+            (skill_path / "assets" / "INDEX-template.md").write_text("# Index\n{birth_date}\n")
 
             # A capability reference file, to verify copy_references runs for real
             (skill_path / "references" / "scope-mapping.md").write_text(
                 "---\nname: scope-mapping\ncode: SM\ndescription: Maps attack surface\n---\n\n# Body\n"
             )
 
-            # Project config, supplied the one documented way: BMad core's resolver at its
-            # fixed path, run as a real subprocess.
             (project_root / "_bmad").mkdir(parents=True)
-            _install_stub_resolver(project_root)
 
             sanctum = project_root / "_bmad" / "memory" / m.SKILL_NAME
             self.assertFalse(sanctum.exists(), "sanctum must not exist before main() runs")
@@ -258,8 +223,7 @@ class TestSanctumCreation(unittest.TestCase):
             # main() reports the run it actually performed
             result = json.loads(stdout.getvalue())
             self.assertEqual(result["status"], "created")
-            self.assertEqual(result["warnings"], [],
-                             "a resolvable config must produce no personalisation warning")
+            self.assertEqual(result["warnings"], [])
             self.assertIn("INDEX.md", result["created"])
             self.assertIn("references/scope-mapping.md", result["created"])
 
@@ -270,8 +234,8 @@ class TestSanctumCreation(unittest.TestCase):
 
             # The template landed and its placeholder was substituted
             index_content = (sanctum / "INDEX.md").read_text()
-            self.assertIn("Alice", index_content)
-            self.assertNotIn("{user_name}", index_content)
+            self.assertNotIn("{birth_date}", index_content)
+            self.assertRegex(index_content, r"\d{4}-\d{2}-\d{2}")
 
             # The reference file was copied into the sanctum, unmodified
             self.assertEqual(

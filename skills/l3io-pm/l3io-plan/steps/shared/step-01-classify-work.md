@@ -1,7 +1,5 @@
 # Step 01: Classify Work Type
 
-Communicate all responses in `{communication_language}`.
-
 Run after step-00-activate. Determines `{work_type}` for all in-scope epics/stories
 before any orchestration begins. `{work_type}` is carried in all subsequent step
 instructions and every headless subagent prompt.

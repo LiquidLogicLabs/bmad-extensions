@@ -1,7 +1,5 @@
 # Lanes — who owns what, and how several developers share one plan
 
-Communicate all responses in `{communication_language}`.
-
 **A lane is a slot in a partition, never a person.** Who works a lane lives in each
 developer's own gitignored config, so a name never reaches the repository. That is also why a
 lane is a **number**: `backend` and `sarah` are the same shape, so no pattern could permit one

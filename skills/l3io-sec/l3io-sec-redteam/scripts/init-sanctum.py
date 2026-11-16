@@ -5,10 +5,13 @@
 """
 First Breath — Deterministic sanctum scaffolding for l3io-sec-redteam.
 
-Creates the sanctum folder structure, copies template files with config values
-substituted, copies capability reference files into the sanctum, auto-generates
+Creates the sanctum folder structure, copies template files with the birth date and
+paths substituted, copies capability reference files into the sanctum, auto-generates
 CAPABILITIES.md from capability prompt frontmatter, and creates the research-cache
 directory.
+
+It reads no project config. BMad v7's core config carries no user name and no language, so
+the templates address the user as "you"; a name they give is learned during First Breath.
 
 After this script runs, the sanctum is fully self-contained — the agent does not
 depend on the skill bundle location for normal operation.
@@ -18,7 +21,6 @@ import argparse
 import json
 import re
 import shutil
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,69 +45,6 @@ TEMPLATE_FILES = [
 EVOLVABLE = False
 
 # --- End agent-specific configuration ---
-
-
-# BMad core installs its config resolver here. It is never bundled with a skill -- run it from
-# this path, exactly as references/config-resolution.md §2 specifies.
-RESOLVER_REL = Path("_bmad") / "scripts" / "resolve_config.py"
-
-
-def resolve_core_config(project_root: Path, warnings: list) -> dict:
-    """The `core.*` config subtree, resolved the one documented way.
-
-    There is no `_bmad/config.yaml`. BMad has kept central config in four TOML layers
-    (`_bmad/config.toml`, `config.user.toml`, `custom/config.toml`, `custom/config.user.toml`)
-    since the TOML migration, and merging them in the right order is BMad core's
-    `resolve_config.py`'s job -- not this script's, and certainly not a hand-written reader's.
-    This function used to open `_bmad/config.yaml` and `config.user.yaml` with a fifteen-line
-    line-splitter; both paths have not existed for releases, so the read was a permanent no-op
-    and every sanctum was personalised with the hardcoded defaults while reporting success.
-
-    Returns {} and records a WARNING on any failure -- never a silent default. The caller still
-    scaffolds the sanctum: personalisation is cosmetic and the agent can be told its owner's
-    name in conversation, but the reason must reach the operator rather than being swallowed.
-    """
-    resolver = project_root / RESOLVER_REL
-    if not resolver.exists():
-        warnings.append(
-            f"BMad core's config resolver is not installed at {resolver} — personalisation "
-            f"fields fall back to defaults. Install BMad core, then edit BOND.md/PERSONA.md."
-        )
-        return {}
-
-    argv = [str(resolver), "--project-root", str(project_root), "--key", "core"]
-    # `uv run --python 3.11` is the documented invocation; the resolver needs tomllib (3.11+).
-    # If uv is unavailable, config-resolution.md §2 says python3 works, so try that rather than
-    # give up -- the same fallback step-00-activate.md documents for the other helpers.
-    attempts = [["uv", "run", "--python", "3.11", *argv], ["python3", *argv]]
-    last = ""
-    for cmd in attempts:
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        except (OSError, ValueError) as exc:  # uv not on PATH, or not executable
-            last = f"{cmd[0]}: {exc}"
-            continue
-        if proc.returncode != 0:
-            last = f"{cmd[0]} exited {proc.returncode}: {proc.stderr.strip().splitlines()[-1:] or ''}"
-            continue
-        try:
-            resolved = json.loads(proc.stdout)
-        except json.JSONDecodeError as exc:
-            last = f"{cmd[0]} printed output that is not JSON: {exc}"
-            continue
-        if not isinstance(resolved, dict):
-            last = f"{cmd[0]} printed {type(resolved).__name__}, not a JSON object"
-            continue
-        # `--key core` may print the core subtree directly or the whole document; accept both
-        # rather than depending on which, since only two scalar fields are wanted either way.
-        core = resolved.get("core") if isinstance(resolved.get("core"), dict) else resolved
-        return core
-
-    warnings.append(
-        f"could not resolve config via {resolver} — personalisation fields fall back to "
-        f"defaults ({last})"
-    )
-    return {}
 
 
 def parse_frontmatter(file_path: Path) -> dict:
@@ -206,10 +145,6 @@ def main():
     parser.add_argument("project_root", help="Root of the project (where _bmad/ lives)")
     parser.add_argument("skill_path", help="Path to the skill directory (where SKILL.md lives)")
     parser.add_argument("--json", action="store_true", help="Emit structured JSON output")
-    parser.add_argument("--user-name", default="",
-                        help="core.user_name, when the caller has already resolved config")
-    parser.add_argument("--communication-language", default="",
-                        help="core.communication_language, when already resolved")
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -241,17 +176,9 @@ def main():
             print(msg)
         sys.exit(0)
 
-    # Load config. An explicit flag wins: a caller that already resolved config at activation
-    # (SKILL.md does) can pass what it read instead of paying for a second resolver run.
-    config = {} if (args.user_name and args.communication_language) else \
-        resolve_core_config(project_root, result["warnings"])
-
     # Build variable substitution map
     today = datetime.now(UTC).date().isoformat()
     variables = {
-        "user_name": args.user_name or config.get("user_name") or "friend",
-        "communication_language":
-            args.communication_language or config.get("communication_language") or "English",
         "birth_date": today,
         "project_root": str(project_root),
         "sanctum_path": str(sanctum_path),

@@ -1,7 +1,5 @@
 # Step: Backlog Intake
 
-Communicate all responses in `{communication_language}`.
-
 Runs in full-plan mode only, after `step-01-classify-work.md` and before
 `step-02-readiness-check.md`. It offers to turn open backlog items into stories, and **never
 promotes anything without an explicit choice** — there is no automatic mode. Running before

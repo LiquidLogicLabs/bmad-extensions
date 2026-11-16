@@ -1,7 +1,5 @@
 # Step 04: Architecture Gate
 
-Communicate all responses in `{communication_language}`.
-
 Run a multi-reviewer architecture gate before any sprint executes. Skipped entirely for the DOCS
 work type, or when l3io-arch-review is not installed (gate never partially skips — minimum one reviewer
 is required to run).

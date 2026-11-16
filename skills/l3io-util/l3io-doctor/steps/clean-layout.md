@@ -224,6 +224,6 @@ Cleanup HALT — {residual_count} classifiable file(s) remain after {cleanup_ite
 Residual files: {residual_file_list}
 These may require manual mapping or indicate ambiguous filenames the heuristics cannot resolve.
 ```
-Present the residual list and wait for `{user_name}` guidance before exiting.
+Present the residual list and wait for the user's guidance before exiting.
 
 ---

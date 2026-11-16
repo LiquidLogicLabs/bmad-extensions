@@ -1,7 +1,5 @@
 # Step 03: Load Plan
 
-Communicate all responses in `{communication_language}`.
-
 Read the plan snapshot and validate it against current state. If no plan exists, or the plan
 pointer is missing or broken, this step rebuilds the plan with `/l3io-plan` and carries on. It
 ends `BLOCKED` only when that does not clear the condition, or when the way forward is a risk

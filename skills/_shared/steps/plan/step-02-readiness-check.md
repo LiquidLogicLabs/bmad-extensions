@@ -1,7 +1,5 @@
 # Step 02: Readiness Check
 
-Communicate all responses in `{communication_language}`.
-
 Run after step-01-classify-work. Validates every story in scope before planning proceeds.
 Bind `{readiness}` to the gate result before loading the next step.
 

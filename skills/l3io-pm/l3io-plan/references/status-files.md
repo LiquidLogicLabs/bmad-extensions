@@ -1,8 +1,6 @@
 <!-- resolver-invariant: canonical-contract -->
 # Status File Layout Contract (sharded state tree)
 
-Communicate all responses in `{communication_language}`.
-
 This file is the single source of truth for **where** epic/sprint/story/backlog state lives
 on disk and **how** to read or write it. It is a **deep reference, consulted on demand** — do
 not load it at activation. The PM skills' `l3io-execute/steps/shared/step-00-digest.md`

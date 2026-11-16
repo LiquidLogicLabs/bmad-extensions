@@ -1,7 +1,5 @@
 # Step 06: Plan Output
 
-Communicate all responses in `{communication_language}`.
-
 Writes the plan snapshot and updates the stable pointer. This is the final step of full plan mode.
 
 ---

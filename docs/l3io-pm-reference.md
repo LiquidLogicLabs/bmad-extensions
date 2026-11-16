@@ -31,8 +31,8 @@ put your own settings in the last two.
 
 | File | Scope | Contents |
 |------|-------|----------|
-| `{project-root}/_bmad/config.toml` | team, installer-owned | `output_folder`, `document_output_language`, `project_name` |
-| `{project-root}/_bmad/config.user.toml` | personal, installer-owned | `user_name`, `communication_language` |
+| `{project-root}/_bmad/config.toml` | team, installer-owned | `output_folder`, `project_name` |
+| `{project-root}/_bmad/config.user.toml` | personal, installer-owned | personal core settings, if any |
 | `{project-root}/_bmad/custom/config.toml` | team, yours | `[modules.l3io-pm]` overrides — committed |
 | `{project-root}/_bmad/custom/config.user.toml` | personal, yours | personal overrides — gitignored |
 
@@ -44,12 +44,13 @@ setup.
 
 | Variable | Key | Default | Description |
 |----------|-----|---------|-------------|
-| `user_name` | `core.user_name` | BMad | Name used when the skill addresses the user |
-| `communication_language` | `core.communication_language` | English | Language for all skill responses |
-| `document_output_language` | `core.document_output_language` | English | Language for written artifacts |
 | `output_folder` | `core.output_folder` | `{project-root}/_bmad-output` | Root directory for all generated output |
 | `implementation_artifacts` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` | Root for state, stories, closure outputs, and tests |
 | `planning_artifacts` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` | Root for planning documents and plan snapshots |
+
+BMad v7's core config carries only `project_name` and `output_folder`, so the skills read no
+user name or language setting: they address the user as "you" and respond in the language
+the conversation is held in.
 
 All four modules read the artifact paths from the **`l3io-pm`** section — they share one
 artifact tree, so it has one home.

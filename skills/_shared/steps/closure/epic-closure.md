@@ -1,7 +1,5 @@
 # Epic Closure Workflow
 
-Communicate all responses in `{communication_language}`.
-
 This file is loaded by step-06-epic-closure.md. Run each section in order.
 
 ## Dispatch rule for every spawn in this file

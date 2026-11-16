@@ -1,7 +1,5 @@
 # Step Reorg: propose, confirm and apply a better plan shape
 
-Communicate all responses in `{communication_language}`.
-
 Loaded when the user invokes `/l3io-plan reorg`. This is the whole mode: it measures the
 current plan, proposes one improvement, shows the user **the proposed plan** (not a list of
 operations), and applies it only once they say yes.

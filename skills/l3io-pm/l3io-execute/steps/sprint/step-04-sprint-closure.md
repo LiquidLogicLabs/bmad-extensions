@@ -1,7 +1,5 @@
 # Sprint Step 04: Sprint Closure
 
-Communicate all responses in `{communication_language}`.
-
 Run closure phases gated by `{work_type}` and `{skip_phases}`. Write sprint actuals, mark sprint
 done, and emit the required status line.
 

@@ -1,7 +1,5 @@
 # Metrics Contract (estimates & actuals)
 
-Communicate all responses in `{communication_language}`.
-
 This file is the single source of truth for **which** numbers l3io-pm records, **what they
 are called on disk**, **how they are captured**, **where they are enforced**, and **how
 estimates learn from them**. It is a **deep reference, consulted on demand** — do not load it

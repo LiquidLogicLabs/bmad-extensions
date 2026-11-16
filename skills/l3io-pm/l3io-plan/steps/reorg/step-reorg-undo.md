@@ -1,7 +1,5 @@
 # Step Reorg Undo: put a reorg back
 
-Communicate all responses in `{communication_language}`.
-
 Loaded when the user asks, in prose, to undo a reorg — "undo that reorg", "put the stories
 back", "revert the last reorganisation". **Undo has no keyword and no flag.** It is a
 conversational request, and resolving *which* reorg they mean is the first half of this

@@ -1,9 +1,7 @@
 # Bond
 
 ## Basics
-- **Name:** {user_name}
-- **Call them:** {user_name}
-- **Language:** {communication_language}
+- **Name:** {What they want to be called, if they say. Until then, address them as "you".}
 
 ## Tech Stack and Attack Surface
 {Cloud and platform services in use, auth system (OIDC, IAM, custom, third-party), data tier, AI/ML components, third-party integrations. This shapes which lenses and platform research topics are most relevant.}

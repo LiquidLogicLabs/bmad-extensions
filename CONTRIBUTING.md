@@ -58,7 +58,7 @@ on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 |---|---|
 | `npm run check:scripts` | Per-skill payload copies match their `_shared/` source |
 | `npm run check:manifest` | Every `payload-manifest.json` hash matches the file it names |
-| `npm run check:docs` | Documentation matches the code it describes — thirty-five checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
+| `npm run check:docs` | Documentation matches the code it describes — thirty-six checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
 | `npm run check:version` | The `# pm-status-version:` marker in `pm_status/__main__.py`, the `PM_STATUS_VERSION` constant (in whichever module owns it — derived, not named), and `package.json` agree |
 | `npm run check:module` | One `pm_status` payload copy per module, and every mode keyword a `SKILL.md` routing table marks `registered` named in its module's `help/help.md` (or marked excluded in that table's own **Menu** column) |
 | `npm run check:bmod` | BMad v7's own `validate_manifests.py`, fetched at the pinned BMAD-METHOD commit and verified by SHA-256 (`scripts/fetch-bmad-tool.mjs`), run over `skills/` without `_shared/`: every `bmod.toml`, module record, `retired.toml`, `roster.toml` and `help/help.md`, one version across the records. **Needs network.** |

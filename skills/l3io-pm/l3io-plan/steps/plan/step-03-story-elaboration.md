@@ -1,7 +1,5 @@
 # Step 03: Story Elaboration
 
-Communicate all responses in `{communication_language}`.
-
 This step runs for every work type. `{work_type}` selects the dimension **vocabulary** the enricher uses, not whether the step runs — see `references/ac-dimensions.md`.
 This step is a **no-op** when `{readiness}` is green (no technical AC gaps found).
 

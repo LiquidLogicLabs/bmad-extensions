@@ -5,8 +5,6 @@ description: Validate readiness, elaborate stories, estimate, build dependency g
 
 # l3io-plan
 
-Communicate all responses in `{communication_language}`.
-
 ## Conventions
 
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).

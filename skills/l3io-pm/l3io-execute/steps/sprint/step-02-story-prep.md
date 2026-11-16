@@ -1,7 +1,5 @@
 # Sprint Step 02: Story Preparation
 
-Communicate all responses in `{communication_language}`.
-
 Validate and prepare all stories in this sprint for development. Run the acceptance-criteria gate
 (business and technical ACs), write estimates, and mark stories ready-for-dev.
 

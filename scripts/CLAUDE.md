@@ -7,7 +7,7 @@ script, never hand-edit a manifest, never move `pm-status`'s version backwards â
 root `CLAUDE.md`. This file carries the mechanics behind them.
 
 Each checker's own header comment is the authoritative description of what it asserts;
-`scripts/check-docs.mjs` numbers its thirty-five checks there.
+`scripts/check-docs.mjs` numbers its thirty-six checks there.
 
 **Every tool finds skills through `scripts/lib/skill-dirs.mjs`, never a `skills/*/` glob.** The
 repository is laid out one folder per module (ADR-0021): `skills/<module>/<skill>/`, with

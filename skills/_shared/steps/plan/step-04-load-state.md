@@ -1,7 +1,5 @@
 # Step 04: Load State
 
-Communicate all responses in `{communication_language}`.
-
 Reads all state files and builds the full in-scope index. Subsequent steps consume
 `{epic_index}` and `{story_index}` directly — do not re-read state files.
 

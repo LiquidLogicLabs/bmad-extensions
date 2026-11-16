@@ -1,7 +1,5 @@
 # Step 02: Scope Resolution
 
-Communicate all responses in `{communication_language}`.
-
 Parse the invocation argument to determine execution scope. This step sets bind variables used
 by all subsequent execute steps.
 

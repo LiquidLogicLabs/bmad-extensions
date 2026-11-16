@@ -1,7 +1,5 @@
 # Sprint Closure Workflow
 
-Communicate all responses in `{communication_language}`.
-
 This file is loaded by step-04-sprint-closure.md. Run each phase; skip phases listed in
 `{skip_phases}`.
 

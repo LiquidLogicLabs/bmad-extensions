@@ -1,7 +1,5 @@
 # Step: Estimate
 
-Communicate all responses in `{communication_language}`.
-
 Callable from l3io-plan and l3io-execute. Computes and writes estimate blocks for
 stories, sprints, and epics in scope. All arithmetic — base band lookup, calibrated scope
 ratio and fix factor per metric, closure band — runs inside `pm-status.py`; this step's job

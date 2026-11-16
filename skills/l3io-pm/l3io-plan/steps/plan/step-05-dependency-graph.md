@@ -1,7 +1,5 @@
 # Step 05: Dependency Graph
 
-Communicate all responses in `{communication_language}`.
-
 Builds the execution dependency graph from `{epic_index}`. Detects cycles,
 validates all referenced keys, and produces a topologically sorted phase plan.
 

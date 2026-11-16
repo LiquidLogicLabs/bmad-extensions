@@ -1,7 +1,5 @@
 # Step 06: Epic Closure
 
-Communicate all responses in `{communication_language}`.
-
 Run epic-level closure workflow, write actuals, archive the epic, clear the lock, and update
 the per-epic calibration file.
 

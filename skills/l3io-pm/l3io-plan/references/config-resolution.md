@@ -46,7 +46,7 @@ It prints JSON:
 
 ```json
 {
-  "core":    { "user_name": "...", "communication_language": "...", "output_folder": "..." },
+  "core":    { "project_name": "...", "output_folder": "..." },
   "modules": { "l3io-pm": { "implementation_artifacts": "..." } }
 }
 ```
@@ -60,9 +60,6 @@ Bind these at activation, applying the default when the key is absent:
 
 | Binding | Source key | Default |
 |---|---|---|
-| `{user_name}` | `core.user_name` | `BMad` |
-| `{communication_language}` | `core.communication_language` | `English` |
-| `{document_output_language}` | `core.document_output_language` | `English` |
 | `{output_folder}` | `core.output_folder` | `{project-root}/_bmad-output` |
 | `{implementation_artifacts}` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` |
 | `{planning_artifacts}` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` |

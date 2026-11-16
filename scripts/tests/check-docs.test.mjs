@@ -839,6 +839,67 @@ test("check 37: an .agents/-only probe is fine (the reverse is not a defect)", a
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
+// ---- check 39 (v7-config-keys) ----
+// BMad v7's resolver returns only core.project_name and core.output_folder. A shipped file that
+// reads any other core key gets nothing on v7, silently.
+const V7_STEP = "skills/l3io-pm/l3io-execute/steps/x-config.md";
+
+test("check 39: a planted {communication_language} fails, naming file, line and token", async (t) => {
+  const root = fixture(t);
+  write(root, V7_STEP, "# X\n\nCommunicate all responses in `{communication_language}`.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /\[check 39\] skills\/l3io-pm\/l3io-execute\/steps\/x-config\.md:3: `communication_language`/);
+});
+
+test("check 39: user_name and document_output_language fail in a shipped script too", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-sec/l3io-sec-redteam/scripts/x_cfg.py",
+        "name = cfg.get('user_name')\nlang = cfg['document_output_language']\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /\[check 39\] skills\/l3io-sec\/l3io-sec-redteam\/scripts\/x_cfg\.py:1: `user_name`/);
+  assert.match(r.stderr, /\[check 39\] skills\/l3io-sec\/l3io-sec-redteam\/scripts\/x_cfg\.py:2: `document_output_language`/);
+});
+
+test("check 39: a bare {output_folder} binding fails", async (t) => {
+  const root = fixture(t);
+  write(root, V7_STEP, "Bind:\n- `{output_folder}` — `output_folder` (default `_bmad-output`)\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /\[check 39\] skills\/l3io-pm\/l3io-execute\/steps\/x-config\.md:2: `\{output_folder\}` bound to something other than `core\.output_folder`/);
+});
+
+test("check 39: a resolver read of the bare output_folder key fails", async (t) => {
+  const root = fixture(t);
+  write(root, V7_STEP,
+        "```bash\nuv run {project-root}/_bmad/scripts/resolve_config.py --key output_folder\n```\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /\[check 39\] .*x-config\.md:2: `--key output_folder`/);
+});
+
+test("check 39: a binding to core.output_folder, and a use of the placeholder, pass", async (t) => {
+  const root = fixture(t);
+  write(root, V7_STEP,
+        "- `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)\n" +
+        "| `{output_folder}` | `core.output_folder` | `{project-root}/_bmad-output` |\n" +
+        "The ledger lives at `{output_folder}/l3io/wire-in.json`.\n" +
+        "uv run x.py --key core.output_folder\n");
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 39: skills/_shared/tests/ and a skill's tests/ are not shipped, so not judged", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/tests/x-cfg.md", "`{user_name}`\n");
+  write(root, "skills/l3io-pm/l3io-execute/tests/x-cfg.md", "`{user_name}`\n");
+  const r = await run(root);
+  assert.doesNotMatch(r.stderr, /\[check 39\]/);
+});
+
 // The probe arm has the same substring hole the replaced_by arm was hardened against: a bare
 // line.includes("ls ") is satisfied by "tools ", "details " or "controls ". Case 15 passes under
 // both the weak and the strong predicate, so without this test a revert would be silent.
