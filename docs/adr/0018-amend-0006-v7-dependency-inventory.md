@@ -1,6 +1,6 @@
 # ADR-0018 — Amend ADR-0006's dependency inventory for v7
 
-**Status:** Proposed
+**Status:** Accepted (user, 2026-11-16)
 **Date:** 2026-11-16
 **Amends:** ADR-0006, for the 4.x line
 **Spec:** §10, §13.2, §13.5

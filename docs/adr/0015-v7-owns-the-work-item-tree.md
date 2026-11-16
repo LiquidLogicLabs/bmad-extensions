@@ -1,6 +1,6 @@
 # ADR-0015 — v7 owns the work-item tree; we write sidecars
 
-**Status:** Proposed
+**Status:** Accepted (user, 2026-11-16)
 **Date:** 2026-11-16
 **Spec:** §2, §3.1–§3.3
 

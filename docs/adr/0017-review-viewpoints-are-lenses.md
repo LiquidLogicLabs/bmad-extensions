@@ -1,6 +1,6 @@
 # ADR-0017 — Review viewpoints are contributed as lenses; BMad's review is the only review
 
-**Status:** Proposed
+**Status:** Accepted (user, 2026-11-16)
 **Date:** 2026-11-16
 **Spec:** §5, §14.1, §14.3
 

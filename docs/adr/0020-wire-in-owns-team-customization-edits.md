@@ -1,6 +1,6 @@
 # ADR-0020 — One reversible wire-in owns every edit to a team's customization files
 
-**Status:** Proposed
+**Status:** Accepted (user, 2026-11-16)
 **Date:** 2026-11-16
 **Spec:** §14.1, §14.2
 

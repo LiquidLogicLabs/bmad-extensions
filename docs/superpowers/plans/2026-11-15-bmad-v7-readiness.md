@@ -132,8 +132,8 @@ Three spec claims are explicitly marked unverified, and Phases 3, 4 and 6 build 
 
 > **Drafted 2026-11-16**, numbers from `adr-reserve --count 9`: a → ADR-0013, b → 0014,
 > c → 0015, d → 0016, e → 0017, f → 0018, g → 0019, h → 0020, i → 0021. a, d and g are
-> **Accepted**, each recording the user's decision. b, c, e, f, h and i are **Proposed** for
-> review. Phases 2–6 wait on that review.
+> **Accepted**, each recording the user's decision. b, c, e, f, h and i were drafted as
+> **Proposed**; **the user accepted all six on 2026-11-16.** Phases 2–6 are unblocked.
 
 Reserve all nine numbers at once: `uv run {project-root}/_bmad/scripts/pm-status/__main__.py adr-reserve --epic V7 --slug v7-layer --count 9`. Each ADR states the decision, the evidence (cite §13 rows), and the cost if wrong.
 

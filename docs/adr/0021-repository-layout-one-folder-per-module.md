@@ -1,6 +1,6 @@
 # ADR-0021 — Repository layout on 4.x: one folder per module
 
-**Status:** Proposed
+**Status:** Accepted (user, 2026-11-16)
 **Date:** 2026-11-16
 **Spec:** §9, §13.3, §13.5
 

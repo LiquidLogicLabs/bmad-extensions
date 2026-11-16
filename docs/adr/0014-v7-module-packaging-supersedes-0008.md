@@ -1,6 +1,6 @@
 # ADR-0014 — v7 module packaging: `bmod.toml` and module records (supersedes ADR-0008 on the 4.x line)
 
-**Status:** Proposed
+**Status:** Accepted (user, 2026-11-16)
 **Date:** 2026-11-16
 **Supersedes:** ADR-0008 for 4.x. ADR-0008 stays in force on the 3.x line.
 **Spec:** §9, §13.3, §13.5
