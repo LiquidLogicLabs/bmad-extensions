@@ -8,12 +8,17 @@
 **Goal:** Be able to ship l3io **4.0.0**, a v7-native package, within days of BMad v7 GA — and
 keep the 3.x line correct on v7 trees until then.
 
-**Architecture:** Two release lines, two branches. **3.x stays v6-native on `main`**: it
-finishes the bridge and learns to warn safely on a v7 tree. **4.0.0 is built on
-`feat/bmad-v7-layer`** to the boundary in spec §2: v7 decides what the work is; we decide what
-it costs, what order it runs in, and whether it may start. `main` merges into the v7 branch
-after each 3.x release, never the reverse, until 4.0.0 ships and 3.x becomes the frozen
-maintenance line (spec §8).
+**Architecture:** 4.0.0 **extends v7; it does not replace it** (spec §14). A user runs v7's
+skills — Sofia for planning, `bmad-build`/`bmad-build-auto` for implementation, BMad's own review
+and retrospective. Every l3io capability attaches to one of those skills through an extension
+point v7 ships: menu items, stage hooks, `on_complete`, lenses, `persistent_facts`. An l3io skill
+exists only where v7 has nothing to attach to: unattended multi-ticket orchestration, estimation
+and calibration, migration and diagnostics, ADR allocation, the red-team persona.
+
+Two release lines, two branches. **3.x stays v6-native on `main`**: it finishes the bridge and
+learns to warn safely on a v7 tree. **4.0.0 is built on `feat/bmad-v7-layer`.** `main` merges
+into the v7 branch after each 3.x release, never the reverse, until 4.0.0 ships and 3.x becomes
+the frozen maintenance line (spec §8).
 
 **Tech stack:** Python under `uv run` (PEP 723); Node check tooling; BMad v7 module format
 (`bmod.toml`, `roster.toml`, `retired.toml`, `migration-<n>.toml`, `help/help.md`); Toolsmith's
@@ -24,6 +29,8 @@ it conflicts with §1–§12. Re-measured at `e435a22` (2026-11-12).
 
 ## Global Constraints
 
+- **Extend, do not replace (spec §14).** Before building any capability, name the v7 skill it attaches to and the extension point it uses (§14.1). If v7 already has the capability, use v7's — do not build a second one. A new standalone l3io skill needs a sentence saying why no v7 skill can host it. The test: *if the user never types an `l3io-` command, which of our capabilities still happen?*
+- **Never overwrite a user's customization.** Wire-in merges keyed and list entries into `_bmad/custom/<skill>.toml` and refuses on a non-empty single-slot string hook (§14.2).
 - **Branches.** Phase 1 → `main`. Phases 0 and 2–7 → `feat/bmad-v7-layer`. Nothing v7-native lands on `main`.
 - **No push, no release, no tag** without the user's explicit go-ahead for that specific action.
 - **ADR numbers come from `pm-status.py adr-reserve` only** — never chosen by hand (CLAUDE.md, ADR-0005).
@@ -44,7 +51,10 @@ it conflicts with §1–§12. Re-measured at `e435a22` (2026-11-12).
 |---|---|
 | R1 | Each of the four modules installs with `npx skills add <owner>/<repo>/skills/<code>`; `bmad setup <code>` asks our questions; `bmad status` reports 4.0.0 |
 | R2 | `validate_manifests.py` passes over this repository |
-| R3 | One epic plans, executes and closes end to end on a `repo` store, with all five metrics recorded as estimates and actuals |
+| R3 | One epic plans **in Sofia**, executes and closes end to end on a `repo` store, with all five metrics recorded as estimates and actuals — and no `l3io-` command typed except `l3io-execute` for the unattended run |
+| R13 | **Measurement without our entry points:** a user who runs only `bmad-build` on one ticket still gets a dispatch bracket, actuals and a calibration sample recorded |
+| R14 | **No duplicated engine:** no l3io code review, fix loop, story elaborator, re-planner, help router or tracker sync ships; each was retired in favour of v7's (§14.3) |
+| R15 | **Wire-in is reversible and polite:** `l3io-doctor` wire-in then unwire leaves every `_bmad/custom/*.toml` byte-identical to before, and a team's own non-empty string hook is never overwritten |
 | R4 | On a tracker store, no status is ever written with `tickets.py mark`; readiness runs `mirror` before `next --synced` |
 | R5 | A v6 l3io project migrates under `bmad migrate` with nothing lost — calibration, events, ADR register, estimates, actuals — and its source is kept until verification passes |
 | R6 | All eleven lenses resolve in the merged `bmad-review` and `bmad-code-review` customization |
@@ -63,7 +73,9 @@ The five failure modes most likely to reach a user that no task's happy path exe
 2. **A migrated project still resolves a v6.12 shim** (`bmad-create-story`, `bmad-dev-story`), so 3.x silently runs the v6 path on a v7 tree. Expected: a warning on 3.x, and no fallback chain in 4.0.0. → Task 1.4; Phase 4.
 3. **Our migration is offered before method's has run.** Expected: our `detect` does not match until the v7 initiative layout exists. → Phase 6, test `test_l3io_migration_waits_for_method`.
 4. **Parallel epics lose a write** when our sidecars and `bmad-build-auto`'s plan-file writes interleave; `tickets.py` takes no lock. Expected: no lost writes, measured under parallel dispatch. → Phase 4, test `test_parallel_epics_sidecars_survive`.
-5. **Declared scripts are called at the wrong path.** The docs say `_bmad/scripts/`; the code installs to `_bmad/<code>/scripts/`. Expected: the call form matches a real install. → Task 0.3; Phase 3.
+5. **Wire-in clobbers a team's own hook.** A team already sets `tickets_after` or `on_complete`; our wire-in replaces it, and their behaviour vanishes silently. Expected: refuse, name both values, change nothing. → Phase 2, test `test_wire_in_refuses_nonempty_string_hook`.
+
+(The declared-scripts path — `_bmad/scripts/` in the docs versus `_bmad/<code>/scripts/` in the code — is settled on a real install by Task 0.2, before anything is built on it.)
 
 ---
 
@@ -103,19 +115,26 @@ Reserve all nine numbers at once: `uv run {project-root}/_bmad/scripts/pm-status
 
 | ADR | Decision to make | Spec source |
 |---|---|---|
-| a | Supersede ADR-0008: `bmod.toml`, module records, and the end of `module.yaml` | §10.1 |
-| b | v7 owns the work-item tree; we write sidecars, never `tickets.toml` | §2, §3.2 |
-| c | A sprint is a batch declared in `l3io.toml`, not a level | §4.1 |
-| d | Review viewpoints are contributed as lenses; workflows stay skills | §5 |
-| e | Amend ADR-0006: v7 removals including `bmad-prd`, `bmad-prfaq` and `bmad-product-brief`; `bmad-help` → `bmad`; `bmm` → `method` | §10.5, §13.2 |
-| f | **Migration entry point:** a native `migration-1.toml` calling `migrate-engine.py`, versus the `/l3io-doctor migrate-v7` conductor | §7, §13.3 |
-| g | **Lens registration's home**, now that `l3io-setup` is deleted | §6, §13.3 |
-| h | **`bmad-build-auto` review selector:** `none` (our review is the only one) or `thorough` (lenses inside, ours a second pass) | §4.3, §13.3 |
+| a | **Extend v7, do not replace it** — the governing rule and its test | §14 |
+| b | Supersede ADR-0008: `bmod.toml`, module records, and the end of `module.yaml` | §10.1 |
+| c | v7 owns the work-item tree; we write sidecars, never `tickets.toml` | §2, §3.2 |
+| d | **Sprints in 4.0.0:** none (the epic is the closure unit; calibration is already per story), or an optional batch overlay. Recommend none | §4.1, §14.3 |
+| e | Review viewpoints are contributed as lenses; BMad's review and fix loop are the only ones; workflows stay skills | §5, §14.3 |
+| f | Amend ADR-0006: v7 removals including `bmad-prd`, `bmad-prfaq` and `bmad-product-brief`; `bmad-help` → `bmad`; `bmm` → `method` | §10.5, §13.2 |
+| g | **Migration entry point:** a native `migration-1.toml` calling `migrate-engine.py`, versus the `/l3io-doctor migrate-v7` conductor. Recommend native — it is the extension point | §7, §13.3 |
+| h | **Wire-in:** `l3io-doctor` owns an idempotent merge and unwire for every §14.1 surface; refuses on single-slot string-hook collisions | §14.2 |
 | i | **Repository layout:** `skills/<code>/` per module, and where `skills/_shared/` and the sync tooling live | §9, §13.3 |
 
-- [ ] **Step 1:** Draft all nine. f–i carry a recommendation; a–e record decisions the spec has already made.
+- [ ] **Step 1:** Draft all nine. a, d, g, h and i carry a recommendation; b, c, e and f record decisions the spec has already made.
 - [ ] **Step 2:** `npm run check:docs` — check 3 resolves the `§N` citations.
-- [ ] **Step 3: Commit, then stop for the user's review.** Phases 2–6 depend on f–i.
+- [ ] **Step 3: Commit, then stop for the user's review.** Phases 2–6 depend on a, d, g, h and i.
+
+### Task 0.5: Propose a module customization layer upstream — **user gate before posting**
+
+There is no layer through which a module contributes customization (§14.2). That's why we must write to a team's own files at all. A fourth layer — module-shipped, merged below the team file — would let every third-party module extend v7 without touching user-owned files. Contributing it is extending v7 in the most literal sense.
+
+- [ ] **Step 1:** Draft the proposal under `docs/superpowers/notes/`. Cover: the problem (cite `config_utils.load_customization` and `customize-bmad.md:66-71`); the single-slot string-hook collision; a minimal design (a module ships `customize/<skill>.toml`; setup stages it; the resolver merges it between shipped and team); and that this package would be its first user.
+- [ ] **Step 2: Stop.** Posting an issue or PR to `bmad-code-org/BMAD-METHOD` is outward-facing, so the user decides whether, when, and in whose name. The plan does not depend on acceptance — §14.2's wire-in stands either way, and gets simpler if the layer lands.
 
 ---
 
@@ -186,13 +205,21 @@ After 1.2–1.5: the full gate set, then `npm run release` on approval. Then mer
 
 Spec §8.1 holds 4.0.0's detailed planning until GA stops the surface moving. §13.4 found that the surface §2–§5 build on did **not** move in 29 commits. What moved was packaging. So these phases can start now; each one opens with a re-pin and its own detailed sub-plan. The task lists, exit criteria and order below are firm. The step-level code is written against the pin current when the phase starts.
 
-## Phase 2 — Packaging (`feat/bmad-v7-layer`) — needs ADRs a, e, i
+## Phase 2 — Packaging and wire-in (`feat/bmad-v7-layer`) — needs ADRs a, b, f, h, i
 
 1. **Run Toolsmith's migrate mode over each module first** and keep its "cannot convert" list. Hand-finishing a machine conversion is cheaper and less error-prone than hand-converting.
 2. **Re-lay the repository as `skills/<code>/`** for `l3io-pm`, `l3io-util`, `l3io-sec` and `l3io-arch`, per ADR i. Repoint `sync-shared-scripts.mjs`, `write-payload-manifest.mjs`, and every path in `check-docs.mjs`.
 3. **Write the module records.** `bmod-l3io-pm/bmod.toml` gets `[[bmod.config_questions]]` for every key `l3io-setup` asks today (`lane_count`, `business_ac_required`, …). The single-skill modules get theirs in their own `bmod.toml`. Every member skill gets a `bmod.toml` with `[skill]`.
 4. **`roster.toml`** for `l3io-sec-redteam`; **`help/help.md`** per module, generated from `module-help.csv`.
-5. **`retired.toml`:** `renamed` covers `l3io-pm-execute` → `l3io-execute`, `l3io-pm-plan` → `l3io-plan`, `l3io-pm-help` → `l3io-help` and `l3io-pm-sync` → `l3io-sync`. `removed` covers `l3io-setup`. Delete the four forwarders (R8).
+5. **`retired.toml`** (R8, R14):
+   - `renamed`: `l3io-pm-execute` → `l3io-execute`, `l3io-pm-plan` → `l3io-plan`.
+   - `removed`: `l3io-pm-help`, `l3io-pm-sync`, `l3io-help` (→ `bmad` via our `help/help.md`), `l3io-sync` (→ v7 stores), `l3io-setup` (→ `bmod.toml` questions).
+   - Delete the four forwarders. Ship no skill v7 replaces.
+5a. **Wire-in, owned by `l3io-doctor`** (ADR h, R15). It merges our entries into `_bmad/custom/<skill>.toml` for every §14.1 surface, using a round-trip-safe TOML editor so a team's comments and key order survive. Keyed arrays merge by `code`/`id`, lists append without duplicates, and a single-slot string hook is set only when empty. It records exactly what it wrote, so `unwire` can remove only our entries. `post_install_message` tells the user to run it after `bmad setup`. **Tests:**
+   - `test_wire_in_is_idempotent` — running it twice changes nothing.
+   - `test_unwire_restores_bytes` — wire then unwire leaves every file byte-identical.
+   - `test_wire_in_refuses_nonempty_string_hook` — Review Focus 5.
+   - `test_wire_in_preserves_team_comments`.
 6. **`required_skills`:** `l3io-pm` requires `l3io-doctor` with `source` and a minimum `version`.
 7. **One version across all records**, written from `package.json` by `sync-bmad-versions.mjs`.
 8. **Tooling:**
@@ -204,7 +231,7 @@ Spec §8.1 holds 4.0.0's detailed planning until GA stops the surface moving. §
 
 **Exit:** R1 and R2 on the fixture. **Tests:** `test_validate_manifests_clean`, `test_every_skill_has_bmod_toml`, `test_retired_names_never_shipped`.
 
-## Phase 3 — Config and runtime (`feat/bmad-v7-layer`) — needs Task 0.3, ADR a
+## Phase 3 — Config and runtime (`feat/bmad-v7-layer`) — needs Task 0.3, ADR b
 
 1. **Config-read rewrite** from Task 0.3's classification (R7). Add a `check:docs` check that fails on any shipped read of a v7-absent key — the guard that keeps R7 true.
 2. **Declared scripts.** List the whole `pm_status/` package, `spec-align.py` and `migrate-engine.py` in `[skill] scripts`. Use the call form `uv run {project-root}/_bmad/<code>/scripts/…`, exactly as Task 0.2 Step 2 observed.
@@ -213,28 +240,36 @@ Spec §8.1 holds 4.0.0's detailed planning until GA stops the surface moving. §
 
 **Exit:** no self-install anywhere; scripts resolve on the fixture; R7.
 
-## Phase 4 — The work-item tree (`feat/bmad-v7-layer`) — needs ADRs b, c, h
+## Phase 4 — Hooks into v7's planning and build (`feat/bmad-v7-layer`) — needs ADRs a, c, d, e, h
 
-1. **Data placement** (§3.3): `l3io.toml` in each container's `tickets/` folder; a per-ticket sidecar beside each plan file; project-wide data under `{output_folder}/l3io/`.
-2. **Levels** (§4.1), including the parent initiative as a portfolio scope.
-3. **Plan** (§4.2), reading `tickets.py status`/`next`. On a tracker store it runs `mirror`, then `next --synced` (§13.3). Our readiness adds the six technical-AC dimensions, the business ACs, `Spec:` pointers and an estimate.
-4. **Execute** (§4.3): gates → `tickets.py pull` → `bmad-build-auto` with the ADR h selectors → review → fix loop → QA → actuals → status. Remove the `bmad-create-story`/`bmad-dev-story` fallback chain and the in-package dev agent.
-5. **Store-aware status writes** (§4.4): resolve the store once at activation with `read_store.py -k tickets`; never call `mark` on a non-`repo` store.
-6. **The backlog:** `issues.yaml` dissolves into v7 `backlog/` leaves (§3.3), and the audit (findings 1a–1l) becomes a doctor mode over v7's tree.
+Everything here attaches to a v7 skill. Each item names its host and extension point (spec §14.1).
 
-**Exit:** R3 and R4 on the fixture. **Tests:** `test_tracker_store_never_calls_mark`, `test_parallel_epics_sidecars_survive` (Review Focus 1, 2, 4).
+1. **Data placement** (§3.3): estimates and wave and lane data in `l3io.toml` beside each container's `tickets.toml`; actuals in a per-ticket sidecar; project-wide data under `{output_folder}/l3io/`. We never write `tickets.toml` (ADR c).
+2. **Measurement on every build — host `bmad-build` and `bmad-build-auto`.** `activation_steps_prepend` opens the dispatch bracket. `on_complete` closes it, runs `usage` → `set-actual`, records test runs and appends the calibration sample. Wired in via Phase 2's wire-in. This is R13: it works when the user never touches `l3io-execute`.
+3. **Estimation — host Sofia.** `tickets_after` and `refine_after` estimate each new or changed entry from class × calibration. A `[[agent.menu]]` item `code = "ESTIMATE"` re-estimates on request. `replan_after` re-estimates what a replan touched.
+4. **Readiness gates — host Sofia's `validate`.** `validate_after` adds our six-dimension technical-AC check, the business-AC check and `spec-align.py check-pointers` to her findings. On a tracker store, readiness runs `tickets.py mirror` then `next --synced` (§13.3). `ac-dimensions.md` ships as a `persistent_facts` file entry so `REFINE` writes to the same dimensions the check enforces.
+5. **Waves and lanes — host Sofia's `board`.** `board_after` renders parallel waves — the topological sort over `after`, including the parent-initiative scope (§4.1) — and lanes. Menu items `WAVES` and `LANES`.
+6. **Unattended run — `l3io-execute`, the one orchestrator v7 lacks.** It takes `next`'s ready set, dispatches `bmad-build-auto` per ticket with `review = "thorough"` and `interactive = false`, runs waves in parallel up to `max_parallel_subagents`, and closes each epic through Sofia's retrospective offer. **It has no code review, fix loop or story-prep phase of its own** (ADR e, R14). Status goes through the store: `mark` on `repo`; on a tracker store, the tracker's write and then `mirror` (§4.4).
+7. **Closure — host `bmad-retrospective`.** `on_complete` rolls up epic actuals and closure calibration.
+8. **Retire what v7 already does** (R14): the dev agent and the `bmad-create-story`/`bmad-dev-story` fallback chain; `reorg` (→ Sofia's `REPLAN`); story elaboration (→ `REFINE`); `issues.yaml` (→ v7 `backlog/`, with the 1a–1l audit kept as a doctor mode over v7's tree).
 
-## Phase 5 — Lenses (`feat/bmad-v7-layer`) — needs ADRs d, g
+**Exit:** R3, R4, R13 and R14 on the fixture. **Tests:**
+- `test_bmad_build_alone_records_actuals` (R13)
+- `test_tracker_store_never_calls_mark`
+- `test_parallel_epics_sidecars_survive`
+- `test_execute_has_no_review_phase` — the dispatch plan contains no l3io review or fix step.
 
-1. Write the eleven lenses in §5.2: five engineering, five threat, plus AI-poisoning `after` external. Each one's `instruction` points at our own reference file.
-2. Register them where ADR g decides, into `_bmad/custom/bmad-review.toml` and `_bmad/custom/bmad-code-review.toml`.
-3. Make `l3io-arch-review` Mode B a caller of `bmad-review`. Split `l3io-sec-redteam`: workflows and persona stay, viewpoints move to lenses.
+## Phase 5 — Lenses and architecture (`feat/bmad-v7-layer`) — needs ADRs e, h
 
-**Exit:** R6, verified by resolving both merged customizations on the fixture and listing all eleven codes.
+1. **Write the eleven lenses** in §5.2 (five engineering, five threat, plus AI-poisoning `after` external). Each one's `instruction` points at our own reference file. Wire them into `bmad-review` and into `bmad-code-review`/`bmad-build`'s `thorough_lenses`.
+2. **`l3io-arch-review`'s standards join `bmad-architecture`.** Design guardrails go through `doc_standards` and `external_sources`; the epic design review is appended to `finalize_reviewers`. Mode A stops being a separate workflow. Mode C (ADR recording with `adr-reserve`) stays a skill.
+3. **`l3io-sec-redteam`:** threat viewpoints become lenses; the persona and sanctum stay a skill for explicit red-team sessions.
 
-## Phase 6 — Migration (`feat/bmad-v7-layer`) — needs ADR f, Task 0.2 Step 3
+**Exit:** R6. Both merged review customizations list all eleven codes, and `bmad-architecture`'s merged `finalize_reviewers` includes ours.
 
-1. Build the entry point ADR f chooses. If it's native: `migration-1.toml` with `module = "l3io-pm"`, `from = "3"`, `to = "4"`, a `detect` that requires the v7 initiative layout to already exist (Review Focus 3), a `guide` that invokes `migrate-engine.py`, and a `checklist` that verifies every moved datum.
+## Phase 6 — Migration (`feat/bmad-v7-layer`) — needs ADR g, Task 0.2 Step 3
+
+1. Build the entry point ADR g chooses. If it's native: `migration-1.toml` with `module = "l3io-pm"`, `from = "3"`, `to = "4"`, a `detect` that requires the v7 initiative layout to already exist (Review Focus 3), a `guide` that invokes `migrate-engine.py`, and a `checklist` that verifies every moved datum.
 2. Add engine readers and writers for the four v6 layouts → §3.3 targets (§7's list), keeping detect → read → resolve → plan → **gate** → write → verify → dispose.
 3. Build fixtures for each source layout, including one with a leftover v6 shim.
 

@@ -774,3 +774,95 @@ dependency `module.yaml` declares today but v6 never enforces.
 moved was packaging and distribution, and most of what this re-measure found was there to be
 read a month ago. The readiness risk is now less "v7 changes under us" and more "we have not
 planned the parts of v7 that were already settled".
+
+## 14. Extend v7, do not replace it
+
+**Decided by the user, 2026-11-15. This section governs §4–§7 wherever they conflict.**
+
+§2's boundary was right about *data* — v7 owns the work-item tree. §4–§6 still drew the
+*workflow* as ours: `l3io-plan` and `l3io-execute` as the entry points a user runs, `tickets.py`
+and `bmad-build-auto` called beneath them as subroutines, a sprint level v7 rejects by design, a
+second code review and fix loop running after BMad's own, and `review=none` (§13.3) weighed as a
+way to switch BMad's review off. That is a parallel product wearing v7's data model. The rule
+is now:
+
+> **A user runs v7's skills. Every l3io capability attaches to the v7 skill the user already
+> runs, through an extension point v7 ships. An l3io skill exists only where v7 has no skill to
+> attach to.**
+
+The test for any design choice: *if the user never types an `l3io-` command, which of our
+capabilities still happen?* Under §4 as written, almost none. Under this section, all the
+measurement and gating does.
+
+### 14.1 The extension points, measured at `e435a22`
+
+Every customizable skill resolves three layers: its shipped `customize.toml`, then
+`_bmad/custom/<skill>.toml` (team, committed), then `_bmad/custom/<skill>.user.toml` (personal)
+(`config_utils.load_customization`, `docs/customize/customize-bmad.md:66-71`). Merge: strings
+replace; lists append; arrays of tables merge by `code` or `id`.
+
+| Skill | Surface | Kind | Our use |
+|---|---|---|---|
+| every customizable skill | `activation_steps_prepend` / `_append`, `persistent_facts` | list — append | dispatch brackets; the estimates HARD RULE as a fact |
+| `bmad-agent-po` (Sofia) | `[[agent.menu]]` | keyed by `code` | our actions appear **in her menu**: estimate, waves, lanes, stats |
+| `bmad-agent-po` | `tickets_after`, `refine_after`, `validate_after`, `board_after`, `replan_after` (+ `_before`) | string — **single slot** | estimate on slice/refine; our AC and spec-pointer checks on validate; waves and lanes on board; re-estimate on replan |
+| `bmad-build`, `bmad-build-auto` | `on_complete` | string — **single slot** | close the dispatch bracket; capture actuals; record test runs; calibration sample |
+| `bmad-build`, `bmad-build-auto`, `bmad-code-review` | `[[workflow.quick_lenses]]` / `thorough_lenses` | keyed by `id` | §5's lenses run inside BMad's review |
+| `bmad-code-review` | `fixes = "apply"`, `interactive` | string | BMad **already** reviews and applies fixes — our separate fix loop is redundant |
+| `bmad-review` | `[[workflow.lenses]]` | keyed by `code` | §5 |
+| `bmad-architecture` | `doc_standards`, `finalize_reviewers`, `external_sources` | list — append | `l3io-arch-review`'s standards and design review join **their** architecture workflow |
+| `bmad-architecture`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective` | `on_complete` | string, or an array on `bmad-architecture` | closure metrics and calibration roll-up on retrospective |
+
+### 14.2 The constraint: there is no module layer
+
+v7 has no layer a module contributes. `bmad setup` writes config answers and handles
+`retired.toml`; it writes nothing into another skill's customization, and `_bmad/custom/`
+"starts empty. Files appear only when someone customizes." So **extending v7 means writing our
+entries into the project's team file** `_bmad/custom/<skill>.toml`. Two consequences:
+
+1. **One wire-in mechanism, not a lens-registration question.** §13.3 asked where lens
+   registration lives once `l3io-setup` is deleted. The real question is wider: every row of
+   14.1 needs the same idempotent, round-trip-safe merge into a team file the user also edits,
+   with a matching unwire. Build it once.
+2. **Single-slot string hooks collide.** Our `tickets_after` and a team's own `tickets_after`
+   cannot both exist. Wire-in must never overwrite a non-empty string hook. It refuses and
+   names the conflict, or composes only with explicit consent. Prefer list and keyed surfaces
+   wherever one reaches the same point.
+
+**Ask upstream for a module layer** — a fourth customization layer a module ships, merged below
+the team file. That is the clean extension story for every third-party module, not only ours,
+and it would retire most of 14.2. Contributing it is itself extending v7.
+
+### 14.3 What each l3io capability becomes
+
+| Capability today | Becomes | Why |
+|---|---|---|
+| `l3io-plan` as the planning entry point | **Hooks on Sofia** plus menu items. Estimation, the six-dimension technical-AC check, business ACs, `Spec:` pointers and wave planning run on her stage hooks; a thin `l3io-plan` skill remains as the target her menu items call | Sofia is v7's planner |
+| `l3io-plan reorg` | **retired** — Sofia's `REPLAN`, with re-estimate on `replan_after` | v7 has the capability |
+| Story elaboration and enrichment | **Sofia's `REFINE`**, with `ac-dimensions.md` as a `persistent_facts` file entry | v7 has the capability |
+| `l3io-execute`'s unattended multi-ticket run | **stays an l3io skill** — v7 has no orchestrator (§1.1). It takes `tickets.py next`'s ready set and dispatches `bmad-build-auto` per ticket, in parallel waves | No v7 skill to attach to |
+| Our post-build code review and fix loop | **retired** — BMad's review with `fixes = "apply"`, our lenses inside it, `review = "thorough"` | v7 has the capability; ours was a second engine |
+| Dispatch bracket and actuals capture | **`activation_steps_prepend` + `on_complete` on `bmad-build`/`bmad-build-auto`** — measures every build, orchestrated or not | The strongest single result of this section |
+| Sprint and epic closure reviews | **`bmad-review` with our lenses, plus `bmad-retrospective`** (Sofia already offers it before closing an epic, `7d95282`); closure metrics on `bmad-retrospective`'s `on_complete` | v7 has the capability |
+| Sprints | **open — ADR.** v7 rejects them by design. Recommendation: none in 4.0.0. The epic is the closure unit; calibration feed-forward needs no batch, since every `set-actual` already appends a sample | Reintroducing a level v7 rejected is replacement |
+| Lanes | **stays** — our data on the epic, rendered on `board_after` | v7 has no multi-clone partition |
+| Estimation, calibration, event log, `report` | **stays** — scripts called by hooks | v7 refuses to produce these numbers (§1) |
+| Epic architecture gate | **`bmad-architecture` `finalize_reviewers`** plus our lenses | v7 has the workflow |
+| `l3io-arch-review` design guardrails (Mode A) | **`bmad-architecture` `doc_standards` + `external_sources`** | v7 has the workflow |
+| `l3io-arch-review` ADR recording (Mode C) | **stays** — `adr-reserve` allocation has no v7 equivalent | |
+| `l3io-sec-redteam` | threat viewpoints → lenses (§5); persona and sanctum stay a skill | |
+| `l3io-help` | **retired** — our `help/help.md` feeds the `bmad` skill's recommendations | v7 has the capability |
+| `l3io-sync` | **retired** — v7's six stores | unchanged from §6 |
+| `l3io-setup` | **retired** — `bmod.toml` config questions; wire-in moves to `l3io-doctor` | §13.3 |
+| `l3io-doctor` | **stays** — migration, wire-in/unwire, audits over v7's tree | |
+
+### 14.4 What this supersedes
+
+- **§4.2** — `l3io-plan` is no longer the planner. Its six steps become hooks on Sofia, except
+  the phase graph, which moves into `l3io-execute`'s dispatch planning.
+- **§4.3** — the pipeline is `tickets.py next` → `bmad-build-auto` (`review = "thorough"`, our
+  lenses inside) → BMad's own fixes. Our hooks bracket it. There is no l3io code review or fix
+  loop after it.
+- **§13.3's `review` selector question** is answered: keep BMad's review on.
+- **§6's fate table** is replaced by 14.3.
+- **§13.3's lens-registration question** is generalised by 14.2.
