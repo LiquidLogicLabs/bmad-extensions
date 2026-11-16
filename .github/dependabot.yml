@@ -1,0 +1,29 @@
+# Version updates for the check tooling and the workflows. Security updates are enabled as a
+# repository setting and keep working without this file; this adds the routine bumps.
+#
+# Every update lands as a PR and runs the full `checks` workflow. Patch and minor bumps merge
+# themselves once it passes (the `dependabot-automerge` job in checks.yml); majors wait for a
+# human. Nothing under node_modules is payload (CLAUDE.md), so a bump here changes the gates,
+# never what a consuming project installs.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      prefix-development: chore
+      include: scope
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
