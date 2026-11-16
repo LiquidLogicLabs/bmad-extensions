@@ -109,6 +109,14 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.7.1
+
+**The repository moved to `github.com/LiquidLogicLabs/bmad-extensions`.** Nothing to do: GitHub
+redirects the old `ravensorb/bmad-extensions` web, git and raw URLs, so existing installs and
+`--custom-source` lines keep working. This release points the marketplace entry, the
+installer's default source, the README and each module's help link at the new home directly.
+Update any script of your own that names the old URL when convenient.
+
 ### → 3.7.0
 
 No migration step. Four changes you may notice:

@@ -46,7 +46,7 @@ set -euo pipefail
 # latest means an upstream change reaches every repo on its next upgrade; that is the trade,
 # and it is chosen.
 BMAD_VERSION_DEFAULT="latest"
-SOURCE_DEFAULT="https://github.com/ravensorb/bmad-extensions"
+SOURCE_DEFAULT="https://github.com/LiquidLogicLabs/bmad-extensions"
 MODULES_DEFAULT="bmm"
 TOOLS_DEFAULT="claude-code"
 

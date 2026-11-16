@@ -88,7 +88,7 @@ Run in the project repo where you want to use the extension:
 ```bash
 npx -y bmad-method@latest install \
   --directory . \
-  --custom-source https://github.com/ravensorb/bmad-extensions \
+  --custom-source https://github.com/LiquidLogicLabs/bmad-extensions \
   --modules bmm \
   --tools claude-code \
   --yes

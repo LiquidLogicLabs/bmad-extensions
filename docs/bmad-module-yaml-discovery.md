@@ -203,7 +203,7 @@ straight from `collectAgentsFromModuleYaml`.
 ## Consumer-side conditions that still apply
 
 1. **The file must be on the branch the consumer tracks.** Consumers install with
-   `source: custom`, `repoUrl: https://github.com/ravensorb/bmad-extensions`. A `module.yaml`
+   `source: custom`, `repoUrl: https://github.com/LiquidLogicLabs/bmad-extensions`. A `module.yaml`
    that exists only in a working tree never reaches them.
 2. **The consumer's clone cache must be refreshed.** The URL path reads
    `~/.bmad/cache/custom-modules/<host>/<owner>/<repo>/`. A cache cloned before the file was
