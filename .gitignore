@@ -760,3 +760,6 @@ _bmad/
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# The Python template above ignores every lib/; the check tooling's shared modules live in one.
+!scripts/lib/

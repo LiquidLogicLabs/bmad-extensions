@@ -1,1 +1,1 @@
-../../skills/l3io-plan/SKILL.md
+../../skills/l3io-pm/l3io-plan/SKILL.md

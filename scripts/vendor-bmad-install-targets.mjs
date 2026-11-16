@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Vendors BMad 6.x's per-platform skill install directories into
-// skills/l3io-doctor/assets/bmad-install-targets.json, which bmad-deps.py reads to know where
+// skills/l3io-util/l3io-doctor/assets/bmad-install-targets.json, which bmad-deps.py reads to know where
 // a 6.x install put its skills for each tool recorded in _bmad/_config/manifest.yaml `ides:`.
 //
 // Usage: node scripts/vendor-bmad-install-targets.mjs <platform-codes.yaml> <tag>
@@ -31,7 +31,7 @@ if (!src || !tag) {
     out.platforms[code] = { target_dir: i.target_dir ?? null, global_target_dir: i.global_target_dir ?? null };
   }
   const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-  const dest = path.join(root, "skills/l3io-doctor/assets/bmad-install-targets.json");
+  const dest = path.join(root, "skills/l3io-util/l3io-doctor/assets/bmad-install-targets.json");
   fs.writeFileSync(dest, JSON.stringify(out, null, 2) + "\n");
   console.log(`wrote ${Object.keys(out.platforms).length} platforms to ${path.relative(root, dest)}`);
 }

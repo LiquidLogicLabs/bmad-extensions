@@ -27,15 +27,15 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-execute",
-        "./skills/l3io-plan",
-        "./skills/l3io-help",
-        "./skills/l3io-sync",
-        "./skills/l3io-setup",
-        "./skills/l3io-pm-execute",
-        "./skills/l3io-pm-plan",
-        "./skills/l3io-pm-help",
-        "./skills/l3io-pm-sync"
+        "./skills/l3io-pm/l3io-execute",
+        "./skills/l3io-pm/l3io-plan",
+        "./skills/l3io-pm/l3io-help",
+        "./skills/l3io-pm/l3io-sync",
+        "./skills/l3io-pm/l3io-setup",
+        "./skills/l3io-pm/l3io-pm-execute",
+        "./skills/l3io-pm/l3io-pm-plan",
+        "./skills/l3io-pm/l3io-pm-help",
+        "./skills/l3io-pm/l3io-pm-sync"
       ]
     },
     {
@@ -48,7 +48,7 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-sec-redteam"
+        "./skills/l3io-sec/l3io-sec-redteam"
       ]
     },
     {
@@ -61,7 +61,7 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-doctor"
+        "./skills/l3io-util/l3io-doctor"
       ]
     },
     {
@@ -74,7 +74,7 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-arch-review"
+        "./skills/l3io-arch/l3io-arch-review"
       ]
     }
   ],

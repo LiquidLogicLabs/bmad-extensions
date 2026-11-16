@@ -8,6 +8,15 @@ Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` 
 
 ## Module Layout
 
+The repository is laid out **one folder per module** (ADR-0021): `skills/l3io-pm/` holds the
+`l3io-pm` skills, and `skills/l3io-util/l3io-doctor/`, `skills/l3io-arch/l3io-arch-review/` and
+`skills/l3io-sec/l3io-sec-redteam/` are the three single-skill modules. `skills/_shared/` sits
+beside them as the canonical source tree and belongs to no module. A skill is any directory
+under `skills/` holding a `SKILL.md`; every tool locates skills through
+`scripts/lib/skill-dirs.mjs`, never a `skills/*/` glob (`scripts/CLAUDE.md` has the mechanics).
+A skill is still named by its own directory, so sibling-relative paths between skills of one
+module hold, and an install flattens every module into one skills folder.
+
 `l3io-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
 and the state layout, and each of its nineteen modes lives in its own `steps/` file loaded
 only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
@@ -154,7 +163,7 @@ from there. This package used to vendor byte-identical copies of all three into 
 `scripts/` directories where nothing invoked them — dead payload that duplicated core and
 would rot on the next BMad release.
 
-Each skill carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 for
+Each skill carries a **generated** `skills/<module>/<skill>/payload-manifest.json` — a SHA-256 for
 **every file that skill ships**, keyed relative to that skill's own root so a consumer who
 installed one skill can verify that skill alone. **All twelve** have one, the four deprecated
 forwarders included: a forwarder ships a `SKILL.md`, which is payload, and `clean-payload.py`
@@ -207,7 +216,7 @@ Three things that header does not tell you:
   `_bmad/_config/skill-manifest.csv` for the name. BMad 6.12.4 installs into 22 tool
   directories (`.cline/skills`, `.kiro/skills`, …) and only the manifest covers all of them;
   `bmad-deps.py` derives the same set from `manifest.yaml` `ides:` via
-  `skills/l3io-doctor/assets/bmad-install-targets.json`. l3io 3.x targets BMad 6.x only, so a
+  `skills/l3io-util/l3io-doctor/assets/bmad-install-targets.json`. l3io 3.x targets BMad 6.x only, so a
   bare `<project>/skills` root (v7's) is deliberately not probed.
 - Check 1 deliberately allows a doc to name a removed skill when mapping it to its replacement or
   explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
@@ -364,7 +373,7 @@ Required intra-package: `l3io-util` (this package's utilities module — provide
 `l3io-doctor`). `l3io-help` forwards `progress` to `/l3io-doctor stats` and calls
 `skill:l3io-doctor check-pm-status` at activation to check whether the installed
 pm-status.py is current. Both would fail without the doctor installed. The dependency is
-declared in `skills/l3io-setup/assets/module.yaml`'s `dependencies:` list — the field
+declared in `skills/l3io-pm/l3io-setup/assets/module.yaml`'s `dependencies:` list — the field
 BMad's installer captures at `tools/installer/modules/official-modules.js:207`
 (`moduleInfo.dependencies = config.dependencies || []`) but does not currently enforce (no
 picker validation, no install-order gate as of 6.12). The declaration is future-proof for
@@ -378,6 +387,6 @@ standards into core `bmad-architecture` via `bmad-customize`. Both gates self-sk
 gate falls back to a built-in checklist) when `l3io-arch-review` is absent.
 
 Run `/l3io-doctor check-deps` in a target project to see exactly what resolved there — the
-declared inventory lives at `skills/l3io-doctor/assets/bmad-dependencies.json`.
+declared inventory lives at `skills/l3io-util/l3io-doctor/assets/bmad-dependencies.json`.
 Run `/l3io-doctor check-pm-status` to verify the installed pm-status.py is current
 against the shipped version at this extension level.

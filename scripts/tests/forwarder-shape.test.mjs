@@ -12,6 +12,7 @@ import path from "node:path";
 import {
   declaresForwarder, forwarderTarget, isBareForwarderShape, skillDescription, TARGET_RE,
 } from "../forwarder-shape.mjs";
+import { skillDirs } from "../lib/skill-dirs.mjs";
 
 function skill(t, { name = "l3io-pm-plan", desc = null, body = "", files = ["customize.toml"],
                     sub = null, skillMd = true } = {}) {
@@ -106,10 +107,10 @@ test("SKILL.md with no frontmatter, or unparseable frontmatter, yields nothing",
 test("the repo's own four forwarders satisfy every clause", (t) => {
   // Derived, not listed: whatever skills/ actually holds. If a real forwarder stopped
   // satisfying these, the view checker would stop exempting it and smoke:install would fail.
-  const skillsRoot = path.resolve(import.meta.dirname, "..", "..", "skills");
-  const dirs = fs.readdirSync(skillsRoot, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && declaresForwarder(path.join(skillsRoot, e.name)))
-    .map((e) => path.join(skillsRoot, e.name));
+  const repo = path.resolve(import.meta.dirname, "..", "..");
+  const dirs = skillDirs(repo)
+    .map((rel) => path.join(repo, rel))
+    .filter((d) => declaresForwarder(d));
   assert.ok(dirs.length >= 4, `expected at least 4 forwarders, found ${dirs.length}`);
   for (const d of dirs) {
     assert.ok(isBareForwarderShape(d), `${path.basename(d)} is not a bare forwarder shape`);

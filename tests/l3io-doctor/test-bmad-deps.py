@@ -10,7 +10,7 @@
 # ///
 """
 Tests for bmad-deps.py. Run with:
-  uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py
+  uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util/l3io-doctor/scripts/tests/test-bmad-deps.py
 
 Every case drives the real CLI through subprocess. Fixture trees are built by _tree(); nothing
 here reads this repo's own _bmad/ install, and HOME is repointed at an empty directory for
@@ -66,7 +66,7 @@ def tearDownModule():
                              f"cleanup: {', '.join(leaked[:5])}")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "bmad-deps.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-util", "l3io-doctor", "scripts", "bmad-deps.py")
 SKILL_ROOT = os.path.dirname(os.path.dirname(SCRIPT))
 INVENTORY = os.path.join(SKILL_ROOT, "assets", "bmad-dependencies.json")
 

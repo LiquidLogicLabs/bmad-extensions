@@ -5,7 +5,7 @@
 // Why this exists: scripts/smoke-install.sh has to assert that a REAL install's
 // `_bmad/config.toml` files every module's installer answers under that module's OWN code.
 // The set of (code, key) pairs to expect is stated once, in each module's
-// `skills/*/assets/module.yaml`: the `code:` field, plus every top-level key whose value is a
+// every skill's `assets/module.yaml`: the `code:` field, plus every top-level key whose value is a
 // mapping carrying a `prompt:` -- BMad's own rule for "this is an install-time question"
 // (tools/installer/core/manifest-generator.js, writeCentralConfig: `'prompt' in value`).
 // Enumerating those pairs in the smoke script instead would be exactly the hand-kept scope
@@ -22,6 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
+import { skillDirs } from "./lib/skill-dirs.mjs";
 
 const argv = process.argv.slice(2);
 const rootIdx = argv.indexOf("--root");
@@ -37,9 +38,8 @@ if (!fs.existsSync(skillsDir)) {
 const codes = [];
 const settings = [];
 
-for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-  if (!entry.isDirectory() || entry.name === "_shared") continue;
-  const rel = path.join("skills", entry.name, "assets", "module.yaml");
+for (const skillRel of skillDirs(repoRoot)) {
+  const rel = path.posix.join(skillRel, "assets", "module.yaml");
   const abs = path.join(repoRoot, rel);
   if (!fs.existsSync(abs)) continue;
 

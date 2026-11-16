@@ -12,7 +12,7 @@ const byId = (id) => {
   return e;
 };
 /** Is this finding swallowed by ANY exemption? That is what the gate actually asks. */
-const exempt = (f, ctx = { skill: 'skills/l3io-doctor', tested: new Set() }) =>
+const exempt = (f, ctx = { skill: 'skills/l3io-util/l3io-doctor', tested: new Set() }) =>
   EXEMPTIONS.some((e) => e.match(f, ctx));
 
 test('scope is derived: scanners come from the installed bmb package, skills from disk', () => {
@@ -51,11 +51,11 @@ test('the project-root exemption does not extend to other categories', () => {
 test('absolute-path is exempt only for the two documented runtime homes', () => {
   const f = (line) => ({ category: 'absolute-path', severity: 'high',
                          file: 'steps/execute/step-04-arch-gate.md', line });
-  const ctx = { skill: 'skills/l3io-execute', tested: new Set() };
+  const ctx = { skill: 'skills/l3io-pm/l3io-execute', tested: new Set() };
   // That file really does contain ~/.claude/... — the scanner's own `detail` truncates
   // before it, which is why the predicate reads the file instead. The line number is DERIVED,
   // not pinned: a literal went stale twice (34, then 49) as the probe in that file was edited.
-  const probeFile = path.join(ROOT, 'skills/l3io-execute/steps/execute/step-04-arch-gate.md');
+  const probeFile = path.join(ROOT, 'skills/l3io-pm/l3io-execute/steps/execute/step-04-arch-gate.md');
   const homeLine = fs.readFileSync(probeFile, 'utf8')
     .split('\n').findIndex((l) => l.includes('~/.claude/')) + 1;
   assert.ok(homeLine > 0, `no ~/.claude/ line in ${probeFile}`);
@@ -73,9 +73,9 @@ test('the PEP 723 exemption turns off for a script that declares no inline deps'
   const e = byId('pep723-declared');
   const dep = { category: 'dependencies', severity: 'high' };
   assert.equal(e.match({ ...dep, file: 'scripts/pm_status/__main__.py' },
-                       { skill: 'skills/l3io-doctor' }), true);
+                       { skill: 'skills/l3io-util/l3io-doctor' }), true);
   // A .md has no PEP 723 header, so the same category over it is reported.
-  assert.equal(e.match({ ...dep, file: 'SKILL.md' }, { skill: 'skills/l3io-doctor' }), false);
+  assert.equal(e.match({ ...dep, file: 'SKILL.md' }, { skill: 'skills/l3io-util/l3io-doctor' }), false);
 });
 
 test('the tests exemption is keyed on suites that exist, and reports a script with none', () => {
@@ -99,6 +99,7 @@ test('a bare _bmad/ in a shell fence is caught; in prose or an output block it i
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bmb-'));
   const sk = path.join(tmp, 'skills/l3io-probe');
   fs.mkdirSync(sk, { recursive: true });
+  fs.writeFileSync(path.join(sk, 'SKILL.md'), '');
   fs.writeFileSync(path.join(sk, 'ok.md'),
     'Prose may name _bmad/config.toml freely.\n\n```\n⚠️  legacy layout = _bmad/state/\n```\n');
   assert.deepEqual(noBareBmadInCommands(tmp), [],

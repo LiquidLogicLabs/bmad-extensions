@@ -154,7 +154,7 @@ class TestClean(Base):
              "files": {"scripts/a.py": h}}), encoding="utf-8")
         if with_helper:
             real = os.path.join(os.path.dirname(os.path.dirname(_HERE)),
-                                "skills", "l3io-doctor", "scripts", "clean-payload.py")
+                                "skills", "l3io-util", "l3io-doctor", "scripts", "clean-payload.py")
             shutil.copy(real, d / "clean-payload.py")
 
     def test_clean_is_a_dry_run_without_apply(self):

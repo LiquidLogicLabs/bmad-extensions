@@ -27,7 +27,7 @@ from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)),
-                       "skills", "l3io-doctor", "scripts", "clean-payload.py")
+                       "skills", "l3io-util", "l3io-doctor", "scripts", "clean-payload.py")
 
 GENERATED_FROM = "skills/_shared/"
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { skillDirs } from "./lib/skill-dirs.mjs";
 
 const repoRoot = process.cwd();
 const packageJsonPath = path.join(repoRoot, "package.json");
@@ -79,14 +80,13 @@ function pmStatusVersionFiles(dir) {
 // non-*-setup skill (check:module rule 1, docs/bmad-module-yaml-discovery.md), and
 // check:module requires the two to stay byte-identical, so bumping one without the other
 // would fail the gate.
-const skillsDir = path.join(repoRoot, "skills");
 let moduleYamlCount = 0;
-for (const skillName of fs.readdirSync(skillsDir)) {
+for (const skillRel of skillDirs(repoRoot)) {
   for (const rel of [
     path.join("assets", "module.yaml"),
     "module.yaml",
   ]) {
-    const moduleYamlPath = path.join(skillsDir, skillName, rel);
+    const moduleYamlPath = path.join(repoRoot, skillRel, rel);
     if (!fs.existsSync(moduleYamlPath)) continue;
     const content = fs.readFileSync(moduleYamlPath, "utf8");
     const updated = content.replace(
@@ -95,7 +95,7 @@ for (const skillName of fs.readdirSync(skillsDir)) {
     );
     if (updated !== content) {
       fs.writeFileSync(moduleYamlPath, updated, "utf8");
-      console.log(`Synced module_version in skills/${skillName}/${rel} to ${releaseVersion}`);
+      console.log(`Synced module_version in ${skillRel}/${rel} to ${releaseVersion}`);
       moduleYamlCount++;
     }
   }

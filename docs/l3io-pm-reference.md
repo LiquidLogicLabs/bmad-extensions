@@ -530,7 +530,7 @@ drives `bmad-build-auto` (BMad's autonomous dev primitive, formerly `bmad-dev-au
 three skills of its own: `bmad-loop-setup`, `bmad-loop-sweep`, `bmad-loop-resolve`. When a
 project has bmad-loop installed alongside this package, `l3io-doctor check-deps` reports
 each of them under `related_present`, and `l3io-help`'s recommendation appends a one-paragraph
-overlap note (`skills/l3io-help/steps/step-05-recommend.md`).
+overlap note (`skills/l3io-pm/l3io-help/steps/step-05-recommend.md`).
 
 **The two overlap. Neither replaces the other.** Both drive an unattended dev loop over a queue
 of stories, and both write status back to disk. The tables below name what each covers so a

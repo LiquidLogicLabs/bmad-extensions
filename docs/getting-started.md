@@ -65,7 +65,7 @@ Node.js is **not** needed to use the skills — only to develop this package its
 You can install all four modules or only the ones you need — but `l3io-util` is required
 whenever `l3io-pm` is installed (it provides the doctor that PM skills forward to for
 migrations, the progress dashboard, and the `check-pm-status` mode). Declared in
-`skills/l3io-setup/assets/module.yaml`'s `dependencies:` list; the marketplace bundle
+`skills/l3io-pm/l3io-setup/assets/module.yaml`'s `dependencies:` list; the marketplace bundle
 ships all four together so a standard install always carries `l3io-util`.
 
 | Module | Install if you want |

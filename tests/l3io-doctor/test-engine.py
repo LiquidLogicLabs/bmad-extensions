@@ -19,7 +19,7 @@ FIXTURES = Path(HERE) / "fixtures"
 
 def _load(name, filename):
     spec = importlib.util.spec_from_file_location(
-        name, os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", filename))
+        name, os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-util", "l3io-doctor", "scripts", filename))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

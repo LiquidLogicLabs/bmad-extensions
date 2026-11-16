@@ -1,1 +1,1 @@
-../../skills/l3io-doctor/SKILL.md
+../../skills/l3io-util/l3io-doctor/SKILL.md

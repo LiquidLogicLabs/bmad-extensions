@@ -10,7 +10,7 @@
 # ///
 """
 Tests for audit-backlog.py. Run with:
-  uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-audit-backlog.py
+  uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util/l3io-doctor/scripts/tests/test-audit-backlog.py
 Items are always created through the real pm-status.py CLI, never hand-written.
 """
 import importlib.util
@@ -63,7 +63,7 @@ def tearDownModule():
                              f"cleanup: {', '.join(leaked[:5])}")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "audit-backlog.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-util", "l3io-doctor", "scripts", "audit-backlog.py")
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PM = os.path.join(REPO, "skills", "_shared", "pm_status", "__main__.py")
 

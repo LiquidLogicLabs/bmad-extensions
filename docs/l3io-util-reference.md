@@ -76,9 +76,9 @@ Key settings (with defaults):
 ### BMad customization layer — specified, not shipped
 
 There is **no `overlay` keyword** on `/l3io-doctor`. The mode was specified and then held
-back, because `skills/l3io-doctor/assets/overlays/` ships no overlay TOML: all three of its
+back, because `skills/l3io-util/l3io-doctor/assets/overlays/` ships no overlay TOML: all three of its
 actions (`list`, `diff`, `verify`) would report "nothing ships yet" by construction. Its full
-contract is kept as `skills/l3io-doctor/assets/overlays/overlay-mode.md`, beside the
+contract is kept as `skills/l3io-util/l3io-doctor/assets/overlays/overlay-mode.md`, beside the
 directory it describes, and Phase 3 of the customization-layer design restores the keyword along
 with the content.
 

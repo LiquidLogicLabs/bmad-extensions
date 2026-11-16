@@ -1,1 +1,1 @@
-../../skills/l3io-arch-review/SKILL.md
+../../skills/l3io-arch/l3io-arch-review/SKILL.md

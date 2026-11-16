@@ -17,7 +17,7 @@ agents:
   # guidance suggests matching the skill directory basename (l3io-sec-redteam); this short
   # form is a deliberate, verified deviation, not an oversight. Do not "fix" it: renaming the
   # code renames the [agents.<code>] table in every project already installed.
-  # It must keep matching `code` in skills/l3io-sec-redteam/customize.toml's [agent] block --
+  # It must keep matching `code` in skills/l3io-sec/l3io-sec-redteam/customize.toml's [agent] block --
   # that is how check:module rule 10 ties this entry to the skill it declares, and the rule
   # also compares title, icon and description across the pair.
   - code: redteam

@@ -54,7 +54,7 @@
 //  20. shared-files-table  every skills/_shared/* source a sync group in
 //                    sync-shared-scripts.mjs references has a row in CLAUDE.md's Shared
 //                    Files table, and every table row names a source that actually exists
-//  21. skill-frontmatter  every skills/*/SKILL.md frontmatter strict-YAML-parses and its
+//  21. skill-frontmatter  every skill's SKILL.md frontmatter strict-YAML-parses and its
 //                    `name:` equals the directory name -- what BMad's installer requires
 //                    before a skill reaches skill-manifest.csv and .claude/skills/ at all;
 //                    a skill that fails either test is dropped from a real install with no
@@ -97,7 +97,7 @@
 //                    in prose. See the block above probePathParity() for the KNOWN GAP.
 //  30. subcommand-required  a documented invocation of a script that registers subparsers
 //                    must name one. Check 4 does this for pm-status.py and spec-align.py;
-//                    skills/*/scripts/ holds twenty scripts and bmad-deps.py shipped in
+//                    the skills' scripts/ hold twenty scripts and bmad-deps.py shipped in
 //                    3.1.3 documented without its `verify`, so argparse exited 2 and
 //                    health-check.md's Check 20 -- the check that surfaces a vanished
 //                    required dependency -- could never run. Scope derived from
@@ -310,10 +310,20 @@ import YAML from "yaml";
 import sh from "mvdan-sh";
 import { writeAllSync } from "./write-all-sync.mjs";
 import { declaresForwarder } from "./forwarder-shape.mjs";
+import { skillDirByName } from "./lib/skill-dirs.mjs";
 
 // CHECK_DOCS_ROOT points the checker at another tree -- scripts/tests/check-docs.test.mjs
 // runs it against a temp copy with a planted violation.
 const repoRoot = process.env.CHECK_DOCS_ROOT ? path.resolve(process.env.CHECK_DOCS_ROOT) : process.cwd();
+
+// Skills are named by their directory's basename and located through skillDirs() (ADR-0021:
+// one folder per module, so a skill sits at any depth under skills/). skillRel() is the one
+// place in this file a skill name becomes a path; a name with no skill behind it renders at
+// the flat path, so a message about a missing skill still says where it was looked for.
+const SKILL_REL = skillDirByName(repoRoot);
+function skillRel(name) {
+  return SKILL_REL.get(name) ?? `skills/${name}`;
+}
 const verbose = process.argv.includes("-v") || process.argv.includes("--verbose");
 // isMain guards the bottom-of-file check invocations so importing this module (e.g. to call
 // resolverInvariant() directly in a unit test) does not run the full suite.
@@ -397,7 +407,7 @@ const LIVE_DOCS = liveDocFiles();
 // assets/module.yaml is the target module home; a skill-root module.yaml is a not-yet-migrated
 // module. Read both so a partial migration does not silently count zero modules.
 function moduleCodeOf(skill) {
-  for (const rel of [`skills/${skill}/assets/module.yaml`, `skills/${skill}/module.yaml`]) {
+  for (const rel of [`${skillRel(skill)}/assets/module.yaml`, `${skillRel(skill)}/module.yaml`]) {
     if (!exists(rel)) continue;
     const m = read(rel).match(/^code:\s*(\S+)/m);
     if (m) return m[1];
@@ -405,13 +415,10 @@ function moduleCodeOf(skill) {
   return null;
 }
 
-// Every l3io-* directory under skills/, sorted. One derivation, used by every check that asks
-// "which skills are there".
+// Every l3io-* skill's name, sorted. One derivation, used by every check that asks "which
+// skills are there".
 function skillDirNames() {
-  return fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
-    .map((e) => e.name)
-    .sort();
+  return [...SKILL_REL.keys()].filter((name) => name.startsWith("l3io-")).sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -423,9 +430,7 @@ function skillDirNames() {
 // not exist, so anyone following them looked in the wrong directory.
 // ---------------------------------------------------------------------------
 function checkSkillNames() {
-  const real = new Set(
-    fs.readdirSync(path.join(repoRoot, "skills")).filter((d) => d.startsWith("l3io-")),
-  );
+  const real = new Set(skillDirNames());
   // Names ending in -reference are doc filenames (docs/l3io-pm-reference.md), not skills.
   const isDocName = (n) => n.endsWith("-reference");
   let checked = 0;
@@ -1835,7 +1840,7 @@ function checkModuleReferenceCoverage() {
     if (code) codes.add(code);
   }
   if (codes.size === 0) {
-    failures.push(`no skills/*/module.yaml declares a \`code:\` — check 4's module-reference ` +
+    failures.push(`no skill's module.yaml declares a \`code:\` — check 4's module-reference ` +
       `arm would examine nothing and pass in silence`);
     return;
   }
@@ -1848,7 +1853,7 @@ function checkModuleReferenceCoverage() {
     if (!m) continue;
     if (!codes.has(m[1])) {
       failures.push(`${rel}: is a reference doc for module '${m[1]}', which no ` +
-        `skills/*/module.yaml declares (modules: ${[...codes].sort().join(", ")})`);
+        `skill's module.yaml declares (modules: ${[...codes].sort().join(", ")})`);
       continue;
     }
     refDocs.set(m[1], rel);
@@ -1872,7 +1877,7 @@ function checkModuleReferenceCoverage() {
     });
     const invoked = new Map(); // sub -> "file:line" of the first invocation found
     for (const dir of owned) {
-      for (const rel of walkMarkdown(path.join("skills", dir))) {
+      for (const rel of walkMarkdown(skillRel(dir))) {
         if (shared.has(createHash("sha256").update(read(rel)).digest("hex"))) continue;
         for (const { sub, line, unreadable } of pmStatusCommands(rel)) {
           if (unreadable) continue;
@@ -2061,7 +2066,7 @@ function checkConfigValues() {
   for (const key of ["max_fix_iterations", "max_fix_iterations_non_code"]) {
     const seen = new Map();
     for (const skill of PM_SKILLS) {
-      const p = `skills/${skill}/customize.toml`;
+      const p = `${skillRel(skill)}/customize.toml`;
       if (!exists(p)) continue;
       const v = tomlInt(read(p), key);
       if (v !== null) seen.set(skill, v);
@@ -2111,7 +2116,7 @@ function checkConfigValues() {
   {
     const seen = new Map();
     for (const skill of ["l3io-execute", "l3io-plan", "l3io-sync"]) {
-      const p = `skills/${skill}/customize.toml`;
+      const p = `${skillRel(skill)}/customize.toml`;
       if (!exists(p)) continue;
       const v = tomlInt(read(p), "max_turns_per_story");
       if (v !== null) seen.set(skill, v);
@@ -2156,8 +2161,8 @@ function checkConfigValues() {
 // ---------------------------------------------------------------------------
 const STATUS_FOLDERS = ["planned", "active", "archived"];
 const PHRASE_TABLE_FILES = [
-  "skills/l3io-help/SKILL.md",
-  "skills/l3io-doctor/SKILL.md",
+  `${skillRel("l3io-help")}/SKILL.md`,
+  `${skillRel("l3io-doctor")}/SKILL.md`,
 ];
 
 function checkStatusValues() {
@@ -2537,7 +2542,7 @@ function checkPmStatusSize() {
 // '## Technical acceptance criteria' / '## Business acceptance criteria' -- check-pointers rejects
 // any other name, so a drift here blocks every story.
 // ---------------------------------------------------------------------------
-const LAYOUT_CLEANUP = "skills/l3io-doctor/steps/clean-layout.md";
+const LAYOUT_CLEANUP = `${skillRel("l3io-doctor")}/steps/clean-layout.md`;
 const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
 const ELABORATION = "skills/_shared/steps/plan/step-03-story-elaboration.md";
 const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
@@ -2619,8 +2624,8 @@ function checkSpecAlignContract() {
 // ---------------------------------------------------------------------------
 const ADR_OLD_HOME = /arch\/adr-|arch\/\*\.md/;
 const ADR_OLD_HOME_ALLOWED = new Set([
-  "skills/l3io-doctor/steps/migrate-adrs.md",
-  "skills/l3io-doctor/steps/health-check.md",
+  `${skillRel("l3io-doctor")}/steps/migrate-adrs.md`,
+  `${skillRel("l3io-doctor")}/steps/health-check.md`,
 ]);
 const ADR_OLD_HOME_QUALIFIER = /\b(old home|old per-epic home|legacy|migrat\w*)\b/i;
 
@@ -2680,7 +2685,7 @@ export const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six
 // exact number of checks makes every prose count unfixable the moment one is added -- the
 // correct new word is not in the table, and the failure names the doc rather than the table.
 // Extend this list BEFORE it is needed, never as part of the change that needs it.
-const DOCTOR_DIR = "skills/l3io-doctor";
+const DOCTOR_DIR = skillRel("l3io-doctor");
 
 function checkDoctorModeCount() {
   const steps = fs.readdirSync(path.join(repoRoot, DOCTOR_DIR, "steps"))
@@ -2737,7 +2742,7 @@ function checkDoctorModeCount() {
 // Scope is derived by walking skills/ markdown and every skills/<dir>/assets/module.yaml, never
 // a list.
 // ---------------------------------------------------------------------------
-const DEP_INVENTORY = "skills/l3io-doctor/assets/bmad-dependencies.json";
+const DEP_INVENTORY = `${skillRel("l3io-doctor")}/assets/bmad-dependencies.json`;
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
 // npm packages whose names collide with the `bmad-*` skill-name shape. Deliberately a short
 // closed set rather than "anything after npx": a step file that invoked a real skill through
@@ -2805,9 +2810,8 @@ function checkBmadDependencyInventory() {
   }
 
   const sources = [...walkMarkdown("skills")];
-  for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const rel = `skills/${entry.name}/assets/module.yaml`;
+  for (const dir of SKILL_REL.values()) {
+    const rel = `${dir}/assets/module.yaml`;
     if (exists(rel)) sources.push(rel);
   }
 
@@ -3521,7 +3525,7 @@ function derivedCounts() {
   // A directory is a real, installable skill only once it carries a SKILL.md -- a module home
   // created ahead of its SKILL.md (l3io-setup, until a later task fills it in) is
   // infrastructure, not yet a skill.
-  const skillDirs = dirs.filter((dir) => exists(`skills/${dir}/SKILL.md`));
+  const skillDirs = dirs.filter((dir) => exists(`${skillRel(dir)}/SKILL.md`));
   const pmHome = homeOfCode.get("l3io-pm");
   const pmSkills = skillDirs.filter((dir) =>
     (dir === "l3io-pm" || dir.startsWith("l3io-pm-")) && dir !== pmHome).length;
@@ -3644,7 +3648,7 @@ function checkSharedFilesTable() {
 }
 
 // ---------------------------------------------------------------------------
-// 21. Every skills/*/SKILL.md frontmatter strict-YAML-parses, its `name:` field equals the
+// 21. Every skill's SKILL.md frontmatter strict-YAML-parses, its `name:` field equals the
 // directory name, and its `description:` is a present, non-empty string.
 //
 // Why this matters, mechanically: BMad's installer (`ManifestGenerator.parseSkillMd()`) only
@@ -3715,15 +3719,11 @@ function renderFrontmatterValue(value) {
 }
 
 function checkSkillFrontmatter() {
-  const skills = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name !== "_shared")
-    .map((e) => e.name)
-    .filter((name) => exists(path.join("skills", name, "SKILL.md")))
-    .sort();
+  const skills = [...SKILL_REL.keys()].sort();
 
   let parsed = 0;
   for (const name of skills) {
-    const rel = `skills/${name}/SKILL.md`;
+    const rel = `${skillRel(name)}/SKILL.md`;
     const fail = (msg) => failures.push(`${rel}: ${msg}`);
 
     let text;
@@ -3869,18 +3869,20 @@ function repoLayoutBlock(text) {
 }
 
 function checkReadmeRepoLayout() {
-  const trackedSkillDirs = trackedEntries("skills/");
-  if (trackedSkillDirs === null) {
+  // A skill sits at any depth under skills/ (ADR-0021), so the skill set is skillDirs()'s,
+  // narrowed under git to skills whose SKILL.md is tracked. The directories between skills/
+  // and a skill are its module folder; a row naming one is a heading, not a claim to judge.
+  const trackedList = trackedPaths();
+  const tracked = trackedList === null ? null : new Set(trackedList);
+  if (tracked === null) {
     notes.push(`check 22: ${repoRoot} is not a git work tree top level, so "what is on disk" ` +
       `fell back to the filesystem — a gitignored build artifact under a skill can produce a ` +
       `false positive here`);
   }
-  const skillDirs = trackedSkillDirs ?? new Set(
-    fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name),
-  );
-  const skills = [...skillDirs].filter((name) => name.startsWith("l3io-")).sort();
+  const skills = skillDirNames()
+    .filter((name) => tracked === null || tracked.has(`${skillRel(name)}/SKILL.md`));
+  const groups = new Set(skills.flatMap((name) => skillRel(name).split("/").slice(1, -1)));
+  const trackedSkillDirs = tracked;
   // The message names the set it actually consulted, so a reader is never told a directory is
   // "not tracked" by a run that never asked git.
   const fromGit = trackedSkillDirs !== null;
@@ -3908,7 +3910,7 @@ function checkReadmeRepoLayout() {
   }
 
   for (const [name] of claims) {
-    if (skills.includes(name)) continue;
+    if (skills.includes(name) || groups.has(name)) continue;
     failures.push(`${REPO_LAYOUT_DOC}: Repo Layout lists '${name}/', which is not a directory ` +
       `under skills/`);
   }
@@ -3917,12 +3919,12 @@ function checkReadmeRepoLayout() {
   for (const skill of skills) {
     const listed = claims.get(skill);
     if (!listed) {
-      failures.push(`${REPO_LAYOUT_DOC}: Repo Layout has no row for skills/${skill}/ — every ` +
+      failures.push(`${REPO_LAYOUT_DOC}: Repo Layout has no row for ${skillRel(skill)}/ — every ` +
         `skill directory needs one, or the block stops describing the tree`);
       continue;
     }
-    const onDisk = trackedEntries(`skills/${skill}/`) ?? new Set(
-      fs.readdirSync(path.join(repoRoot, "skills", skill), { withFileTypes: true })
+    const onDisk = trackedEntries(`${skillRel(skill)}/`) ?? new Set(
+      fs.readdirSync(path.join(repoRoot, skillRel(skill)), { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name),
     );
@@ -3930,12 +3932,12 @@ function checkReadmeRepoLayout() {
     const missing = [...onDisk].filter((d) => !listed.has(d)).sort();
     const phantom = [...listed].filter((d) => !onDisk.has(d)).sort();
     if (missing.length) {
-      failures.push(`${REPO_LAYOUT_DOC}: the skills/${skill}/ row does not list ` +
+      failures.push(`${REPO_LAYOUT_DOC}: the ${skillRel(skill)}/ row does not list ` +
         `${missing.map((d) => `${d}/`).join(", ")}, which ` +
         `${present(missing.length)}`);
     }
     if (phantom.length) {
-      failures.push(`${REPO_LAYOUT_DOC}: the skills/${skill}/ row lists ` +
+      failures.push(`${REPO_LAYOUT_DOC}: the ${skillRel(skill)}/ row lists ` +
         `${phantom.map((d) => `${d}/`).join(", ")}, which ` +
         `${absent(phantom.length)}`);
     }
@@ -3997,11 +3999,7 @@ function checkMarketplaceDependencies() {
   const modules = new Set(declared.map((s) => s.module).filter(Boolean));
 
   const deps = marketplace.dependencies || {};
-  const ownSkills = new Set(
-    fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-      .filter((e) => e.isDirectory() && e.name !== "_shared")
-      .map((e) => e.name),
-  );
+  const ownSkills = new Set(SKILL_REL.keys());
 
   let checked = 0;
   for (const [field, status] of [["required-skills", "required"], ["optional-skills", "optional"]]) {
@@ -4149,9 +4147,9 @@ function checkSharedPointerResolution() {
       const named = [...realSkills].filter((sk) => line.includes(sk));
       const judge = (rel, owners, label) => {
         pointers += 1;
-        const missing = owners.filter((sk) => !exists(path.posix.join("skills", sk, rel)));
+        const missing = owners.filter((sk) => !exists(path.posix.join(skillRel(sk), rel)));
         if (missing.length === 0) return;
-        if (named.some((sk) => exists(path.posix.join("skills", sk, rel)))) return;
+        if (named.some((sk) => exists(path.posix.join(skillRel(sk), rel)))) return;
         offenders.push(`${source}:${i + 1}: ${label} does not exist in ` +
           `${missing.join(", ")} — this file is shipped to ${skills.join(", ")}, and nothing ` +
           `on the line names a skill that has it: ${line.trim().slice(0, 120)}`);
@@ -4450,7 +4448,7 @@ function walkSkillFiles(exts) {
 }
 
 // Directories (repo-relative, trailing slash) that sync-shared-scripts.mjs delivers the
-// pm-status package into: skills/<skill>/<dest dir>/ for every delivery whose source is under
+// pm-status package into: <skill dir>/<dest dir>/ for every delivery whose source is under
 // skills/_shared/pm_status/. Read from --dump-deliveries, never hand-listed.
 function pmStatusPayloadDirs() {
   const { deliveries, error } = syncDeliveries()
@@ -4460,7 +4458,7 @@ function pmStatusPayloadDirs() {
     if (!d.source.startsWith('skills/_shared/pm_status/')) continue
     const sub = path.posix.dirname(d.source.slice('skills/_shared/pm_status/'.length))
     const destRoot = sub === '.' ? path.posix.dirname(d.dest) : path.posix.dirname(d.dest).slice(0, -(sub.length + 1))
-    for (const sk of d.skills) dirs.add(`skills/${sk}/${destRoot}/`)
+    for (const sk of d.skills) dirs.add(`${skillRel(sk)}/${destRoot}/`)
   }
   return { dirs: [...dirs] }
 }
@@ -4881,7 +4879,7 @@ export function probeManifestParity(opts = {}) {
 // Every documented invocation of a script that registers subparsers must name one.
 //
 // Check 4 already does this for pm-status.py and spec-align.py. Its scope was those two
-// scripts; skills/*/scripts/ holds twenty. bmad-deps.py -- outside that scope, and with no
+// scripts; the skills' scripts/ hold twenty. bmad-deps.py -- outside that scope, and with no
 // build_parser() for argparseSurface() to read -- shipped in 3.1.3 documented as
 //   `bmad-deps.py --project-root {project-root} --format json`
 // with no `verify`. argparse exits 2, health-check.md's Check 20 branches on 3/0, so the
@@ -4912,7 +4910,7 @@ function subcommandRequired() {
   const scripts = subcommandScripts();
   const violations = [];
   if (scripts.size === 0) {
-    violations.push("no script under skills/*/scripts/ registers subparsers — scope derivation broke");
+    violations.push("no script under a skill's scripts/ registers subparsers — scope derivation broke");
     return { violations, scripts, examined: 0 };
   }
   let examined = 0;

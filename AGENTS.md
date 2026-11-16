@@ -11,7 +11,7 @@ BMad community module package — four modules: `l3io-pm` (sprint/epic orchestra
 
 - Canonical shared files: `skills/_shared/` — never edit per-skill copies in `scripts/`, `references/`, `assets/`, or `steps/`
 - Per-skill payload copies are auto-generated — edit source, then run `npm run sync:scripts`
-- Per-skill manifests: `skills/<skill>/payload-manifest.json` — never hand-edit; regenerate with `node scripts/write-payload-manifest.mjs`
+- Per-skill manifests: `skills/<module>/<skill>/payload-manifest.json` — never hand-edit; regenerate with `node scripts/write-payload-manifest.mjs`
 
 ## Running and verifying
 

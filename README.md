@@ -75,7 +75,7 @@ whereas `update-ai-rules` edits *your own* prose where it still describes a lega
 |--------|--------|-------------|
 | **l3io-pm** | `l3io-plan`, `l3io-execute`, `l3io-help`, `l3io-sync`, `l3io-setup` | Sprint and epic execution orchestration — dependency-aware phased planning, full lifecycle from story preparation through closure reviews, plan-aware progress reporting, and GitHub Issues sync |
 | **l3io-sec** | `l3io-sec-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
-| **l3io-util** | `l3io-doctor` | **Required when using `l3io-pm`** (declared in `skills/l3io-setup/assets/module.yaml`'s `dependencies:` list; `l3io-help` forwards `progress` here and invokes `check-pm-status` at every activation). Project state diagnostics & housekeeping — health check that reports findings and proposes an ordered fix plan (default); `stats` renders the plan-aware progress dashboard; `check-pm-status` verifies the installed `pm-status.py` is current; migrate a legacy state layout to the sharded state tree; reorganize legacy flat artifacts into the standard epic/sprint folder structure; harvest `bmad-defer:` deferred-shortcut code markers into the backlog. *(Renamed from `l3io-util-cleanup` in 2.1.0; that deprecated forwarder was removed in 3.0.0. See `docs/upgrading.md`.)* |
+| **l3io-util** | `l3io-doctor` | **Required when using `l3io-pm`** (declared in `skills/l3io-pm/l3io-setup/assets/module.yaml`'s `dependencies:` list; `l3io-help` forwards `progress` here and invokes `check-pm-status` at every activation). Project state diagnostics & housekeeping — health check that reports findings and proposes an ordered fix plan (default); `stats` renders the plan-aware progress dashboard; `check-pm-status` verifies the installed `pm-status.py` is current; migrate a legacy state layout to the sharded state tree; reorganize legacy flat artifacts into the standard epic/sprint folder structure; harvest `bmad-defer:` deferred-shortcut code markers into the backlog. *(Renamed from `l3io-util-cleanup` in 2.1.0; that deprecated forwarder was removed in 3.0.0. See `docs/upgrading.md`.)* |
 | **l3io-arch** | `l3io-arch-review` | Engineering-standards architecture guardrails and review — applies universal best practices (separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams) plus per-stack overlays (Python, Node.js, .NET, GitHub Actions) at new-project design time, during an architectural review, or when recording an architecture/technology decision (ADR) |
 
 ## Quick Start
@@ -330,30 +330,35 @@ resolved there.
 
 ## Repo Layout
 
-Skills live in one flat `skills/` directory — the module a skill belongs to is declared in
-its own `module.yaml`, not by its position in the tree.
+Skills live one folder per module under `skills/` (ADR-0021): `skills/<module>/<skill>/`. A
+skill is any directory holding a `SKILL.md`; a module folder is only a grouping, and an install
+flattens every module's skills into one skills folder.
 
 ```
 skills/
   _shared/               canonical shared sources — pm_status/ (a package), spec-align.py,
                          write-module-config.py, tests/, status-files.md, metrics-contract.md,
                          calibration-model.md, config-resolution.md, module-setup.md, steps/
-  l3io-setup/         SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
-  l3io-plan/          SKILL.md, customize.toml, references/, scripts/, steps/
-  l3io-execute/       SKILL.md, customize.toml, references/, scripts/, steps/
-  l3io-help/          SKILL.md, customize.toml, references/, steps/
-  l3io-sync/          SKILL.md, customize.toml, references/, assets/, scripts/, steps/
-  l3io-sec-redteam/      SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
-  l3io-doctor/      SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/, steps/
-  l3io-arch-review/      SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
-  l3io-pm-execute/       SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-execute (removed in 4.0.0)
-  l3io-pm-help/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-help (removed in 4.0.0)
-  l3io-pm-plan/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-plan (removed in 4.0.0)
-  l3io-pm-sync/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-sync (removed in 4.0.0)
+  l3io-pm/               module folder
+    l3io-setup/          SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
+    l3io-plan/           SKILL.md, customize.toml, references/, scripts/, steps/
+    l3io-execute/        SKILL.md, customize.toml, references/, scripts/, steps/
+    l3io-help/           SKILL.md, customize.toml, references/, steps/
+    l3io-sync/           SKILL.md, customize.toml, references/, assets/, scripts/, steps/
+    l3io-pm-execute/     SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-execute (removed in 4.0.0)
+    l3io-pm-help/        SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-help (removed in 4.0.0)
+    l3io-pm-plan/        SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-plan (removed in 4.0.0)
+    l3io-pm-sync/        SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-sync (removed in 4.0.0)
                          (there is deliberately NO l3io-pm-setup forwarder — a second
                           *-setup directory makes BMad's find_setup_skill() a lottery;
                           see docs/upgrading.md → 3.1.8)
-.claude/commands/        symlinks → ../../skills/<skill>/SKILL.md
+  l3io-sec/              module folder
+    l3io-sec-redteam/    SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
+  l3io-util/             module folder
+    l3io-doctor/         SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/, steps/
+  l3io-arch/             module folder
+    l3io-arch-review/    SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
+.claude/commands/        symlinks → ../../skills/<module>/<skill>/SKILL.md
 .claude-plugin/          marketplace.json (required for installation)
 ```
 

@@ -19,7 +19,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)),
-                      "skills", "l3io-plan", "scripts", "reorg-validate.py")
+                      "skills", "l3io-pm", "l3io-plan", "scripts", "reorg-validate.py")
 spec = importlib.util.spec_from_file_location("reorg_validate", SCRIPT)
 rv = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rv)

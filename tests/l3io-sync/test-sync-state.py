@@ -5,7 +5,7 @@
 # ///
 """
 Tests for sync-state.py. Run with:
-  uv run skills/l3io-sync/scripts/tests/test-sync-state.py
+  uv run skills/l3io-pm/l3io-sync/scripts/tests/test-sync-state.py
 
 Every case drives the real CLI through subprocess and then reads the YAML back off disk,
 so what is asserted is the file a later sync run will actually load -- not a return value
@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-sync", "scripts", "sync-state.py")
+_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-pm", "l3io-sync", "scripts", "sync-state.py")
 
 
 class Base(unittest.TestCase):

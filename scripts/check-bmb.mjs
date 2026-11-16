@@ -11,7 +11,7 @@
  * SCOPE IS DERIVED, NOT LISTED (CLAUDE.md §4), in both directions:
  *   - the scanners are every `scan-*.py` bmb ships, found by globbing its package, so a
  *     scanner bmb adds starts running here without an edit;
- *   - the skills are every l3io skill directory under skills/ on disk.
+ *   - the skills are every skill directory under skills/ on disk (scripts/lib/skill-dirs.mjs).
  * Neither is a hand-kept list that could quietly stop covering something.
  *
  * EXEMPTIONS. Some scanner rules encode BMad-core conventions this package deliberately
@@ -26,6 +26,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeAllSync } from './write-all-sync.mjs';
+import { skillDirs } from './lib/skill-dirs.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BMB = 'node_modules/bmad-builder/src/skills/bmad-workflow-builder/scripts';
@@ -34,8 +35,7 @@ export function scanners(root = ROOT) {
   return globSync('scan-*.py', { cwd: path.join(root, BMB) }).sort();
 }
 export function skills(root = ROOT) {
-  return globSync('skills/l3io-*/', { cwd: root })
-    .map((p) => p.replace(/\/$/, '').split(path.sep).join('/')).sort();
+  return skillDirs(root);
 }
 
 /**

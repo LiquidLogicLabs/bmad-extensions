@@ -36,6 +36,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeAllSync } from "./write-all-sync.mjs";
+import { skillDirs } from "./lib/skill-dirs.mjs";
 
 // CHECK_VERSION_ROOT points the checker at another tree -- scripts/tests/check-pm-status-version.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -118,12 +119,9 @@ if (marker && konst && marker === konst && marker !== pkg) {
 // discovers), and check:module requires them byte-identical, so checking the first found here
 // is sufficient: drift between them is a check:module failure, not a silent pass.
 const moduleHomes = [];
-if (exists("skills")) {
-  for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === "_shared") continue;
-    for (const rel of [`skills/${entry.name}/assets/module.yaml`, `skills/${entry.name}/module.yaml`]) {
-      if (exists(rel)) { moduleHomes.push(rel); break; }
-    }
+for (const skillRel of skillDirs(repoRoot)) {
+  for (const rel of [`${skillRel}/assets/module.yaml`, `${skillRel}/module.yaml`]) {
+    if (exists(rel)) { moduleHomes.push(rel); break; }
   }
 }
 

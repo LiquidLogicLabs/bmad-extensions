@@ -28,10 +28,10 @@ from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)),
-                       "skills", "l3io-doctor", "scripts", "report-version.py")
+                       "skills", "l3io-util", "l3io-doctor", "scripts", "report-version.py")
 if not os.path.exists(_SCRIPT):   # running from the repo root layout
     _SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)),
-                           "bmad-extensions", "skills", "l3io-doctor", "scripts",
+                           "bmad-extensions", "skills", "l3io-util", "l3io-doctor", "scripts",
                            "report-version.py")
 
 

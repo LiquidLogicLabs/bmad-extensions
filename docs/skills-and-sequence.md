@@ -233,7 +233,7 @@ authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the ro
 | Module | Required? | Without it |
 |---|---|---|
 | `l3io-pm` | The core of the package | No orchestration, planning, or closure discipline |
-| `l3io-util` | **Required when using `l3io-pm`** (declared in `skills/l3io-setup/assets/module.yaml`'s `dependencies:` list) | `l3io-help` warns at every activation via `check-pm-status`; `progress` forwards to `l3io-doctor stats` and errors without it; state-layout migrations (`migrate-state`, `bootstrap-state`) and the plan-aware progress dashboard fail if reached. The marketplace bundle ships it alongside `l3io-pm`, so a standard install always carries it. |
+| `l3io-util` | **Required when using `l3io-pm`** (declared in `skills/l3io-pm/l3io-setup/assets/module.yaml`'s `dependencies:` list) | `l3io-help` warns at every activation via `check-pm-status`; `progress` forwards to `l3io-doctor stats` and errors without it; state-layout migrations (`migrate-state`, `bootstrap-state`) and the plan-aware progress dashboard fail if reached. The marketplace bundle ships it alongside `l3io-pm`, so a standard install always carries it. |
 | `l3io-arch` | Optional | The epic architecture gate skips; the story technical-AC gate falls back to a built-in checklist; drift reviews lose their reviewer |
 | `l3io-sec` | Optional | Closure runs without a security review |
 

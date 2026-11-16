@@ -5,7 +5,7 @@
 # ///
 """
 Tests for detect-platform.py. Run with:
-  uv run skills/l3io-sync/scripts/tests/test-detect-platform.py
+  uv run skills/l3io-pm/l3io-sync/scripts/tests/test-detect-platform.py
 
 The CLI cases drive the real script through subprocess against real git repositories, so
 the exit code and stdout are the ones /l3io-sync setup actually sees. URL parsing is
@@ -21,7 +21,7 @@ import tempfile
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-sync", "scripts", "detect-platform.py")
+_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-pm", "l3io-sync", "scripts", "detect-platform.py")
 _SPEC = importlib.util.spec_from_file_location("detect_platform", _SCRIPT)
 mod = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(mod)

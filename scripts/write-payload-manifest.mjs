@@ -42,6 +42,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeAllSync } from "./write-all-sync.mjs";
+import { skillDirs, strayFiles } from "./lib/skill-dirs.mjs";
 
 const check = process.argv.includes("--check");
 const root = path.resolve(import.meta.dirname, "..");
@@ -73,18 +74,14 @@ function walkSkill(skillDir, rel = "") {
   return out;
 }
 
+// Keyed by the skill's repo-relative directory: the layout is one folder per module
+// (ADR-0021), so a skill can sit at any depth under skills/. skillDirs() is the one place that
+// decides what a skill is -- a directory with a SKILL.md, which excludes skills/_shared/.
 const bySkill = new Map();
-const skillsDir = path.join(root, "skills");
-for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-  if (!entry.isDirectory()) continue;
-  const skillDir = path.join(skillsDir, entry.name);
-  // A skill is a directory with a SKILL.md. That is what BMad installs and what the
-  // marketplace declares; it excludes skills/_shared/, the canonical source tree, which
-  // ships nothing and carries the test suites.
-  if (!fs.existsSync(path.join(skillDir, "SKILL.md"))) continue;
+for (const rel of skillDirs(root)) {
   const files = {};
-  for (const relPath of walkSkill(skillDir).sort()) files[relPath] = null; // hashed below
-  bySkill.set(entry.name, files);
+  for (const relPath of walkSkill(path.join(root, rel)).sort()) files[relPath] = null; // hashed below
+  bySkill.set(rel, files);
 }
 
 let totalFiles = 0;
@@ -100,9 +97,9 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
   // report it by name instead of throwing.
   let skillHasMissingFile = false;
   for (const relPath of Object.keys(files)) {
-    const abs = path.join(root, "skills", skill, relPath);
+    const abs = path.join(root, skill, relPath);
     if (!fs.existsSync(abs)) {
-      report.push(`MISSING FILE: skills/${skill}/${relPath} is listed as a payload target but does not exist on disk`);
+      report.push(`MISSING FILE: ${skill}/${relPath} is listed as a payload target but does not exist on disk`);
       missing += 1;
       skillHasMissingFile = true;
       continue;
@@ -110,7 +107,7 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
     files[relPath] = createHash("sha256").update(fs.readFileSync(abs)).digest("hex");
   }
   if (skillHasMissingFile) continue;
-  const manifestRel = `skills/${skill}/payload-manifest.json`;
+  const manifestRel = `${skill}/payload-manifest.json`;
   const manifestPath = path.join(root, manifestRel);
   // Compare (and write) the whole rendered document, not just the hash map: the `version`
   // field drifts too, and byte-comparing what would be written is the only comparison that
@@ -158,6 +155,14 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
   writeAllSync(1, `${manifestRel}: ${count} file(s) at ${version}\n`);
 }
 
+// A file under skills/ that no skill owns is hashed by no manifest, so drift checking alone
+// passes over it -- the shape a re-layout leaves when a copy survives at an old path. It
+// still ships if a consumer installs from that path, and it is ours, so it fails the check.
+const strays = strayFiles(root);
+for (const stray of strays) {
+  report.push(`STRAY: ${stray} is under skills/ but inside no skill, so no manifest covers it`);
+}
+
 if (missing > 0) {
   report.push(`\n${missing} payload file(s) listed as a target but missing on disk — fix ` +
     `the tree (restore the file, or remove it if it should no longer ship), then ` +
@@ -167,12 +172,18 @@ if (missing > 0) {
 }
 
 if (check) {
-  if (drift > 0) {
-    report.push(`\n${drift} payload manifest(s) stale — run: node scripts/write-payload-manifest.mjs`);
+  if (drift > 0 || strays.length > 0) {
+    if (strays.length > 0) {
+      report.push(`\n${strays.length} stray file(s) under skills/ — move each into its skill or delete it (git rm)`);
+    }
+    if (drift > 0) {
+      report.push(`\n${drift} payload manifest(s) stale — run: node scripts/write-payload-manifest.mjs`);
+    }
     writeAllSync(2, report.join("\n") + "\n");
     process.exit(1);
   }
   writeAllSync(1, `Payload manifests are current: ${bySkill.size} skill(s), ${totalFiles} file(s) at ${version}.\n`);
 } else {
+  if (strays.length > 0) writeAllSync(2, report.join("\n") + "\n");
   writeAllSync(1, `payload manifests: ${bySkill.size} skill(s), ${totalFiles} file(s) total at ${version}\n`);
 }

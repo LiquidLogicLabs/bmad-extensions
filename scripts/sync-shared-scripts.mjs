@@ -52,10 +52,20 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { writeAllSync } from "./write-all-sync.mjs";
 import { declaresForwarder } from "./forwarder-shape.mjs";
+import { skillDirs, skillDirByName, strayFiles } from "./lib/skill-dirs.mjs";
 
 const repoRoot = process.cwd();
 const check = process.argv.includes("--check");
 const sharedDir = path.join(repoRoot, "skills", "_shared");
+
+// A skill named here is located through skillDirs(), so a sync group names skills, never paths
+// -- the module folder a skill sits in (ADR-0021) is the layout's business, not this file's.
+const skillsByName = skillDirByName(repoRoot);
+function skillDir(name) {
+  const rel = skillsByName.get(name);
+  if (!rel) throw new Error(`sync group names '${name}', but no skill of that name exists under skills/`);
+  return path.join(repoRoot, rel);
+}
 
 // pm-status is a PACKAGE (skills/_shared/pm_status/), not one file. Its delivery list is
 // DERIVED by walking the source tree, never written out: a hand-kept list would silently stop
@@ -125,7 +135,7 @@ const allSkillFiles = [
 // four copies of a procedure only one of them runs.
 const moduleHomeDirs = [
   "l3io-setup", "l3io-doctor", "l3io-sec-redteam", "l3io-arch-review",
-].map((name) => path.join(repoRoot, "skills", name));
+].map(skillDir);
 
 const moduleHomeFiles = [
   { src: path.join(sharedDir, "merge-config.py"), rel: path.join("scripts", "merge-config.py") },
@@ -172,20 +182,20 @@ const allPmDirs = [];
 
 // New skill directories (created in Tasks 5-9)
 const newPmPlanDirs = [
-  path.join(repoRoot, "skills", "l3io-plan"),
+  skillDir("l3io-plan"),
 ];
 const newPmExecuteDirs = [
-  path.join(repoRoot, "skills", "l3io-execute"),
+  skillDir("l3io-execute"),
 ];
 const newPmSyncDirs = [
-  path.join(repoRoot, "skills", "l3io-sync"),
+  skillDir("l3io-sync"),
 ];
 
 // l3io-pm's module home: the ONE l3io-pm skill that carries pm-status.py (Task 11A). Guaranteed
 // to be installed alongside pm-execute/pm-plan/pm-sync because the marketplace manifest
 // installs the whole l3io-pm plugin as one unit — see the sync-groups comment above.
 const newPmSetupDirs = [
-  path.join(repoRoot, "skills", "l3io-setup"),
+  skillDir("l3io-setup"),
 ];
 
 // Skills that invoke {pm_status} but are not part of the l3io-pm module: they need
@@ -193,21 +203,14 @@ const newPmSetupDirs = [
 // the documented post-upgrade entry point (see docs/upgrading.md), a different, standalone
 // module with no sibling *-setup skill to read from.
 const newUtilDoctorDirs = [
-  path.join(repoRoot, "skills", "l3io-doctor"),
+  skillDir("l3io-doctor"),
 ];
 
 // Every skill in the package — the four l3io modules' skills all resolve config, so all of
 // them carry config-resolution.md (allSkillFiles above); the setup procedure itself is a
-// module-home concern (moduleHomeFiles). Derived from skills/ itself, never hand-enumerated:
+// module-home concern (moduleHomeFiles). Derived through skillDirs(), never hand-enumerated:
 // a hand-kept list here drifted silently once already (l3io-setup was absent from it and
-// so absent from the check:scripts comparison too, even though it needed the same config
-// contract as every other skill). Same derivation scripts/check-docs.mjs's derivedCounts()
-// uses (withFileTypes + isDirectory()) — a skill directory is a *directory* under skills/
-// whose name starts with "l3io-" (_shared is excluded by the prefix). Fix round 1, F-8: an
-// earlier version used checkSkillNames()'s derivation instead, which reads plain
-// fs.readdirSync() with no isDirectory() filter — harmless while every "l3io-*" entry under
-// skills/ happens to be a directory, but a stray file (e.g. a dropped "l3io-notes.md") would
-// have been treated as a skill directory and handed to fs.mkdirSync/fs.copyFileSync below.
+// so absent from the check:scripts comparison too).
 // A forwarder skill is a minimal dispatcher that carries only SKILL.md + customize.toml and
 // exists to keep an old skill name working through a rename cycle. Its SKILL.md frontmatter
 // description starts with "DEPRECATED forwarder" — that is the derived signal, so a forwarder
@@ -220,16 +223,9 @@ const newUtilDoctorDirs = [
 // a forwarder whose sentence was worded differently, which is a change to what ships triggered
 // by a reworded sentence. The line-matched frontmatter read it used to do is gone with it: a
 // quoted or folded description now parses the same as a plain one.
-function isForwarderSkill(skillDir) {
-  return declaresForwarder(path.join(repoRoot, "skills", skillDir));
-}
-
-const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-  .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
-  .map((e) => e.name)
-  .filter((name) => !isForwarderSkill(name))
-  .sort()
-  .map((name) => path.join(repoRoot, "skills", name));
+const allSkillDirs = skillDirs(repoRoot)
+  .map((rel) => path.join(repoRoot, rel))
+  .filter((dir) => !declaresForwarder(dir));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir
 const sharedStepFiles = [
@@ -357,12 +353,8 @@ function findOrphans() {
   }
 
   // Every real skill directory -- not just the ones a group already names, since an orphan
-  // is by definition a directory no group named for that rel path. Same derivation as
-  // allSkillDirs above (readdirSync + isDirectory + "l3io-" prefix; _shared is excluded by
-  // the prefix, matching every other scope-derivation in this file).
-  const everySkillDir = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
-    .map((e) => path.join(repoRoot, "skills", e.name));
+  // is by definition a directory no group named for that rel path.
+  const everySkillDir = skillDirs(repoRoot).map((rel) => path.join(repoRoot, rel));
 
   const orphans = [];
   for (const [rel, allowedDirs] of allowedByRel) {
@@ -483,9 +475,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   for (const orphan of orphans) {
     report.push(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
   }
+  // A copy left where no skill lives -- at a path the layout no longer uses -- is not an
+  // orphan of any skill, so findOrphans() cannot see it: it only looks inside skills.
+  const strays = strayFiles(repoRoot);
+  for (const stray of strays) {
+    report.push(`STRAY: ${stray} is under skills/ but inside no skill and no module record`);
+  }
 
   if (check) {
-    if (drift > 0 || orphans.length > 0) {
+    if (drift > 0 || orphans.length > 0 || strays.length > 0) {
       if (drift > 0) {
         report.push(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
       }
@@ -494,14 +492,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
           `(git rm) or, if the file legitimately belongs there now, add that skill to the owning ` +
           `sync group in ${path.basename(import.meta.url)}.`);
       }
+      if (strays.length > 0) {
+        report.push(`\n${strays.length} stray file(s) under skills/ outside every skill — a copy ` +
+          `left at a path the layout no longer uses; delete it (git rm) or move it into its skill.`);
+      }
       writeAllSync(2, report.join("\n") + "\n");
       process.exit(1);
     }
-    report.push("Shared-script payload copies are in sync with skills/_shared/, with no orphans.");
+    report.push("Shared-script payload copies are in sync with skills/_shared/, with no orphans or strays.");
   } else {
     report.push(`Shared-script sync complete (${written} file(s) written).`);
     if (orphans.length > 0) {
       report.push(`${orphans.length} orphaned copy/copies found — sync does not delete; remove them by hand.`);
+    }
+    if (strays.length > 0) {
+      report.push(`${strays.length} stray file(s) under skills/ outside every skill — sync does not delete; remove them by hand.`);
     }
   }
   writeAllSync(1, report.join("\n") + "\n");

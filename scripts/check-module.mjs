@@ -24,7 +24,7 @@
 //                            location bmad-method 6.12.0's `project-root.js` discovers for a
 //                            non-`*-setup` skill. It was derived from `validate-module.py`
 //                            alone, and it made a branch that validated clean install broken.
-//   2. required-fields       every `skills/*/assets/module.yaml` has non-empty code/name/description
+//   2. required-fields       every skill's `assets/module.yaml` has non-empty code/name/description
 //   3. one-home-per-code     exactly one `assets/module.yaml` declares each distinct module code
 //   4. home-payload          each module home carries module-setup.md, module-help.csv, and
 //                            both merge-*.py scripts
@@ -178,6 +178,7 @@ import { parse as parseCsv } from "csv-parse/sync";
 import { parse as parseToml } from "smol-toml";
 import { writeAllSync } from "./write-all-sync.mjs";
 import { TARGET_RE, FORWARDER_FILES } from "./forwarder-shape.mjs";
+import { skillDirByName } from "./lib/skill-dirs.mjs";
 
 // CHECK_MODULE_ROOT points the checker at another tree -- scripts/tests/check-module.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -196,13 +197,18 @@ const REQUIRED_MODULE_HOME_FILES = [
   "scripts/merge-help-csv.py",
 ];
 
+// Skills are named by their directory's basename -- the name an install gives them, since it
+// flattens every module folder into one skills directory -- and located through skillDirs()
+// (ADR-0021: a skill sits at any depth under skills/). skillRel() is the one place a name
+// becomes a path; a name with no skill behind it (a CSV row or forwarder target that points at
+// nothing) renders at the flat path so a message can still say where it was expected.
+const SKILL_REL = skillDirByName(repoRoot);
+function skillRel(name) {
+  return SKILL_REL.get(name) ?? `skills/${name}`;
+}
+
 function listSkillDirs() {
-  const skillsDir = path.join(repoRoot, "skills");
-  if (!fs.existsSync(skillsDir)) return [];
-  return fs.readdirSync(skillsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .filter((name) => name !== "_shared");
+  return [...SKILL_REL.keys()];
 }
 
 // module.yaml is YAML, so it is read with a YAML parser (`yaml`), not a line-scanner.
@@ -263,12 +269,12 @@ function checkDiscoveryLayout(byCode, skills) {
   }
 
   for (const skill of skills) {
-    const rootRel = `skills/${skill}/module.yaml`;
-    const assetsRel = `skills/${skill}/assets/module.yaml`;
+    const rootRel = `${skillRel(skill)}/module.yaml`;
+    const assetsRel = `${skillRel(skill)}/assets/module.yaml`;
     if (standaloneHomes.has(skill)) {
       if (!exists(rootRel)) {
         failures.push(
-          `standalone module home skills/${skill} has no ${rootRel} -- BMad's installer ` +
+          `standalone module home ${skillRel(skill)} has no ${rootRel} -- BMad's installer ` +
           `(project-root.js searchRootAll) only looks under assets/ for a *-setup skill, so ` +
           `without this copy the module's own module.yaml is undiscoverable and its settings ` +
           `are filed under another module's code. It must be byte-identical to ${assetsRel}.`
@@ -338,8 +344,8 @@ function collectModuleYamlByCode(skills) {
   const byCode = new Map(); // code -> { assets: [{skill, rel, fields}], root: [...] }
   for (const skill of skills) {
     for (const [kind, rel] of [
-      ["assets", `skills/${skill}/assets/module.yaml`],
-      ["root", `skills/${skill}/module.yaml`],
+      ["assets", `${skillRel(skill)}/assets/module.yaml`],
+      ["root", `${skillRel(skill)}/module.yaml`],
     ]) {
       if (!exists(rel)) continue;
       const fields = parseModuleYaml(rel, read(rel));
@@ -353,10 +359,10 @@ function collectModuleYamlByCode(skills) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Every skills/*/assets/module.yaml carries non-empty code, name, description.
+// 2. Every skill's assets/module.yaml carries non-empty code, name, description.
 function checkRequiredFields(skills) {
   for (const skill of skills) {
-    const rel = `skills/${skill}/assets/module.yaml`;
+    const rel = `${skillRel(skill)}/assets/module.yaml`;
     if (!exists(rel)) continue;
     const fields = parseModuleYaml(rel, read(rel));
     for (const field of REQUIRED_MODULE_FIELDS) {
@@ -393,9 +399,9 @@ function checkModuleHomes(byCode, skills) {
     const home = assets[0].skill;
 
     for (const req of REQUIRED_MODULE_HOME_FILES) {
-      const rel = `skills/${home}/${req}`;
+      const rel = `${skillRel(home)}/${req}`;
       if (!exists(rel)) {
-        failures.push(`module home skills/${home} (code '${code}') is missing ${req}`);
+        failures.push(`module home ${skillRel(home)} (code '${code}') is missing ${req}`);
       }
     }
 
@@ -404,7 +410,7 @@ function checkModuleHomes(byCode, skills) {
     const siblingCount = siblings.size;
     if (siblingCount > 1 && !home.endsWith("-setup")) {
       failures.push(
-        `module home skills/${home} (code '${code}') is not a *-setup directory, but the ` +
+        `module home ${skillRel(home)} (code '${code}') is not a *-setup directory, but the ` +
         `module has ${siblingCount} skills -- a module home shared across multiple skills ` +
         `must be a dedicated *-setup skill.`
       );
@@ -459,10 +465,10 @@ function checkPmStatusSingleton(byCode, skills) {
     const siblings = [...siblingsOfCode(code, skills, byCode)];
     // Both layouts: the flat file the package shipped through 3.5.x, and the package's entry
     // point. Looking for the old path alone would make this gate silently inert after the move.
-    const carried = (s) => PM_STATUS_PAYLOADS.find((p) => exists(`skills/${s}/${p}`));
+    const carried = (s) => PM_STATUS_PAYLOADS.find((p) => exists(`${skillRel(s)}/${p}`));
     const carriers = siblings.filter((s) => carried(s));
     if (carriers.length > 1) {
-      const files = carriers.map((s) => `skills/${s}/${carried(s)}`).join(", ");
+      const files = carriers.map((s) => `${skillRel(s)}/${carried(s)}`).join(", ");
       failures.push(
         `pm-status.py appears ${carriers.length} times for module '${code}': ${files} -- ` +
         `one runtime copy per project (ADR-0001) needs only one payload copy per module.`
@@ -487,7 +493,7 @@ const CSV_META_SKILL = "_meta";
 function checkCsvSkillsExist(skills) {
   const knownSkills = new Set(skills);
   for (const skill of skills) {
-    const rel = `skills/${skill}/assets/module-help.csv`;
+    const rel = `${skillRel(skill)}/assets/module-help.csv`;
     if (!exists(rel)) continue; // check 4 already reports a module home missing this file
     const rows = parseCsvRows(rel, read(rel));
     for (const row of rows) {
@@ -874,7 +880,7 @@ const backticked = (cell) => [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1].tr
 // Top-level `steps/*.md` files that are modes: a numbered `step-NN-*.md` is one step of a
 // single procedure, not a mode with a keyword of its own.
 function modeFiles(skill) {
-  const abs = path.join(repoRoot, "skills", skill, "steps");
+  const abs = path.join(repoRoot, skillRel(skill), "steps");
   if (!fs.existsSync(abs)) return [];
   return fs.readdirSync(abs, { withFileTypes: true })
     .filter((e) => e.isFile() && e.name.endsWith(".md") && !NUMBERED_STEP_RE.test(e.name))
@@ -888,7 +894,7 @@ function checkHelpRegistration(skills) {
   // registered from skills/l3io-setup/assets/module-help.csv.
   const actionsBySkill = new Map();
   for (const skill of skills) {
-    const rel = `skills/${skill}/assets/module-help.csv`;
+    const rel = `${skillRel(skill)}/assets/module-help.csv`;
     if (!exists(rel)) continue;
     for (const row of parseCsvRows(rel, read(rel))) {
       const registered = fieldText(row.skill).trim();
@@ -903,7 +909,7 @@ function checkHelpRegistration(skills) {
   let requiredCount = 0;
 
   for (const skill of skills) {
-    const rel = `skills/${skill}/SKILL.md`;
+    const rel = `${skillRel(skill)}/SKILL.md`;
     if (!exists(rel)) continue;
     const text = read(rel);
     const tables = keywordTables(rel, text);
@@ -1043,7 +1049,7 @@ function parseCustomizeAgent(rel) {
 function checkAgentRoster(byCode, skills) {
   const agentSkills = new Map(); // skill -> { rel, agent }
   for (const skill of skills) {
-    const rel = `skills/${skill}/customize.toml`;
+    const rel = `${skillRel(skill)}/customize.toml`;
     const agent = parseCustomizeAgent(rel);
     if (agent) agentSkills.set(skill, { rel, agent });
   }
@@ -1106,7 +1112,7 @@ function checkAgentRoster(byCode, skills) {
           failures.push(
             `${where}: declares agent '${agentCode}', but no skill in module '${code}' has a ` +
             `customize.toml [agent] block with that code (looked in: ` +
-            `${siblings.map((s) => `skills/${s}`).join(", ") || "no sibling skills"}) -- the ` +
+            `${siblings.map((s) => `${skillRel(s)}`).join(", ") || "no sibling skills"}) -- the ` +
             `installer would write [agents.${agentCode}] into _bmad/config.toml for an agent ` +
             `nothing implements. The roster entry is matched to its skill through that ` +
             `[agent] code, never through the directory name.`
@@ -1116,7 +1122,7 @@ function checkAgentRoster(byCode, skills) {
         if (matches.length > 1) {
           failures.push(
             `${where}: agent code '${agentCode}' is declared by more than one skill ` +
-            `(${matches.map((s) => `skills/${s}/customize.toml`).join(", ")}) -- one code is ` +
+            `(${matches.map((s) => `${skillRel(s)}/customize.toml`).join(", ")}) -- one code is ` +
             `one [agents.<code>] TOML table, so two skills claiming it is a duplicate table.`
           );
           continue;
@@ -1194,10 +1200,10 @@ function checkSetupSingleton(byCode, skills) {
     if (setups.length > 1) {
       const sorted = [...setups].sort();
       failures.push(
-        `module '${code}' has ${setups.length} *-setup directories: ${setups.map((s) => `skills/${s}`).join(", ")} -- ` +
+        `module '${code}' has ${setups.length} *-setup directories: ${setups.map((s) => `${skillRel(s)}`).join(", ")} -- ` +
         `BMad's find_setup_skill() returns the FIRST one in filesystem order, so the module ` +
         `home is whichever the filesystem hands back. On a sorted-order filesystem that is ` +
-        `always skills/${sorted[0]}. Exactly one directory per module may end in '-setup'.`
+        `always ${skillRel(sorted[0])}. Exactly one directory per module may end in '-setup'.`
       );
     }
   }
@@ -1218,7 +1224,7 @@ function checkSetupSingleton(byCode, skills) {
 // to each other. `validate-module.py` does report it, but it needs a real BMad install, so it
 // only runs in `smoke:install`, which is not in CI.
 //
-// Scope is every `skills/*/assets/module-help.csv`, derived by walking `skills/` like every
+// Scope is every skill's `assets/module-help.csv`, derived by walking `skills/` like every
 // other rule here. Codes are compared case-insensitively: they are typed by a human at a menu,
 // and `lpc` selecting a row that wrote `LPC` is the same collision.
 //
@@ -1231,7 +1237,7 @@ function checkSetupSingleton(byCode, skills) {
 // assert something unmeasured over a set that happens to pass.
 function checkMenuCodeUnique(skills) {
   for (const skill of skills) {
-    const rel = `skills/${skill}/assets/module-help.csv`;
+    const rel = `${skillRel(skill)}/assets/module-help.csv`;
     if (!exists(rel)) continue;
     const seen = new Map();
     for (const row of parseCsvRows(rel, read(rel))) {
@@ -1265,7 +1271,7 @@ function checkMenuCodeUnique(skills) {
 // whether an edit was missed. The failure mode is silent in the worst way: the skill activates,
 // prints a confident deprecation notice, and runs somebody else's workflow.
 //
-// SCOPE IS DERIVED, like every other rule here: a forwarder is any `skills/*/SKILL.md` whose
+// SCOPE IS DERIVED, like every other rule here: a forwarder is any skill's `SKILL.md` whose
 // frontmatter `description` begins `DEPRECATED forwarder for /<target>`. No list of forwarder
 // names exists anywhere in this repo, and adding one here would be the thing that goes stale
 // the first time somebody renames a skill without telling this file.
@@ -1349,7 +1355,7 @@ function checkForwarderShape(skills) {
   // first because the no-chains clause needs to ask whether a TARGET is itself a forwarder.
   const forwarders = new Map(); // skill -> { rel, text, description, target }
   for (const skill of skills) {
-    const rel = `skills/${skill}/SKILL.md`;
+    const rel = `${skillRel(skill)}/SKILL.md`;
     if (!exists(rel)) continue;
     const text = read(rel);
     const fm = parseSkillFrontmatter(text);
@@ -1437,13 +1443,13 @@ function checkForwarderShape(skills) {
     }
 
     // Nothing but SKILL.md and customize.toml.
-    const entries = fs.readdirSync(path.join(repoRoot, "skills", skill));
+    const entries = fs.readdirSync(path.join(repoRoot, skillRel(skill)));
     const extra = entries.filter((e) => !FORWARDER_ALLOWED_FILES.has(e)).sort();
     if (extra.length > 0) {
       failures.push(
         `${rel.replace(/\/SKILL\.md$/, "")}: a forwarder carries only SKILL.md and ` +
         `customize.toml, but this one also has ${extra.join(", ")}. Payload on a forwarder is ` +
-        `how a second module home appears (see rule 11) -- move it to skills/${target}/.`
+        `how a second module home appears (see rule 11) -- move it to ${skillRel(target)}/.`
       );
     }
 
@@ -1460,7 +1466,7 @@ function checkForwarderShape(skills) {
       } else if (verb === "removed" && packageVersion && !versionLess(packageVersion, found[0])) {
         failures.push(
           `${rel}: promises removal in ${found[0]}, but this package is already at ` +
-          `${packageVersion}. The promise came due -- delete skills/${skill}/ and its entry in ` +
+          `${packageVersion}. The promise came due -- delete ${skillRel(skill)}/ and its entry in ` +
           `.claude-plugin/marketplace.json, or move the removal version out.`
         );
       }

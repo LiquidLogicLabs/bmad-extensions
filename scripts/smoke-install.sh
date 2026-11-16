@@ -88,7 +88,7 @@ pending_check() { echo "  PENDING $1 -- $2"; pending=$((pending + 1)); }
 
 echo "== baseline =="
 check "core version matches the pinned baseline" \
-  "grep -q \"version: $(jq -r .core_version "$pkg/skills/l3io-doctor/assets/bmad-baseline.json")\" _bmad/_config/manifest.yaml"
+  "grep -q \"version: $(jq -r .core_version "$pkg/skills/l3io-util/l3io-doctor/assets/bmad-baseline.json")\" _bmad/_config/manifest.yaml"
 
 echo "== plugin skill delivery (marketplace.json) =="
 # Task 11A fix round 1, M-1: the definitive empirical guard is that every skill
@@ -199,7 +199,7 @@ if [ -d ".claude/skills/l3io-pm-setup" ] && [ -d ".claude/skills/l3io-pm-execute
     "! test -f '$sibling'"
   check "step-00-activate.md's BLOCKED message names l3io-pm-setup by name" \
     "grep -q 'l3io-pm-setup/scripts/pm-status.py is missing beside this skill' \
-       '$pkg/skills/l3io-pm-execute/steps/shared/step-00-activate.md'"
+       '$pkg/skills/l3io-pm/l3io-pm-execute/steps/shared/step-00-activate.md'"
   mv ".claude/skills/l3io-pm-setup.hidden" ".claude/skills/l3io-pm-setup"
 
   # Requirement 3: l3io-pm-help's existing "only reads, does not self-install" precedent must
@@ -213,7 +213,7 @@ if [ -d ".claude/skills/l3io-pm-setup" ] && [ -d ".claude/skills/l3io-pm-execute
   # failure sat unnoticed from that split until this task re-ran it. Same lesson as
   # ADR-0008's "moving text unchanged can break it".
   check "l3io-pm-help still says it does not self-install pm-status.py" \
-    "grep -rq 'does not self-install' '$pkg/skills/l3io-pm-help/'"
+    "grep -rq 'does not self-install' '$pkg/skills/l3io-pm/l3io-pm-help/'"
   # Its negative twin, and it needs the same reach for the same reason: after Task 12's split
   # the subject matter lives in steps/step-01-config.md, so a self-install invocation appended
   # THERE satisfied a SKILL.md-only grep and left check:docs green too. Broadening the positive
@@ -225,10 +225,10 @@ if [ -d ".claude/skills/l3io-pm-setup" ] && [ -d ".claude/skills/l3io-pm-execute
   # self-install` would be making exactly the mistake this assertion exists to catch, and the
   # old pattern could not see it. Verified by planting both spellings in steps/.
   check "l3io-pm-help carries no self-install invocation of its own" \
-    "! grep -rqE '(pm-status\.py|\{pm_status\}) self-install' '$pkg/skills/l3io-pm-help/'"
+    "! grep -rqE '(pm-status\.py|\{pm_status\}) self-install' '$pkg/skills/l3io-pm/l3io-pm-help/'"
 else
   pending_check "pm-status.py sibling path (Task 11A)" \
-    "skills/l3io-pm-setup or skills/l3io-pm-execute not present in this checkout"
+    "skills/l3io-pm/l3io-pm-setup or skills/l3io-pm/l3io-pm-execute not present in this checkout"
 fi
 
 echo "== config layer (the path every skill runs first) =="
@@ -279,7 +279,7 @@ check "the help index exists and the installer owns it" \
 
 echo "== dependency truth =="
 check "no inventory claim contradicts the manifest" \
-  "uv run -q --with 'ruamel.yaml>=0.18' python3 '$pkg/skills/l3io-doctor/scripts/bmad-deps.py' verify --project-root . --format json | jq -e '.status_contradictions == []' >/dev/null"
+  "uv run -q --with 'ruamel.yaml>=0.18' python3 '$pkg/skills/l3io-util/l3io-doctor/scripts/bmad-deps.py' verify --project-root . --format json | jq -e '.status_contradictions == []' >/dev/null"
 
 if [ "$fail" -eq 0 ]; then
   [ "$pending" -eq 0 ] && echo "smoke: PASS" || echo "smoke: PASS ($pending pending)"

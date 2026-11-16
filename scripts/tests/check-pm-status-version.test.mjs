@@ -46,6 +46,7 @@ function writePmStatus(root, version) {
 
 function writeModuleHome(root, skill, code, version, { atRoot = false } = {}) {
   const rel = atRoot ? `skills/${skill}/module.yaml` : `skills/${skill}/assets/module.yaml`;
+  write(root, `skills/${skill}/SKILL.md`, "");
   write(root, rel, `code: ${code}\nname: "${skill}"\ndescription: "test"\nmodule_version: ${version}\n`);
 }
 
@@ -92,6 +93,7 @@ test("a module home missing module_version is caught", (t) => {
   const root = fixture(t);
   writePkg(root, "1.0.0");
   writePmStatus(root, "1.0.0");
+  write(root, "skills/solo/SKILL.md", "");
   write(root, "skills/solo/assets/module.yaml", "code: solo\nname: \"solo\"\ndescription: \"test\"\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -104,9 +106,20 @@ test("_shared is never treated as a module home", (t) => {
   writePmStatus(root, "1.0.0");
   // _shared has no module.yaml of its own, but even if it did, it must never be scanned as a
   // module home -- it is the sync source, not a skill.
+  write(root, "skills/_shared/SKILL.md", "");
   write(root, "skills/_shared/module.yaml", "code: not-a-module\nmodule_version: 0.0.1\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("a module home inside a module folder is found (ADR-0021 layout)", (t) => {
+  const root = fixture(t);
+  writePkg(root, "1.0.0");
+  writePmStatus(root, "1.0.0");
+  writeModuleHome(root, "grp/solo", "solo", "0.9.0");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /skills\/grp\/solo\/assets\/module\.yaml: module_version is 0\.9\.0/);
 });
 
 test("no module homes at all still passes on pm-status.py's own invariant", (t) => {

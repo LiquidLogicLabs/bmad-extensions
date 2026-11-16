@@ -105,8 +105,8 @@ scope. Outside the inventory, and so not among the 24, are `BLOCKED:` lines this
 
 - `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blocked pending external
   resolution`) — a genuine halt, indented.
-- `skills/l3io-doctor/steps/redrive.md:103` — a halt in a doctor mode, not an orchestrator step.
-- `skills/l3io-help/steps/step-02-detect-layout.md:26` and `:69` — column-0 halts that **repeat**
+- `skills/l3io-util/l3io-doctor/steps/redrive.md:103` — a halt in a doctor mode, not an orchestrator step.
+- `skills/l3io-pm/l3io-help/steps/step-02-detect-layout.md:26` and `:69` — column-0 halts that **repeat**
   two conditions converted above (multiple state layouts; state outside
   `implementation_artifacts`). They stay halts **deliberately**: `l3io-help` is an advisory skill
   that recommends the next action and does not itself run migrations or write configuration, so

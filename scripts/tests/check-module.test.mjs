@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { skillDirs } from "../lib/skill-dirs.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-module.mjs");
@@ -43,10 +44,16 @@ function run(root, args = []) {
   });
 }
 
+// A file written under skills/<dir>/ makes <dir> a skill: the checker finds skills through
+// scripts/lib/skill-dirs.mjs, which requires a SKILL.md, so the fixture supplies an empty one
+// unless the test writes its own.
 function write(root, rel, text) {
   const p = path.join(root, rel);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, text);
+  const m = /^skills\/([^/_][^/]*)\/./.exec(rel);
+  const skillMd = m && path.join(root, "skills", m[1], "SKILL.md");
+  if (skillMd && !fs.existsSync(skillMd)) fs.writeFileSync(skillMd, "");
 }
 
 function writeModuleHome(root, dir, code) {
@@ -449,11 +456,8 @@ function fixtureFromRepo(t) {
 
 test("the real repository passes check:module with the expected module-home shape", (t) => {
   const root = fixtureFromRepo(t);
-  const skillsDir = path.join(root, "skills");
-  const moduleHomes = fs.readdirSync(skillsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .filter((name) => fs.existsSync(path.join(skillsDir, name, "assets", "module.yaml")));
+  const moduleHomes = skillDirs(root)
+    .filter((rel) => fs.existsSync(path.join(root, rel, "assets", "module.yaml")));
 
   const marketplace = JSON.parse(
     fs.readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"),
@@ -507,8 +511,8 @@ test("check:module rejects a plugin that a second skill drops to synthesized fal
   const marketplace = JSON.parse(fs.readFileSync(mpPath, "utf8"));
   const arch = marketplace.plugins.find((p) => p.name === "l3io-arch");
   assert.ok(arch, "fixture precondition: marketplace.json declares an l3io-arch plugin");
-  assert.deepEqual(arch.skills, ["./skills/l3io-arch-review"], "fixture precondition: one skill");
-  arch.skills.push("./skills/l3io-help");
+  assert.deepEqual(arch.skills, ["./skills/l3io-arch/l3io-arch-review"], "fixture precondition: one skill");
+  arch.skills.push("./skills/l3io-pm/l3io-help");
   fs.writeFileSync(mpPath, JSON.stringify(marketplace, null, 2) + "\n");
 
   const r = run(root);

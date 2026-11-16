@@ -20,7 +20,7 @@ from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)),
-                      "skills", "l3io-plan", "scripts", "plan-graph.py")
+                      "skills", "l3io-pm", "l3io-plan", "scripts", "plan-graph.py")
 spec = importlib.util.spec_from_file_location("plan_graph", SCRIPT)
 pg = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pg)

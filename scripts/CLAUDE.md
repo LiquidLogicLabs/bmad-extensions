@@ -9,6 +9,17 @@ root `CLAUDE.md`. This file carries the mechanics behind them.
 Each checker's own header comment is the authoritative description of what it asserts;
 `scripts/check-docs.mjs` numbers its thirty-eight checks there.
 
+**Every tool finds skills through `scripts/lib/skill-dirs.mjs`, never a `skills/*/` glob.** The
+repository is laid out one folder per module (ADR-0021): `skills/<module>/<skill>/`, with
+`skills/_shared/` beside them. `skillDirs()` returns every directory under `skills/` holding a
+`SKILL.md`, at any depth, excluding `_shared/`; `skillDirByName()` maps a skill's name (its
+basename, which is what an install flattens it to) to that directory, and refuses two skills
+sharing a name. A one-level glob over `skills/` now sees four module folders and no skills at
+all, and every check built on one would pass over an empty scope. `strayFiles()` is the other
+half: a file under `skills/` that no skill and no module record owns — a per-skill copy left at
+an old flat path — is invisible to everything that walks skills, so `check:scripts` and
+`check:manifest` both fail on it by name (`STRAY:`).
+
 **`module.yaml` lives in more than one place, on purpose.** BMad reads it with two different
 tools that disagree about where it is: `validate-module.py` reads `assets/module.yaml`, and
 `tools/installer/project-root.js` — the one that decides which `[modules.<code>]` a module's
@@ -23,7 +34,7 @@ enforces all of it; `docs/bmad-module-yaml-discovery.md` has the measured contra
 BMad's `PluginResolver` tries five strategies per plugin in `.claude-plugin/marketplace.json`;
 the fifth **synthesizes** a stub catalog from `SKILL.md` frontmatter and the install still exits
 0, with no warning, ignoring every authored CSV. `l3io-pm` reaches strategy 2 only because
-`skills/l3io-setup/` is named `*-setup` and carries both module files; the other three reach
+`skills/l3io-pm/l3io-setup/` is named `*-setup` and carries both module files; the other three reach
 strategy 3 only because `_trySingleStandalone` requires **exactly one** existing skill. Adding a
 second skill to any of those three plugins — nothing deleted, every file where it was — drops
 that module to synthesis. `check:module` rule 8 mirrors the resolver's conditions and fails on
@@ -38,7 +49,7 @@ rule 10 requires them equal on `title`, `icon` and `description`, with `name` pr
 `[agent]` block no roster lists never reaches `config.toml` at all while the skill still
 activates. The entry is tied to its skill through the `[agent] code`, **not** the directory
 name: `l3io-sec-redteam` declares `code: redteam`, which the installer uses only as the TOML
-section key (`manifest-generator.js:608`). `skills/l3io-sec-redteam/assets/module.yaml` records
+section key (`manifest-generator.js:608`). `skills/l3io-sec/l3io-sec-redteam/assets/module.yaml` records
 why beside the field.
 
 **A mode keyword with no `module-help.csv` row is unreachable from BMad's menu.** The routing
@@ -173,16 +184,16 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 
 | Where | Parses | With |
 |---|---|---|
-| `check-module.mjs` | `skills/module.yaml`, `skills/*/module.yaml`, `skills/*/assets/module.yaml` | `yaml` |
-| `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
+| `check-module.mjs` | `skills/module.yaml`, each skill's `module.yaml` and `assets/module.yaml` | `yaml` |
+| `check-module.mjs` | each skill's `assets/module-help.csv` | `csv-parse` |
 | `check-module-view.mjs` | the assembled view's `<skill>/assets/module-help.csv` | `csv-parse` |
-| `check-module.mjs` check 9 | each `skills/*/SKILL.md` routing table, split on `\|` | `csv-parse` |
-| `check-module.mjs` check 10 | `skills/*/customize.toml` | `smol-toml` |
+| `check-module.mjs` check 9 | each skill's `SKILL.md` routing table, split on `\|` | `csv-parse` |
+| `check-module.mjs` check 10 | each skill's `customize.toml` | `smol-toml` |
 | `check-module.mjs` check 8 | `.claude-plugin/marketplace.json` | `JSON.parse` |
-| `module-config-keys.mjs` | `skills/*/assets/module.yaml` | `yaml` |
+| `module-config-keys.mjs` | each skill's `assets/module.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |
-| `check-docs.mjs` check 21 | `skills/*/SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |
+| `check-docs.mjs` check 21 | each skill's `SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |
 
 `mvdan-sh` is **deprecated on npm** — `npm ci` says so, and the lockfile entry carries it. It is
 still the right choice here and the ADR says why, which successor was considered (`sh-syntax`,
@@ -201,7 +212,7 @@ across ~90 simultaneous failures, and no message anywhere named `node_modules`. 
 plants a library import into the copy and asserts the checker still runs, because a suite that
 is green either way proves nothing about the property.
 
-These are **devDependencies**. Nothing here ships: payload scope is a walk of `skills/<skill>/`,
+These are **devDependencies**. Nothing here ships: payload scope is a walk of every skill directory,
 and `node_modules/` is neither under a skill nor tracked, so `check:manifest` cannot see them.
 Every bare import in a gate script **is** mechanically asserted against `package.json` —
 `check-docs.mjs`'s check 28 (`gateImportsDeclared()`, invoked from the check runner), the
@@ -246,7 +257,7 @@ review gets posted.
 
 ## Payload manifests
 
-Each skill carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 for
+Each skill carries a **generated** `skills/<module>/<skill>/payload-manifest.json` — a SHA-256 for
 **every file that skill ships**, keyed relative to that skill's own root. It is written by
 `scripts/write-payload-manifest.mjs`, whose scope is a **walk of the skill directory**, with
 three exclusions: `payload-manifest.json` (a file cannot contain its own hash), `tests/` (never
@@ -254,8 +265,9 @@ shipped as payload; no shipped skill has one today, so it is a guard rather than
 and `__pycache__/`. **Never hand-edit a manifest, and regenerate it whenever a payload file
 changes** — `npm run sync:scripts` does not do it for you.
 
-A skill is a directory with a `SKILL.md`. That is what BMad installs and what the marketplace
-declares, and it excludes `skills/_shared/`, which ships nothing. All twelve skills have a
+A skill is a directory with a `SKILL.md`, at any depth under `skills/` (`skillDirs()`). That is
+what BMad installs and what the marketplace declares, and it excludes `skills/_shared/`, which
+ships nothing. All twelve skills have a
 manifest, the four deprecated forwarders included: a forwarder ships a `SKILL.md`, so it is
 payload, and `clean-payload.py` cannot see a directory that has no manifest. `check:module`'s
 bare-forwarder rule therefore allows `payload-manifest.json` as a third file — it is a
