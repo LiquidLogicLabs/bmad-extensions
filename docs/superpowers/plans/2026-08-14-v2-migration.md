@@ -29,7 +29,7 @@
   | `ref-sec` | `l3io-sec` |
   | `ref-util` | `l3io-util` |
   | `ref-arch` | `l3io-arch` |
-  | Any remaining `ava-` prefix | `l3io-` |
+  | Any remaining `ref-` prefix | `l3io-` |
   | `Reference PM` | `LiquidLogicLabs PM` |
   | `the reference implementation` (standalone) | `LiquidLogicLabs` or remove |
   | menu codes `APE/APH/APS/APU/APL/APC/APT` | `LPE/LPH/LPS/LPU/LPL/LPC/LPT` |
@@ -158,7 +158,7 @@ cp "$REF/skills/ref-pm-execute/references/status-files.md" skills/_shared/status
 ```
 Apply global rename tokens (sed in-place):
 ```bash
-sed -i 's/ref-pm/l3io-pm/g; s/ref-sec/l3io-sec/g; s/ref-util/l3io-util/g; s/ref-arch/l3io-arch/g; s/ava-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' skills/_shared/status-files.md
+sed -i 's/ref-pm/l3io-pm/g; s/ref-sec/l3io-sec/g; s/ref-util/l3io-util/g; s/ref-arch/l3io-arch/g; s/ref-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' skills/_shared/status-files.md
 ```
 
 - [ ] **Step 2: Verify key schema documented**
@@ -209,7 +209,7 @@ cp "$REF/skills/_shared/steps/sync/"*.md    skills/_shared/steps/sync/
 - [ ] **Step 3: Apply global rename tokens to all step files**
 ```bash
 find skills/_shared/steps -name "*.md" -exec sed -i \
-  's/ref-pm/l3io-pm/g; s/ref-sec/l3io-sec/g; s/ref-util/l3io-util/g; s/ref-arch/l3io-arch/g; s/ava-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' {} \;
+  's/ref-pm/l3io-pm/g; s/ref-sec/l3io-sec/g; s/ref-util/l3io-util/g; s/ref-arch/l3io-arch/g; s/ref-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' {} \;
 ```
 
 - [ ] **Step 4: Verify key contracts in activate step**
@@ -249,7 +249,7 @@ Write the full new content (adapt from `$REF/scripts/sync-shared-scripts.mjs`, a
 ```bash
 cp "$REF/scripts/sync-shared-scripts.mjs" scripts/sync-shared-scripts.mjs
 sed -i \
-  's|skills.*ref-pm-plan|skills/l3io-pm-plan|g; s|skills.*ref-pm-execute|skills/l3io-pm-execute|g; s|skills.*ref-pm-sync|skills/l3io-pm-sync|g; s|ref-pm|l3io-pm|g; s|ava-|l3io-|g' \
+  's|skills.*ref-pm-plan|skills/l3io-pm-plan|g; s|skills.*ref-pm-execute|skills/l3io-pm-execute|g; s|skills.*ref-pm-sync|skills/l3io-pm-sync|g; s|ref-pm|l3io-pm|g; s|ref-|l3io-|g' \
   scripts/sync-shared-scripts.mjs
 ```
 
@@ -313,7 +313,7 @@ cp "$REF/_bmad/scripts/resolve_customization.py"  skills/l3io-pm-execute/scripts
 - [ ] **Step 2: Apply global rename tokens to all files**
 ```bash
 find skills/l3io-pm-execute -type f -exec sed -i \
-  's/ref-pm/l3io-pm/g; s/ref-sec/l3io-sec/g; s/ref-util/l3io-util/g; s/ref-arch/l3io-arch/g; s/ava-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APE/LPE/g' {} \;
+  's/ref-pm/l3io-pm/g; s/ref-sec/l3io-sec/g; s/ref-util/l3io-util/g; s/ref-arch/l3io-arch/g; s/ref-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APE/LPE/g' {} \;
 ```
 
 - [ ] **Step 3: Verify SKILL.md**
@@ -321,7 +321,7 @@ find skills/l3io-pm-execute -type f -exec sed -i \
 grep "l3io-pm-execute" skills/l3io-pm-execute/SKILL.md
 grep "headless" skills/l3io-pm-execute/SKILL.md
 grep "step-00-activate" skills/l3io-pm-execute/SKILL.md
-grep -i "the reference implementation\|ava-" skills/l3io-pm-execute/SKILL.md && echo "FAIL" || echo "PASS"
+grep -i "the reference implementation\|ref-" skills/l3io-pm-execute/SKILL.md && echo "FAIL" || echo "PASS"
 ```
 
 - [ ] **Step 4: Verify customize.toml parses and has required keys**
@@ -364,7 +364,7 @@ cp "$REF/_bmad/scripts/resolve_customization.py"            skills/l3io-pm-plan/
 - [ ] **Step 2: Apply global rename tokens**
 ```bash
 find skills/l3io-pm-plan -type f -exec sed -i \
-  's/ref-pm/l3io-pm/g; s/ava-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APH/LPH/g; s/APP/LPP/g' {} \;
+  's/ref-pm/l3io-pm/g; s/ref-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APH/LPH/g; s/APP/LPP/g' {} \;
 ```
 
 - [ ] **Step 3: Verify customize.toml knobs**
@@ -407,7 +407,7 @@ cp "$REF/_bmad/scripts/resolve_customization.py"          skills/l3io-pm-help/sc
 - [ ] **Step 2: Apply global rename tokens**
 ```bash
 find skills/l3io-pm-help -type f -exec sed -i \
-  's/ref-pm/l3io-pm/g; s/ava-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APH/LPH/g' {} \;
+  's/ref-pm/l3io-pm/g; s/ref-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APH/LPH/g' {} \;
 ```
 
 - [ ] **Step 3: Verify decision table present**
@@ -455,7 +455,7 @@ cp "$REF/_bmad/scripts/resolve_customization.py"              skills/l3io-pm-syn
 find skills/l3io-pm-sync -type f ! -path "*/scripts/detect-platform.py" \
   ! -path "*/scripts/sync-state.py" ! -path "*/scripts/drift-report.py" \
   -exec sed -i \
-  's/ref-pm/l3io-pm/g; s/ava-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APS/LPS/g; s/APU/LPU/g; s/APL/LPL/g; s/APC/LPC/g; s/APT/LPT/g' {} \;
+  's/ref-pm/l3io-pm/g; s/ref-/l3io-/g; s/Reference PM/LiquidLogicLabs PM/g; s/the reference implementation/LiquidLogicLabs/g; s/APS/LPS/g; s/APU/LPU/g; s/APL/LPL/g; s/APC/LPC/g; s/APT/LPT/g' {} \;
 ```
 
 - [ ] **Step 3: Strip ADO from sync-config-template.yaml**
@@ -476,7 +476,7 @@ For each script: apply global rename tokens, then open the file and remove ADO-s
 
 Apply rename tokens to all three:
 ```bash
-sed -i 's/ref-pm/l3io-pm/g; s/ava-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' \
+sed -i 's/ref-pm/l3io-pm/g; s/ref-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' \
   skills/l3io-pm-sync/scripts/detect-platform.py \
   skills/l3io-pm-sync/scripts/sync-state.py \
   skills/l3io-pm-sync/scripts/drift-report.py
@@ -492,7 +492,7 @@ grep -i "azure.devops\|ADO_PAT\|AZURE_DEVOPS\|ado-client" skills/l3io-pm-sync/sc
 ```bash
 grep "github" skills/l3io-pm-sync/SKILL.md
 grep "step-02-detect-platform\|step-03-operations\|step-04-resolve" skills/l3io-pm-sync/SKILL.md
-grep -i "the reference implementation\|ava-\|azure.devops\|ADO" skills/l3io-pm-sync/SKILL.md && echo "FAIL" || echo "PASS"
+grep -i "the reference implementation\|ref-\|azure.devops\|ADO" skills/l3io-pm-sync/SKILL.md && echo "FAIL" || echo "PASS"
 ```
 
 - [ ] **Step 7: Commit**
@@ -558,7 +558,7 @@ cp -r src/l3io-util/l3io-util-cleanup/. skills/l3io-util-cleanup/
 - [ ] **Step 2: Add migrate-state.md**
 ```bash
 cp "$REF/skills/ref-util-cleanup/assets/migrate-state.md" skills/l3io-util-cleanup/assets/migrate-state.md
-sed -i 's/ref-pm/l3io-pm/g; s/ref-util/l3io-util/g; s/ava-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' \
+sed -i 's/ref-pm/l3io-pm/g; s/ref-util/l3io-util/g; s/ref-/l3io-/g; s/the reference implementation/LiquidLogicLabs/g' \
   skills/l3io-util-cleanup/assets/migrate-state.md
 ```
 
@@ -584,7 +584,7 @@ cp "$REF/_bmad/scripts/resolve_customization.py" skills/l3io-util-cleanup/script
 grep "migrate-state" skills/l3io-util-cleanup/SKILL.md
 grep "migrate-state" skills/l3io-util-cleanup/assets/migrate-state.md | head -3
 grep "_bmad/state" skills/l3io-util-cleanup/assets/migrate-state.md | head -3
-grep -i "the reference implementation\|ava-" skills/l3io-util-cleanup/assets/migrate-state.md && echo "FAIL" || echo "PASS"
+grep -i "the reference implementation\|ref-" skills/l3io-util-cleanup/assets/migrate-state.md && echo "FAIL" || echo "PASS"
 ```
 
 - [ ] **Step 6: Commit**
@@ -780,7 +780,7 @@ git commit -s -m "chore: remove src/ — all skills migrated to flat skills/ lay
 
 - [ ] **Step 7: Final no-the reference implementation check**
 ```bash
-grep -r "the reference implementation\|ref-pm\|ref-sec\|ref-util\|ref-arch\|ava-" skills/ .claude-plugin/ CLAUDE.md \
+grep -r "the reference implementation\|ref-pm\|ref-sec\|ref-util\|ref-arch\|ref-" skills/ .claude-plugin/ CLAUDE.md \
   && echo "FAIL: external references remain" || echo "PASS"
 ```
 
