@@ -6,7 +6,8 @@
 > sub-plan when it starts**, against a fresh re-pin — see "Why Phases 2–7 are outlines".
 
 **Goal:** Be able to ship l3io **4.0.0**, a v7-native package, within days of BMad v7 GA — and
-keep the 3.x line correct on v7 trees until then.
+keep 3.x correct on BMad 6.x. **l3io 3.x is for BMad 6.x and l3io 4.x is for BMad v7** (user,
+2026-11-16); 3.x does not run on v7, it detects a v7 install and says so.
 
 **Architecture:** 4.0.0 **extends v7; it does not replace it** (spec §14). A user runs v7's
 skills — Sofia for planning, `bmad-build`/`bmad-build-auto` for implementation, BMad's own review
@@ -15,8 +16,8 @@ point v7 ships: menu items, stage hooks, `on_complete`, lenses, `persistent_fact
 exists only where v7 has nothing to attach to: unattended multi-ticket orchestration, estimation
 and calibration, migration and diagnostics, ADR allocation, the red-team persona.
 
-Two release lines, two branches. **3.x stays v6-native on `main`**: it finishes the bridge and
-learns to warn safely on a v7 tree. **4.0.0 is built on `feat/bmad-v7-layer`.** `main` merges
+Two release lines, two branches. **3.x stays BMad-6.x-only on `main`**: it finishes the bridge and
+learns to recognise a v7 install and refuse with a pointer to 4.x. **4.0.0 is built on `feat/bmad-v7-layer`.** `main` merges
 into the v7 branch after each 3.x release, never the reverse, until 4.0.0 ships and 3.x becomes
 the frozen maintenance line (spec §8).
 
@@ -38,6 +39,7 @@ it conflicts with §1–§12. Re-measured at `e435a22` (2026-11-12).
 - **Edit `skills/_shared/` first**, then `npm run sync:scripts`, then `node scripts/write-payload-manifest.mjs`.
 - **Never bundle a BMad core script** (`resolve_config.py`, `resolve_customization.py`, `memlog.py`, `render_skill.py`, `tickets.py`).
 - **The estimates-and-actuals HARD RULE is unchanged** on both lines: five metrics, canonical order, `cost` derived and frozen, `N/A` only for non-Claude token/cost.
+- **Version mapping: l3io 3.x ↔ BMad 6.x; l3io 4.x ↔ BMad v7** (user, 2026-11-16). Everything shipped in a 3.x release must work on BMad 6.x and is verified against v6.12.4. Anything v7-specific goes on `feat/bmad-v7-layer`; the only v7 knowledge allowed on `main` is enough to detect a v7 install and refuse.
 - **Versions only move forward.** 4.0.0 > every 3.x; 3.x patches continue after 4.0.0.
 - **Re-pin before every phase.** Fetch upstream `main`, diff against the last pin, and append a drift entry to spec §13 before the phase's first task. Re-measuring is cheap, and building on a stale reading has already cost us twice.
 - **Gates come from `.github/workflows/checks.yml`**, never from memory. Background `npm run test:scripts` and capture it to a file: it exceeds the 600 s foreground cap, and a killed run looks like a failing one.
@@ -60,7 +62,7 @@ it conflicts with §1–§12. Re-measured at `e435a22` (2026-11-12).
 | R6 | All eleven lenses resolve in the merged `bmad-review` and `bmad-code-review` customization |
 | R7 | No shipped file reads `user_name`, `communication_language`, `document_output_language`, or a bare `output_folder` |
 | R8 | Every retired l3io name is in a `retired.toml`; no forwarder skill ships |
-| R9 | The current 3.x release, run on a v7 tree, reports accurately: `check-deps` exits 6, warns before `bmad migrate`, and flags leftover v6 shims |
+| R9 | The current 3.x release, run on a v7 install, refuses at activation and says 3.x supports BMad 6.x and 4.x is needed for v7; `docs/upgrading.md` warns against `bmad migrate` on an l3io project |
 | R10 | `docs/upgrading.md` covers 3.x → 4.0.0; README installs with `npx skills add`; CHANGELOG is complete |
 | R11 | Every gate in `checks.yml` is green in CI on both branches |
 | R12 | A `3.x` maintenance branch exists, cut from `main` at the last 3.x release |
@@ -70,7 +72,7 @@ it conflicts with §1–§12. Re-measured at `e435a22` (2026-11-12).
 The five failure modes most likely to reach a user that no task's happy path exercises:
 
 1. **A tracker-backed project hits `StoreRefusal` mid-epic** because something called `mark`. Expected: the store is resolved once at activation, status goes through the tracker, and `mirror` brings it back. → Phase 4, test `test_tracker_store_never_calls_mark`.
-2. **A migrated project still resolves a v6.12 shim** (`bmad-create-story`, `bmad-dev-story`), so 3.x silently runs the v6 path on a v7 tree. Expected: a warning on 3.x, and no fallback chain in 4.0.0. → Task 1.4; Phase 4.
+2. **A migrated project still resolves a v6.12 shim** (`bmad-create-story`, `bmad-dev-story`), so 3.x would silently run the v6 path on a v7 tree. Expected: 3.x refuses on any v7 install (Task 1.4), and 4.0.0 has no fallback chain (Phase 4).
 3. **Our migration is offered before method's has run.** Expected: our `detect` does not match until the v7 initiative layout exists. → Phase 6, test `test_l3io_migration_waits_for_method`.
 4. **Parallel epics lose a write** when our sidecars and `bmad-build-auto`'s plan-file writes interleave; `tickets.py` takes no lock. Expected: no lost writes, measured under parallel dispatch. → Phase 4, test `test_parallel_epics_sidecars_survive`.
 5. **Wire-in clobbers a team's own hook.** A team already sets `tickets_after` or `on_complete`; our wire-in replaces it, and their behaviour vanishes silently. Expected: refuse, name both values, change nothing. → Phase 2, test `test_wire_in_refuses_nonempty_string_hook`.
@@ -134,17 +136,22 @@ Reserve all nine numbers at once: `uv run {project-root}/_bmad/scripts/pm-status
 There is no layer through which a module contributes customization (§14.2). That's why we must write to a team's own files at all. A fourth layer — module-shipped, merged below the team file — would let every third-party module extend v7 without touching user-owned files. Contributing it is extending v7 in the most literal sense.
 
 - [ ] **Step 1:** Draft the proposal under `docs/superpowers/notes/`. Cover: the problem (cite `config_utils.load_customization` and `customize-bmad.md:66-71`); the single-slot string-hook collision; a minimal design (a module ships `customize/<skill>.toml`; setup stages it; the resolver merges it between shipped and team); and that this package would be its first user.
-- [ ] **Step 2: Stop.** Posting an issue or PR to `bmad-code-org/BMAD-METHOD` is outward-facing, so the user decides whether, when, and in whose name. The plan does not depend on acceptance — §14.2's wire-in stands either way, and gets simpler if the layer lands.
+- [ ] **Step 2: Hold until 4.0.0 works end to end** (user, 2026-11-16: approved to post *after we have everything working*), so the proposal cites a working first user. Posting an issue or PR to `bmad-code-org/BMAD-METHOD` is outward-facing, so the user decides whether, when, and in whose name. The plan does not depend on acceptance — §14.2's wire-in stands either way, and gets simpler if the layer lands.
 
 ---
 
-## Phase 1 — 3.x stays correct on v7 trees (`main`)
+## Phase 1 — 3.x correct on BMad 6.x (`main`)
 
-Everything here is v6-line work, so it lands on `main` and merges forward.
+Everything here must work on BMad 6.x and is verified against v6.12.4. It lands on `main` and merges forward. Nothing here makes 3.x run on v7.
 
-### Task 1.1: Land `1b78b73` — **user gate**
+### Task 1.1: Rework `1b78b73` against BMad 6.x's install targets — then **user gate** to push
 
-The probe-root fix is committed and verified (9/9 static gates, 26/26 Python suites, 492/492 Node tests), but not pushed. The user decides whether to push it and whether it becomes 3.6.1. Nothing else in Phase 1 waits on this decision.
+`1b78b73` (unpushed) derived its probe roots from **v7's** `registry.py` `default_roots()`. That is the wrong source for 3.x. BMad 6.12.4's `tools/installer/ide/platform-codes.yaml` installs skills for 48 platforms into **22 distinct project directories** (`.agents/skills` for 27 of them, `.claude/skills` for one, and 20 tool-specific ones such as `.cline/skills`, `.kiro/skills`, `.junie/skills`, `.trae/skills`) and 26 distinct global ones. 3.x probes only `.claude` and `.agents`, so on any of the other 20 tools every dependency reads as absent and its phase self-skips silently. The bare `{project-root}/skills` root `1b78b73` added is a v7 location and does not belong in 3.x.
+
+- [ ] **Step 1:** Primary signal: `_bmad/_config/skill-manifest.csv` (`canonicalId`), which 6.x writes on every install regardless of tool. Directory probes become the fallback, rooted at the target dirs of the IDEs recorded in `_bmad/_config/manifest.yaml` `ides:` (6.12.4 `manifest-generator.js:380`), mapped through a vendored copy of the 6.12.4 `target_dir`/`global_target_dir` table.
+- [ ] **Step 2:** Keep `1b78b73`'s removal of the 16 dead `.agents/commands` probes; drop its bare-root probe from `main` (it moves to the v7 branch).
+- [ ] **Step 3:** Tests: a `.cline/skills` install resolves; a manifest-only record resolves; a bare `skills/` install on 6.x is **not** probed. Mutate each.
+- [ ] **Step 4:** Full gates and suites; **user gate** before push.
 
 ### Task 1.2: `subagent_models()` — price a mixed-model run per model (deferred bridge Task 5)
 
@@ -174,7 +181,9 @@ The probe-root fix is committed and verified (9/9 static gates, 26/26 Python sui
 - [ ] **Step 3:** Run the full suite, then mutate (delete the guard → the test fails).
 - [ ] **Step 4: Commit.**
 
-### Task 1.4: Warn about leftover v6 shims on a v7 tree
+### Task 1.4: Detect a v7 install and refuse — 3.x is for BMad 6.x
+
+Revised 2026-11-16: under the version mapping, 3.x does not run on v7, so warning about individual leftover shims is replaced by one refusal at activation naming 4.x. The steps below keep the shim detection as one of the v7 signals.
 
 **Files:** `skills/l3io-doctor/scripts/bmad-deps.py`; `tests/l3io-doctor/test-bmad-deps.py`; `skills/l3io-doctor/steps/check-deps.md`.
 
@@ -289,4 +298,4 @@ Everything here attaches to a v7 skill. Each item names its host and extension p
 - **Now:** Phase 0 Tasks 0.2–0.4 and Phase 1 run in parallel; they touch different branches.
 - **After the ADR review:** Phases 2 → 3 → 4 in order, since 4 needs 3's scripts and 3 needs 2's layout. Phases 5 and 6 can run beside 4.
 - **If GA lands mid-phase:** finish the current task, re-pin, append to §13, and rework only what the drift touches. The spec's own history argues for this: one pin needed six sections reworked; the next needed none of §2–§5.
-- **Release with what's ready.** If GA lands before 4.0.0 is ready, 3.x is the supported line on v7 trees in degraded mode — that is R9's purpose — and `docs/upgrading.md` says so.
+- **Release with what's ready.** If GA lands before 4.0.0 is ready, 3.x still does not run on v7: it refuses, and `docs/upgrading.md` tells users to stay on BMad 6.x until l3io 4.0.0 ships.
