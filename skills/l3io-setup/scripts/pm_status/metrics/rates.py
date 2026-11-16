@@ -42,7 +42,9 @@ TOKEN_RATES = {
     "claude-opus-5":      {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
     "claude-opus-5-fast": {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
     "claude-fable-5":     {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
-    "claude-sonnet-5":    {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
+    # $2/$10 per the pricing page on 2026-11-16 (the launch price became the standard price;
+    # the scheduled rise to $3/$15 did not happen). The superseded card is in RATE_HISTORY.
+    "claude-sonnet-5":    {"input": 2.00,  "output": 10.00, "cache_write": 2.50,  "cache_read": 0.20},
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-haiku-4-5":   {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
     # OpenAI — verify at https://openai.com/api/pricing before use.
@@ -56,6 +58,19 @@ TOKEN_RATES = {
     "gpt-5.6-sol":        {"input": 4.00,  "output": 20.00, "cache_write": 6.25,  "cache_read": 0.40},
     "gpt-5.6-terra":      {"input": 2.00,  "output": 12.00, "cache_write": 2.50,  "cache_read": 0.20},
     "gpt-5.6-luna":       {"input": 0.20,  "output":  1.20, "cache_write": 0.25,  "cache_read": 0.02},
+}
+
+
+# Rate cards a model USED to have. An actual's `cost` is frozen at capture, and `verify`
+# re-prices it from this module, so correcting a row above would otherwise fail every actual
+# already recorded at the old rate. `verify` accepts a cost that matches the current card OR
+# one of these -- a real published card, so a hand-edited cost still fails. Never delete an
+# entry: an actual priced at it may still be in a committed state tree.
+RATE_HISTORY = {
+    "claude-sonnet-5": [
+        {"input": 3.00, "output": 15.00, "cache_write": 3.75, "cache_read": 0.30,
+         "superseded": "2026-11-16"},
+    ],
 }
 
 
@@ -76,10 +91,11 @@ def resolve_rates(model: str, overrides=None) -> dict:
     return table[model]
 
 
-def cost_from_tokens(tokens: dict, model: str, overrides=None) -> float:
+def cost_from_tokens(tokens: dict, model: str, overrides=None, card=None) -> float:
     """USD for a per-class token count. `tokens` values are in THOUSANDS, rates
-    are per million, hence the /1000."""
-    rates = resolve_rates(model, overrides)
+    are per million, hence the /1000. `card` prices at that rate card instead of
+    the model's current one -- how `verify` checks a cost against RATE_HISTORY."""
+    rates = card if card is not None else resolve_rates(model, overrides)
     total = 0.0
     for cls in TOKEN_CLASSES:
         v = _num_or_none((tokens or {}).get(cls))
@@ -95,6 +111,45 @@ def cost_from_tokens(tokens: dict, model: str, overrides=None) -> float:
                            f"must define all of {list(TOKEN_CLASSES)} for a model it adds")
         total += v * rates[cls]
     return round(total / 1000.0, 2)
+
+
+def candidate_cards(model: str, overrides=None) -> list:
+    """Every rate card a recorded cost for `model` may legitimately have been priced at:
+    the current one (overrides applied) first, then RATE_HISTORY's. KeyError when the
+    model has no current card, as resolve_rates."""
+    cards = [resolve_rates(model, overrides)]
+    for old in RATE_HISTORY.get(model, []):
+        cards.append({c: old[c] for c in TOKEN_CLASSES})
+    return cards
+
+
+def cost_by_model(by_model: dict, overrides=None, cards=None) -> float:
+    """USD for a {model: {class: thousands}} split: each model at its own rates, summed.
+    `cards` maps a model to the card to use; absent models use their current card."""
+    total = 0.0
+    for model, tokens in by_model.items():
+        total += cost_from_tokens(tokens, model, overrides, (cards or {}).get(model))
+    return round(total, 2)
+
+
+def cost_matches(got, tokens, model: str, overrides=None, by_model=None) -> tuple:
+    """(ok, expected-at-current-rates). True when `got` equals the cost of `tokens` at
+    `model` -- or of `by_model`, each model at its own rates -- under the current card or
+    any combination of historical ones. Half-a-cent tolerance, as verify always used."""
+    import itertools
+
+    if by_model:
+        models = sorted(by_model)
+        expect = cost_by_model(by_model, overrides)
+        options = [candidate_cards(m, overrides) for m in models]
+        prices = (cost_by_model(by_model, overrides, dict(zip(models, combo)))
+                  for combo in itertools.product(*options))
+    else:
+        expect = cost_from_tokens(tokens, model, overrides)
+        prices = (cost_from_tokens(tokens, model, overrides, card)
+                  for card in candidate_cards(model, overrides))
+    ok = got is not None and any(abs(got - p) <= 0.005 for p in prices)
+    return ok, expect
 
 
 FRESH_TOKEN_CLASSES = ("input", "output", "cache_write")

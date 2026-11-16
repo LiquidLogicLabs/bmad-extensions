@@ -44,8 +44,10 @@ from .calibration import (
 )
 from .rates import (
     TOKEN_CLASSES,
+    cost_by_model,
     cost_from_tokens,
     rate_overrides,
+    resolve_rates,
     tokens_block,
 )
 
@@ -80,6 +82,40 @@ def cmd_import_actual(args) -> int:
     return cmd_set_actual(args)
 
 
+def _parse_tokens_by_model(raw: str, overrides) -> dict:
+    """{model: {class: float}} from --tokens-by-model, or a usage error.
+
+    Every model must have a rate card -- a cost is never guessed -- and every one of the
+    four classes must be present for every model, an explicit 0 included: the same rule
+    --tokens-* follows under runtime=claude, and for the same reason."""
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        _die_usage(f"--tokens-by-model is not valid JSON: {e}")
+    if not isinstance(data, dict) or not data:
+        _die_usage("--tokens-by-model must be a non-empty JSON object of "
+                   "{model: {input, output, cache_write, cache_read}}")
+    out = {}
+    for model, counts in data.items():
+        if not isinstance(counts, dict):
+            _die_usage(f"--tokens-by-model: {model!r} must map to an object of token classes")
+        missing = [c for c in TOKEN_CLASSES if c not in counts]
+        if missing:
+            _die_usage(f"--tokens-by-model: {model!r} is missing {', '.join(missing)} — "
+                       "give all four classes, an explicit 0 included")
+        vals = {c: _num_or_none(counts[c]) for c in TOKEN_CLASSES}
+        bad = [c for c, v in vals.items() if v is None or v < 0]
+        if bad:
+            _die_usage(f"--tokens-by-model: {model!r} has a non-numeric or negative "
+                       f"{', '.join(bad)}")
+        try:
+            cost_from_tokens(vals, model, overrides)
+        except KeyError as e:
+            _die_usage(e.args[0])
+        out[model] = vals
+    return out
+
+
 def cmd_set_actual(args) -> int:
 
     kind = args.node
@@ -109,6 +145,27 @@ def _set_actual(args, kind, block) -> int:
 
     classes = {c: getattr(args, "tokens_" + c) for c in TOKEN_CLASSES}
     given = {c: v for c, v in classes.items() if v is not None}
+    split = getattr(args, "tokens_by_model", None)
+    if split is not None:
+        if given or args.tokens_na or args.model:
+            _die_usage("--tokens-by-model replaces --tokens-*, --tokens-na and --model: each "
+                       "model and its four classes are named in the JSON")
+        if args.runtime == "copilot":
+            _die_usage("runtime=copilot exposes no per-class split, so it cannot be priced "
+                       "per model — use --tokens-input/--tokens-output")
+        split = _parse_tokens_by_model(split, rate_overrides(args))
+        totals = {c: sum(v[c] for v in split.values()) for c in TOKEN_CLASSES}
+        from ruamel.yaml.comments import CommentedMap
+
+        by_model = CommentedMap()
+        for m in sorted(split):
+            by_model[m] = tokens_block(split[m])
+        provided["tokens_k"] = tokens_block(totals)
+        provided["by_model"] = by_model
+        provided["cost"] = cost_by_model(split, rate_overrides(args))
+        # `model` stays a single id because the estimate comparison and calibration's
+        # models_seen read it: the model that carried the most tokens.
+        provided["model"] = max(sorted(split), key=lambda m: sum(split[m].values()))
     if args.tokens_na and given:
         _die_usage("--tokens-na cannot be combined with explicit token counts")
     if args.tokens_na:
@@ -141,6 +198,8 @@ def _set_actual(args, kind, block) -> int:
         total = inp + out_t
         provided["tokens_k"] = int(total) if float(total).is_integer() else round(total, 2)
         provided["cost"] = "N/A"  # no class split → cannot price accurately
+    elif split is not None:
+        pass                                   # priced above
     elif given:
         # Under runtime=claude an incomplete class set is a usage error, not a
         # zero-fill. `tokens_block` defaults an omitted class to 0, `total` sums
@@ -201,6 +260,10 @@ def _set_actual(args, kind, block) -> int:
         node[block] = block_data
     for k, v in provided.items():
         block_data[k] = v if not isinstance(v, str) else _coerce(k, v)
+    # A re-capture that is not split per model must not leave an earlier split behind:
+    # verify would sum it against tokens_k it no longer describes.
+    if "tokens_k" in provided and "by_model" not in provided and "by_model" in block_data:
+        del block_data["by_model"]
 
     nodes.save_node(y, node, path, getattr(args, "flock", False))
 
@@ -725,17 +788,48 @@ def cmd_usage(args) -> int:
         sys.stdout.write(f"cost {cost:.2f} USD, each model at its own rates\n")
         for line in lines:
             sys.stdout.write(f"  {line}\n")
-        served = [m for m, t in res["by_model"].items() if m and sum(t.values())]
-        if len(served) > 1:
-            sys.stdout.write(
-                "  note: this window ran on more than one model. set-actual records ONE\n"
-                "        --model and derives cost from it, so the recorded cost will differ\n"
-                "        from the figure above.\n")
         sys.stdout.write("\n")
     if not res.get("windowed"):
         sys.stdout.write("set-actual flags withheld: an unscoped session total is not a "
                          "node's actual.\n")
         return 0
+    served = {m: t for m, t in res["by_model"].items() if sum(t.values())}
+    if len(served) > 1:
+        return _print_split_flags(served, args.model, rate_overrides(args))
     sys.stdout.write("set-actual flags:\n  " + " ".join(
         f"--tokens-{c.replace('_', '-')} {k[c]:.3f}" for c in TOKEN_CLASSES) + "\n")
+    return 0
+
+
+def _print_split_flags(served: dict, default_model: str, overrides) -> int:
+    """The --tokens-by-model flag for a window that ran on more than one model.
+
+    Tokens on records naming no model belong to --model when one was given. A model with no
+    rate card cannot be recorded -- set-actual never guesses a rate -- so that is reported
+    with the fix rather than emitted as a flag set-actual would refuse."""
+    split: dict = {}
+    for m, t in served.items():
+        name = m or default_model
+        if not name:
+            sys.stdout.write("set-actual flags withheld: some records name no model. Pass "
+                             "--model to attribute them.\n")
+            return 0
+        acc = split.setdefault(name, {c: 0 for c in TOKEN_CLASSES})
+        for c in TOKEN_CLASSES:
+            acc[c] += t[c]
+    unknown = []
+    for name in split:
+        try:
+            resolve_rates(name, overrides)
+        except KeyError:
+            unknown.append(name)
+    if unknown:
+        sys.stdout.write(f"set-actual flags withheld: no rate card for {', '.join(unknown)}. "
+                         "Add it to modules.l3io-pm.token_rates, then re-run.\n")
+        return 0
+    payload = {m: {c: round(split[m][c] / 1000.0, 3) for c in TOKEN_CLASSES}
+               for m in sorted(split)}
+    sys.stdout.write("set-actual flags (this window ran on more than one model; each is "
+                     "priced at its own rates):\n  --tokens-by-model '"
+                     + json.dumps(payload, separators=(",", ":")) + "'\n")
     return 0

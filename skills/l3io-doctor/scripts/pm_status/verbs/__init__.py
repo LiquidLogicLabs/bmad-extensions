@@ -65,7 +65,7 @@ from ..core import (
 )
 from ..issues.store import IssueStore, canonical_bl_key, issues_paths
 from ..metrics.events import _block_duration_since_last_open
-from ..metrics.rates import TOKEN_CLASSES, cost_from_tokens, rate_overrides
+from ..metrics.rates import TOKEN_CLASSES, cost_matches, rate_overrides
 from ..metrics.report import _write_spend
 from ..metrics.spend import _fmt_actuals, rollup_epic, rollup_sprint
 from ..nodes import (
@@ -1146,27 +1146,41 @@ def cmd_verify(args) -> int:
         if total is None or abs(total - parts) > 0.01:
             problems.append(f"actual.tokens_k.total={total!r} != sum of classes ({parts})")
         model = actual.get("model")
+        by_model = actual.get("by_model")
+        if by_model is not None:
+            # A mixed-model actual: tokens_k is the per-class sum of by_model, and cost
+            # is each model's tokens at that model's own rates.
+            if not hasattr(by_model, "items") or not by_model:
+                problems.append(f"actual.by_model={by_model!r} is not a non-empty mapping")
+                by_model = None
+            else:
+                for c in TOKEN_CLASSES:
+                    s = sum(_num_or_none((v or {}).get(c)) or 0.0 for v in by_model.values())
+                    have = _num_or_none(tk.get(c)) or 0.0
+                    if abs(s - have) > 0.01 * len(by_model):
+                        problems.append(f"actual.tokens_k.{c}={have!r} != sum of "
+                                        f"by_model ({s})")
         if not model:
             problems.append("actual.model absent (cost cannot be verified)")
-        else:
+        elif by_model is not None or "by_model" not in actual:
+            got = _num_or_none(actual.get("cost"))
             try:
-                expect = cost_from_tokens(tk, str(model), rate_overrides(args))
+                # The current card, or any card RATE_HISTORY records for the model: a
+                # corrected rate must not fail actuals priced before the correction.
+                ok, expect = cost_matches(got, tk, str(model), rate_overrides(args),
+                                          dict(by_model) if by_model else None)
             except KeyError as e:
                 # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
                 # which would double-wrap a message that already reads as prose.
                 problems.append(e.args[0])
             else:
-                got = _num_or_none(actual.get("cost"))
-                # Both got and expect are already rounded to cents (the smallest
-                # unit either can carry), so the smallest genuine divergence is
-                # exactly one cent (0.01). A tolerance of 0.01 would not fire on
-                # it — the tolerance would be exactly the size of the error it
-                # exists to catch. Half the discrete unit still absorbs true
-                # float-summation noise (~1e-9 to 1e-14) with enormous margin
-                # while catching any one-cent divergence.
-                if got is None or abs(got - expect) > 0.005:
-                    problems.append(f"actual.cost={got!r} != derived {expect} "
-                                    f"for model {model}")
+                # Both sides are rounded to cents, so the smallest genuine divergence is
+                # one cent; cost_matches' half-cent tolerance fires on it while still
+                # absorbing float-summation noise.
+                if not ok:
+                    problems.append(f"actual.cost={got!r} != derived {expect} for "
+                                    + ("each model in by_model" if by_model
+                                       else f"model {model}"))
     elif "tokens_k" in actual and not _is_na(tk):
         # A bare scalar tokens_k has no class split, so the cost invariant above
         # cannot run at all — `tokens_k: 500` next to `cost: 9999.99` used to
