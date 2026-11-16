@@ -109,6 +109,15 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.7.2
+
+**3.x now also stops on a project that is part-way to BMad v7.** 3.7.0 recognised v7 by a file
+that BMad 6.12 ships too, and checked 6.x's manifest first. 6.x's manifest stays after
+`bmad setup` until v7's own cleanup removes it. So a project with v7's skills installed, or
+with `bmad setup` already run, was still treated as 6.x. 3.7.2 recognises v7 by files only v7
+writes, and checks them first. A plain 6.12.x project is unaffected. The v7 section below is
+updated from a real v7 install.
+
 ### → 3.7.1
 
 **The repository moved to `github.com/LiquidLogicLabs/bmad-extensions`.** Nothing to do: GitHub
@@ -868,33 +877,43 @@ a legacy layout.
 
 ## BMad v7: do not run `bmad migrate` on an l3io-pm project yet
 
-BMad v7 ships a migration that turns a v6 project into its initiative/ticket layout. Its
-detector fires on two things an l3io-pm project can present:
+BMad v7 ships a migration that turns a v6 project into its initiative/ticket layout.
+`bmad migrate` is not a script: an agent reads each migration's `detect` rules and judges
+whether they match. Checked by hand against a real 3.x-shaped project, with v7 at `e435a22`
+(2026-11-12):
 
-- `sprint-status.yaml` under `implementation_artifacts` — the legacy flat layout
-- story files named `<epic>-<story>-<slug>.md` whose frontmatter carries `route:` and
-  `status:` — which `pm-status.py sync-story-doc` writes
+- **`migration-1` (6 → 7) matches** on `epics.md` under the planning folder, or on
+  `sprint-status.yaml` under `implementation_artifacts` (the legacy flat layout). Nearly every
+  project built with BMad 6.x has `epics.md`. (Its third signal, story files whose frontmatter
+  carries `route:`, matched none of that project's 616 stories. This package does not write
+  `route:`; an earlier version of this note said it did.)
+- **`migration-2` (7 preview → 7) can match too**, although it is meant for projects already
+  on the v7 preview. It matches any `epic-*/` folder holding a `*-plan.md` file directly. This
+  package does not write one, but a hand-written plan file is enough.
 
-When it matches, it `git mv`s whole folders into `_bmad-output/initiative-<slug>/`. It takes a
-full backup first and will not write anything before you approve its plan, so this is not
-destructive by surprise — but two migrations competing over one tree is a mess, and ours has
-to run in a known order relative to theirs.
+When a migration matches, it `git mv`s whole folders into `_bmad-output/initiative-<slug>/`.
+It takes a full backup first and writes nothing before you approve its plan, so nothing is
+destroyed by surprise. But two migrations competing over one tree is a mess, and ours has to
+run in a known order relative to theirs.
 
 **l3io 3.x supports BMad 6.x only; l3io 4.x is the line for BMad v7.** Until l3io 4.0.0 ships,
-stay on BMad 6.x. A 3.x skill (`/l3io-execute`, `/l3io-plan`, `/l3io-sync`) run on a v7 install
-now stops at activation and says so, rather than running 6.x paths against v7's layout. Run
-`/l3io-doctor check-deps` to see which generation is installed; exit 6 means v7 was detected.
+stay on BMad 6.x. A 3.x skill (`/l3io-execute`, `/l3io-plan`, `/l3io-sync`) run on a v7
+project stops at activation and says so, rather than running 6.x paths against v7's layout.
+That includes a project part-way through upgrading: one where v7's skills are installed, or
+where `bmad setup` has run, even though 6.x's files are still there. Run `/l3io-doctor
+check-deps` to see which generation is installed; exit 6 means v7 was detected.
 
-Three further things about the v7 preview, recorded against `bmad-code-org/BMAD-METHOD` at
-`e435a22` (2026-11-12). **These are read from the code, not yet observed on a real install:**
+Also observed on a real v7 install at `e435a22`:
 
-- v7's method module now has a second migration, `migration-2` (`7 preview` → `7`), for
-  projects already on the preview. It does not target a 6.x project.
+- The preview reports its version as **`6.13.0-next`**, not 7.x.
+- **Installing for more than one tool counts as duplicates.** Skills installed for both, say,
+  Claude Code and Codex land in `.claude/skills` and `.agents/skills`, and v7's setup offers to
+  remove one copy of each. Removing the `.claude/skills` copies may stop Claude Code seeing
+  them; keep both if you use both tools.
 - v7 removed `bmad-prd`, `bmad-prfaq` and `bmad-product-brief`; their work moved to
   `bmad-facilitate`.
-- `bmad-create-story` and `bmad-dev-story` are not in v7's `retired.toml`, so `bmad setup` is
-  not expected to offer to remove them if they are left over from a 6.x install. 3.x prefers
-  them where they are present, which is one more reason 3.x refuses to run on v7.
+- Leftover 6.x skills such as `bmad-create-story` and `bmad-dev-story` are **not** offered for
+  removal, by `bmad setup` or by v7's own 6.x cleanup.
 
 ## Verifying the upgrade
 
