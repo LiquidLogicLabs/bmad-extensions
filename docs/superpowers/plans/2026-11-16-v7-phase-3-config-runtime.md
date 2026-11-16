@@ -43,6 +43,16 @@
 
 ### Task 3.1: Config reads v7 does not provide (R7)
 
+> **Done 2026-11-16** — `ab8b43b`. 26 boilerplate language lines went, not 31: the note's
+> count included lines outside the canonical set. Check 39 (`v7-config-keys`) scans 187
+> shipped files and has three arms: the three keys, a `{output_folder}` binding that does not
+> name `core.output_folder`, and a resolver `--key output_folder`. A *binding* is a list item
+> or table row that opens with the placeholder. A use such as `{output_folder}/l3io/` is not
+> judged. `init-sanctum.py` read nothing but the two keys, so its resolver call went with them.
+> The module-setup files needed no exemption: their one mention was documentation and is reworded.
+> `docs/l3io-pm-reference.md` and `docs/l3io-sec-reference.md` were brought in line too. The
+> plan's planted `_bmad/scripts/pm-status` test is deferred to Task 3.2 with its arm.
+
 **Files:**
 - Modify: every canonical file Task 0.3's note lists for `communication_language`, `user_name` and `document_output_language`, in `skills/_shared/**` and each skill's non-synced files. That includes the binding tables in `skills/_shared/config-resolution.md` and `skills/_shared/steps/shared/step-00-activate.md`, and the red-team sanctum: `scripts/init-sanctum.py` and its `assets/*-template.md` files.
 - Modify: `scripts/check-docs.mjs` to add check 39 and update the header and the count; also update `CLAUDE.md`'s count sentence.
@@ -56,19 +66,19 @@
 
   Each failure line names the file, the line and the token.
 
-- [ ] **Step 1: Failing tests.**
+- [x] **Step 1: Failing tests.**
   - In `check-docs.test.mjs`: on a fixture tree, check 39 fails on a planted `{communication_language}`, on a planted `_bmad/scripts/pm-status/__main__.py`, and on a bare `{output_folder}` binding, and it passes on `core.output_folder`.
   - In the sanctum suite: `init-sanctum.py` run with no config renders no file containing `{user_name}`.
-- [ ] **Step 2:** Delete the reads, following the note's classification:
+- [x] **Step 2:** Delete the reads, following the note's classification:
   - delete the 31 boilerplate "Communicate … in `{communication_language}`" lines;
   - delete the two subagent hand-off mentions in `step-05-epic-loop.md`;
   - remove the `user_name` and `communication_language` plumbing from the sanctum. The templates address the user as "you", and `--user-name`/`--communication-language` are removed from `init-sanctum.py`;
   - drop the binding-table rows.
 
   Then sync and regenerate the manifests.
-- [ ] **Step 3: Add check 39 with its config-key arms only.** The `_bmad/scripts/pm-status` arm would fail on today's tree, so Task 3.2 adds it, in the same commit that rebinds the last caller. Every commit stays green.
-- [ ] **Step 4:** Run every gate in `checks.yml` and both suites.
-- [ ] **Step 5: Commit.** `feat(infra)!: read only the config v7 provides; check 39 keeps it so`.
+- [x] **Step 3: Add check 39 with its config-key arms only.** The `_bmad/scripts/pm-status` arm would fail on today's tree, so Task 3.2 adds it, in the same commit that rebinds the last caller. Every commit stays green.
+- [x] **Step 4:** Run every gate in `checks.yml` and both suites.
+- [x] **Step 5: Commit.** `feat(infra)!: read only the config v7 provides; check 39 keeps it so`.
 
 ### Task 3.2: Declare `pm_status`; every caller uses the declared copy
 
