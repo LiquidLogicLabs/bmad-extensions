@@ -164,7 +164,7 @@ There is no layer through which a module contributes customization (§14.2). Tha
 
 ## Phase 1 — 3.x correct on BMad 6.x (`main`)
 
-> **Done 2026-11-16 — shipped as 3.7.0** (tag `3.7.0`, merged into this branch as `80a2d5d`).
+> **Done 2026-11-16 — shipped as 3.7.0** (tag `3.7.0`, then merged into this branch).
 > Task 1.1 → `f25166b`; 1.2 → `91de947`, extended by `ada8563` (actuals record a per-model
 > split as `by_model`, and `claude-sonnet-5` corrected to $2/$10 with `RATE_HISTORY` so older
 > actuals still verify — both at the user's request); 1.3 → `91de947`; 1.4 → `c687afd` (refuse
