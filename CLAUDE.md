@@ -18,7 +18,7 @@ A skill is still named by its own directory, so sibling-relative paths between s
 module hold, and an install flattens every module into one skills folder.
 
 `l3io-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
-and the state layout, and each of its nineteen modes lives in its own `steps/` file loaded
+and the state layout, and each of its twenty-one modes lives in its own `steps/` file loaded
 only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
 modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for fifteen
 procedures it would not run.
@@ -41,7 +41,7 @@ Module setup lives at each module's **home**: `bmad setup l3io-pm` for `l3io-pm`
 | `l3io-execute` | Full epic + sprint lifecycle: elaboration → dev → code review → QA → fix loop, then sprint and epic closure reviews |
 | `l3io-plan` | Cross-epic planning — validates readiness, elaborates stories, estimates, builds dependency graph, and produces a phased parallel-optimized execution plan. Three further modes: `estimate` re-estimates only; `lanes` partitions planned work across developers who each have their own clone (inert unless `lane_count` > 1); and `reorg` proposes a better **shape** for a plan that is already legal (measures → proposes a target placement → validates → derives operations → applies), writing planned work only and journaling to `state/reorg-log.yaml` so an undo is possible |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder was removed in 3.0.0 (see `docs/upgrading.md`) |
+| `l3io-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`, and `wire`/`unwire` (ADR-0020: the reversible edit of a team's `_bmad/custom/<skill>.toml`). Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder was removed in 3.0.0 (see `docs/upgrading.md`) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 
 ## Shared Files

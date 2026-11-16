@@ -16,6 +16,8 @@ One skill, `l3io-doctor`, the diagnostics and housekeeping tool for l3io-pm proj
 | `check-pm-status` | Compares the installed pm-status helper against this doctor's version: current, stale, or absent. | A state write misbehaves after an upgrade. |
 | `version` | Reports which l3io-extensions version the project runs, per skill and per module, and fails on a tree carrying more than one. | "Which l3io am I on", or after an interrupted upgrade. |
 | `upgrade` | Runs the right command to install, upgrade or remove this extension, and confirms before acting. | The user asks to install, upgrade or uninstall l3io. |
+| `wire` | Attaches l3io's lenses, facts and hooks to the team's `_bmad/custom/<skill>.toml` files, never overwriting a team value, and records what it added. | After installing, to make l3io's capabilities run inside BMad's own skills. |
+| `unwire` | Removes exactly what `wire` added, and nothing the team wrote. | Before uninstalling l3io, or to detach it from BMad's skills. |
 
 ## After a mode finishes
 

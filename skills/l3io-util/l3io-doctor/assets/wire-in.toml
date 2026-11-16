@@ -1,0 +1,31 @@
+# What `/l3io-doctor wire` adds to a team's `_bmad/custom/<skill>.toml` (ADR-0020), and
+# therefore what `/l3io-doctor unwire` removes. One [[entry]] per addition:
+#
+#   id         unique; the ledger records additions under it
+#   skill      the v7 skill whose team file is edited: _bmad/custom/<skill>.toml
+#   kind       keyed  -- one table appended to an array of tables, identified by its
+#                        `code` (else `id`), which must start with `l3io-`; a team entry
+#                        with the same identity wins
+#              list   -- one string appended to a plain array, never twice
+#              scalar -- a single-slot string hook, set only when absent or empty;
+#                        any other team value is refused
+#   path       dotted key of the array or hook, e.g. `workflow.lenses`
+#   value      the table (keyed) or string (list, scalar) to add
+#   test_only  skipped unless wire-in.py is given --include-test-only
+#
+# The one entry below exists to exercise the mechanism on a real install and is never
+# applied by a normal `wire`. Phases 4-5 add the real entries.
+
+[[entry]]
+id = "wire-in-self-test"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+test_only = true
+
+[entry.value]
+code = "l3io-wire-in-self-test"
+name = "l3io wire-in self-test"
+applies_to = "any"
+when = "Never in a default review: run only when requested by code."
+instruction = ""

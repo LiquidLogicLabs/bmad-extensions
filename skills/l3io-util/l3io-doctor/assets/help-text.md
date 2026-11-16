@@ -36,6 +36,8 @@ Source & external sync
 
 Setup & housekeeping
   setup              Register l3io-util module config for this project
+  wire               Attach l3io's entries to the team's _bmad/custom/<skill>.toml files
+  unwire             Remove exactly what wire added, never a team entry
   clean-legacy       Remove .legacy/.v1 migration backup files and the state.legacy/ and
                      migration-backup/ backup directories after confirmation
 

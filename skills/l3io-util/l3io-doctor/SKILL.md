@@ -68,6 +68,8 @@ Modes (pass as argument to skip directly to that mode):
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
 
 **Setup & housekeeping**
+- **`wire`:** Attaches l3io's lenses, facts and hooks to the team's `_bmad/custom/<skill>.toml` files — v7 has no customization layer a module contributes. Round-trip safe and idempotent; never overwrites a team value, and refuses (exit 3) on a single-value hook the team already set. Records what it added (ADR-0020).
+- **`unwire`:** Removes exactly what `wire` recorded — byte-exact when the file is untouched since, entry by entry when the team has edited it — and never an entry the team wrote.
 - **`clean-legacy`:** Removes migration backup files and directories left behind by one-time migration commands — `.yaml.legacy` files, the `{pm_calibration_file}.v1` calibration schema backup in the state root, the pre-migration `_bmad/state.legacy/` directory and `_bmad/pm-calibration.yaml.legacy` file, and the `_bmad/migration-backup/` directory `migrate-state` Stage F's default "move" option relocates everything into. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
@@ -81,8 +83,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries nineteen procedures and a run needs one, so inlining them all charged every
-invocation for eighteen it would not execute. Read this file, match the keyword, load that
+carries twenty-one procedures and a run needs one, so inlining them all charged every
+invocation for twenty it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -122,6 +124,8 @@ or module setup.
 | `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
 | `migrate-state` | `steps/migrate-state.md` | health-check | prose around `migrate-engine.py` — confirms before and interprets after the eight-step migration run |
 | `bootstrap-state` | `steps/bootstrap-state.md` | health-check | prose around `migrate-engine.py` with `read-artifacts.py` — creates state nodes from story `.md` files without overwriting existing nodes |
+| `wire` | `steps/wire.md` | registered | writes the team's `_bmad/custom/<skill>.toml` — adds l3io's entries, never overwrites a team value (ADR-0020) |
+| `unwire` | `steps/unwire.md` | registered | removes exactly what `wire` recorded, nothing a team wrote |
 | `setup` or `configure` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md`. **`install` is deliberately not here** — it routes to `steps/install.md`, because a user typing it means the extension, not this module's config. It was in both rows until 3.2.5, with no precedence rule to separate them. |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →

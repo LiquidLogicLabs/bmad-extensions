@@ -82,13 +82,13 @@ contract is kept as `skills/l3io-util/l3io-doctor/assets/overlays/overlay-mode.m
 directory it describes, and Phase 3 of the customization-layer design restores the keyword along
 with the content.
 
-**Nothing in this package ever writes `{project-root}/_bmad/custom/`.** That space belongs to
-the end user, and BMad Builder is explicit that there is no supported pattern for a module to
-write into it. The specified `diff` action stages a file under `{implementation_artifacts}/`
-and **prints one `cp` command** for you to run yourself — placing the file is the act the mode
-exists not to perform. You choose the scope by choosing the filename:
-`_bmad/custom/<skill>.toml` is the committed team layer, `_bmad/custom/<skill>.user.toml` is
-gitignored. If that upstream constraint is ever lifted, it changes by ADR, not quietly.
+**On BMad v7, `wire` and `unwire` are the one place this package writes
+`{project-root}/_bmad/custom/`** (ADR-0020). v7 has no customization layer a module
+contributes, so attaching l3io's lenses, facts and hooks means writing into the team's
+`_bmad/custom/<skill>.toml`. Both are explicit modes, never run implicitly, and they only
+ever touch the committed team layer, never a gitignored `<skill>.user.toml`. Everything else
+here stays out: the specified `diff` action above stages a file under
+`{implementation_artifacts}/` and **prints one `cp` command** for you to run yourself.
 
 ### Setup & housekeeping
 
@@ -96,6 +96,8 @@ gitignored. If that upstream constraint is ever lifted, it changes by ADR, not q
 |---------|--------------|
 | `setup` / `configure` | Registers the `l3io-util` module config for the project. |
 | `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, the `state/pm-calibration.yaml.v1` calibration schema backup (beside the live calibration file, not under `_bmad/`), `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
+| `wire` | Adds the entries in `assets/wire-in.toml` to the team's `_bmad/custom/<skill>.toml` files (ADR-0020). Round-trip safe (comments, key order and hand-added entries survive) and idempotent. Three kinds: a **keyed** table appended to an array of tables by `code`/`id` — a team entry with the same identity wins, and ours must start with `l3io-` so it can never replace a BMad default; a **list** string appended once; a **scalar** single-value hook set only when absent or empty. A non-empty team hook is **refused** (exit 3), naming the file, key and both values, and nothing is written for that entry. Records what it added in `{output_folder}/l3io/wire-in.json`. |
+| `unwire` | Removes exactly what the ledger records. A file untouched since `wire` gets its pre-wire bytes back (or is deleted, if `wire` created it); a file the team has edited since loses only l3io's entries, each only while it still equals what `wire` wrote. Never removes a team entry. |
 | `help` / `?` | Prints the command list and exits — no project scan. |
 
 ## `pm-status.py` subcommands this skill runs
