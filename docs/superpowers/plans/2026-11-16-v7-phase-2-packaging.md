@@ -186,15 +186,52 @@ Retired, and listed in `bmod-l3io-pm/retired.toml`:
 
 **Files:** `scripts/check-module.mjs`, `scripts/check-bmb.mjs`, `scripts/smoke-install.sh`, `scripts/check-docs.mjs`, `package.json`, `.github/workflows/checks.yml`, `.claude-plugin/marketplace.json`.
 
-- [ ] **Step 1:** Add `scripts/fetch-bmad-tool.mjs <pin> <path>`, which fetches one file from BMAD-METHOD at the pin into a cache directory. Then add `check:bmod`, which runs `validate_manifests.py` over the repo through it, and add that step to `checks.yml` after `npm ci`.
-- [ ] **Step 2:** Retire `check:module`'s installer rules (PluginResolver strategies, agent roster parity, menu codes, two-location `module.yaml`). Delete `check:bmb` and the `bmad-builder` devDependency. Each removed rule's test goes with it; `check:bmod` replaces them.
-- [ ] **Step 3:** Rebuild `smoke:install`: `make-fixture.sh` at the pin, then `npx skills add` of each local module folder, then setup. It asserts R1's observable parts. Keep the trap rules: a failing run keeps its tree, and a caller's directory is never removed.
-- [ ] **Step 4:** Rescope `check:docs`:
+- [x] **Step 1:** Add `scripts/fetch-bmad-tool.mjs <pin> <path>`, which fetches one file from BMAD-METHOD at the pin into a cache directory. Then add `check:bmod`, which runs `validate_manifests.py` over the repo through it, and add that step to `checks.yml` after `npm ci`.
+- [x] **Step 2:** Retire `check:module`'s installer rules (PluginResolver strategies, agent roster parity, menu codes, two-location `module.yaml`). Delete `check:bmb` and the `bmad-builder` devDependency. Each removed rule's test goes with it; `check:bmod` replaces them.
+- [x] **Step 3:** Rebuild `smoke:install`: `make-fixture.sh` at the pin, then `npx skills add` of each local module folder, then setup. It asserts R1's observable parts. Keep the trap rules: a failing run keeps its tree, and a caller's directory is never removed.
+- [x] **Step 4:** Rescope `check:docs`:
   - CLI-surface checks stay;
   - checks asserting 6.x paths or skill names are retargeted or retired, each with a stated reason in the header;
   - the count of checks is updated wherever docs state it.
-- [ ] **Step 5:** Delete `.claude-plugin/marketplace.json` on this branch. v7 does not use it; it stays on `main` while 3.x ships.
-- [ ] **Step 6:** All gates green locally. Push nothing without the user's go-ahead. **Commit.** `build(infra): v7 tooling — validate_manifests gate, smoke on a real v7 install`.
+- [x] **Step 5:** Delete `.claude-plugin/marketplace.json` on this branch. v7 does not use it; it stays on `main` while 3.x ships.
+- [x] **Step 6:** All gates green locally. Push nothing without the user's go-ahead. **Commit.** `build(infra): v7 tooling — validate_manifests gate, smoke on a real v7 install`.
+
+**Done 2026-11-16 (`6f45881`).** Rulings and findings:
+- **`fetch-bmad-tool.mjs`** records a SHA-256 per (pin, path) and refuses anything unrecorded
+  before any network call. The validator needs **four** files, not one: it loads `setup.py` and
+  `knowledge.py` from its own directory, and `knowledge.py` imports `list_templates.py`. The cache
+  is outside the repository (`$BMAD_TOOL_CACHE` → `$XDG_CACHE_HOME/l3io-bmad-tools` →
+  `~/.cache/l3io-bmad-tools`), so nothing fetched can be committed or linted.
+- **`check:bmod`** validates a view without `_shared` (`l3io-check-bmod-*`, kept on failure):
+  5 skills, 4 records, 4 knowledge documents. It is in CI after `npm ci` and needs network.
+- **`check:module`** keeps two rules: `pm-status-singleton`, now by module folder, and
+  `help-registration`, retargeted from `module-help.csv` to `help/help.md` — this is what now
+  reaches the doctor's Menu column. Its first run found `l3io-plan`'s `plan` keyword marked
+  `registered` with no help entry by that name; it is the bare invocation, so its Menu value is
+  now `default`. The `roster.toml` ↔ `customize.toml [agent]` parity rule retired with the rest,
+  as this task's list says; nothing compares the two copies of the agent's title and icon now.
+- **`check:docs` is 35 checks.** Retired, numbers not reused, each with its reason in the header:
+  23 (marketplace.json), 35 (forwarders; v7 uses `retired.toml`), 38 (`skill-manifest.csv`,
+  which v7 does not write). Kept: 29 (guards the `.claude/commands` probes the step files still
+  carry; vacuous after Phase 3) and 37 (`.agents/skills` is v7's first root). Retargeted: 19 and
+  check 4's module arm derive modules from the module folder; 16 no longer reads `module.yaml`,
+  and `bmad-extensions` (the repository slug in install commands) is declared `not-a-skill`.
+- **Deleted:** `check-bmb.mjs`, `check-module-view.mjs`, `module-config-keys.mjs`,
+  `forwarder-shape.mjs`, their tests, the `bmad-builder` devDependency, `marketplace.json` and its
+  postbump/version-sync handling, and `merge-config.py`/`merge-help-csv.py` with their two suites
+  (nothing at runtime called either). **Left for Phase 3**, because runtime still loads them:
+  `module-setup.md` (doctor `SKILL.md` routing row `setup`/`configure` and line 167,
+  `l3io-arch-review/SKILL.md:38`, doctor `steps/install.md:51`, `steps/health-check.md:438`),
+  `write-module-config.py` (called by `module-setup.md`) and `agent-instructions.md` (same).
+- **`smoke:install`** passes in ~30 s: fixture at the pin, four module folders, setup headless.
+  Not in CI (GitHub and npm). Measured: the install hint resolves `--skill l3io-doctor` from the
+  repository root, so following it against this checkout satisfies the requirement — but against
+  GitHub it installs `main`'s **3.x** `l3io-doctor`, which has no `bmod.toml`, so a 4.x user
+  following it today gets a skill v7 cannot register. Setup's update check (`--source-record`)
+  reports `could-not-check` (404) for all four records while `main` ships 3.x; it does not fail
+  setup. Both resolve when 4.x reaches `main` (Phase 7).
+- Still stale for Phase 7's docs pass: `docs/getting-started.md` and `README.md` install
+  instructions name `.claude-plugin/marketplace.json` and the 6.x installer.
 
 ---
 
