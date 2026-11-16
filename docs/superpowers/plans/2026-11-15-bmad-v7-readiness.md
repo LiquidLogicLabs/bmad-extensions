@@ -118,16 +118,16 @@ Reserve all nine numbers at once: `uv run {project-root}/_bmad/scripts/pm-status
 | a | **Extend v7, do not replace it** — the governing rule and its test | §14 |
 | b | Supersede ADR-0008: `bmod.toml`, module records, and the end of `module.yaml` | §10.1 |
 | c | v7 owns the work-item tree; we write sidecars, never `tickets.toml` | §2, §3.2 |
-| d | **Sprints in 4.0.0:** none (the epic is the closure unit; calibration is already per story), or an optional batch overlay. Recommend none | §4.1, §14.3 |
+| d | **Sprints in 4.0.0: none** — the epic is the closure unit; calibration is already per story. **Decided by the user 2026-11-16** | §4.1, §14.3 |
 | e | Review viewpoints are contributed as lenses; BMad's review and fix loop are the only ones; workflows stay skills | §5, §14.3 |
 | f | Amend ADR-0006: v7 removals including `bmad-prd`, `bmad-prfaq` and `bmad-product-brief`; `bmad-help` → `bmad`; `bmm` → `method` | §10.5, §13.2 |
-| g | **Migration entry point:** a native `migration-1.toml` calling `migrate-engine.py`, versus the `/l3io-doctor migrate-v7` conductor. Recommend native — it is the extension point | §7, §13.3 |
+| g | **Migration entry point: native** `migration-1.toml` calling `migrate-engine.py`; no `/l3io-doctor migrate-v7` conductor. **Decided by the user 2026-11-16** | §7, §13.3 |
 | h | **Wire-in:** `l3io-doctor` owns an idempotent merge and unwire for every §14.1 surface; refuses on single-slot string-hook collisions | §14.2 |
 | i | **Repository layout:** `skills/<code>/` per module, and where `skills/_shared/` and the sync tooling live | §9, §13.3 |
 
-- [ ] **Step 1:** Draft all nine. a, d, g, h and i carry a recommendation; b, c, e and f record decisions the spec has already made.
+- [ ] **Step 1:** Draft all nine. a, h and i carry a recommendation; d and g record the user's 2026-11-16 decisions; b, c, e and f record decisions the spec has already made.
 - [ ] **Step 2:** `npm run check:docs` — check 3 resolves the `§N` citations.
-- [ ] **Step 3: Commit, then stop for the user's review.** Phases 2–6 depend on a, d, g, h and i.
+- [ ] **Step 3: Commit, then stop for the user's review.** Phases 2–6 still wait on a, h and i.
 
 ### Task 0.5: Propose a module customization layer upstream — **user gate before posting**
 
