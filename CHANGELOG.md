@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.1](https://github.com/LiquidLogicLabs/bmad-extensions/compare/3.7.0...3.7.1) (2026-11-16)
+
+
+### Fixes
+
+* **infra:** point every live URL at github.com/LiquidLogicLabs/bmad-extensions ([d905c13](https://github.com/LiquidLogicLabs/bmad-extensions/commit/d905c13109a243d029f64591a3466a0d6bffe3f9))
+
+
+### Maintenance
+
+* **deps-dev:** bump fast-xml-parser from 5.8.0 to 5.12.0 ([#1](https://github.com/LiquidLogicLabs/bmad-extensions/issues/1)) ([ba4e70f](https://github.com/LiquidLogicLabs/bmad-extensions/commit/ba4e70f6056374f2b45eaf8d898364e7ae0a0e33))
+* **deps-dev:** bump smol-toml ([#4](https://github.com/LiquidLogicLabs/bmad-extensions/issues/4)) ([a184840](https://github.com/LiquidLogicLabs/bmad-extensions/commit/a1848403e22ae9aceaf143438842d28ce1e606c9))
+* **deps:** bump astral-sh/setup-uv from 10.2.0 to 10.3.3 ([#2](https://github.com/LiquidLogicLabs/bmad-extensions/issues/2)) ([4859469](https://github.com/LiquidLogicLabs/bmad-extensions/commit/4859469ccceefc10eaf3678301185ce879a56c1b))
+* **deps:** bump reviewdog/action-detect-secrets from 0.31.0 to 0.32.0 ([#3](https://github.com/LiquidLogicLabs/bmad-extensions/issues/3)) ([f290fcc](https://github.com/LiquidLogicLabs/bmad-extensions/commit/f290fcc0718670ad705fdecf98c971f66dab7d11))
+
+
+### CI/CD
+
+* **ci-cd:** configure CodeRabbit and Copilot reviews against this repo's rules ([0b054e3](https://github.com/LiquidLogicLabs/bmad-extensions/commit/0b054e311783858a904b91e00178803290c6be7a))
+* **ci-cd:** schedule Dependabot updates and merge passing patch/minor bumps ([9237014](https://github.com/LiquidLogicLabs/bmad-extensions/commit/923701493b57a7a375baeea4de0f287d9ba802aa))
+
 ## [3.7.0](https://github.com/ravensorb/bmad-extensions/compare/3.6.0...3.7.0) (2026-11-16)
 
 
