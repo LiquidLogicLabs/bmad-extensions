@@ -126,7 +126,7 @@ class Base(unittest.TestCase):
 
     def _v7_tree(self, names=(), layout="skills", tool=".claude",
                  modules=(("core-tools", "6.13.0-next"), ("method", "6.13.0-next")),
-                 config_utils=True, bad_record=None):
+                 set_up=True, bad_record=None):
         """A project root shaped like a v7 install: no _bmad/_config/ at all.
 
         v7 discovers modules from the bmod.toml files in the skill roots, so the fixture
@@ -150,10 +150,13 @@ class Base(unittest.TestCase):
             d = os.path.join(root, tool, "skills", "bmod-broken")
             os.makedirs(d, exist_ok=True)
             pathlib.Path(d, "bmod.toml").write_text(bad_record, encoding="utf-8")
-        if config_utils:
+        if set_up:
+            # What `bmad setup` leaves in _bmad/scripts/: config_utils.py (which 6.12 ships
+            # too) and setup.py (which it does not).
             d = os.path.join(root, "_bmad", "scripts")
             os.makedirs(d, exist_ok=True)
-            pathlib.Path(d, "config_utils.py").write_text("# v7\n", encoding="utf-8")
+            for f in ("config_utils.py", "setup.py"):
+                pathlib.Path(d, f).write_text("# v7\n", encoding="utf-8")
         return root
 
     def _baseline(self, core_version=None, bmb_version=None):
@@ -897,14 +900,23 @@ class TestGeneration(Base):
         self.assertEqual(gen, "v6")
         self.assertTrue(evidence.endswith("manifest.yaml"))
 
-    def test_config_utils_alone_is_detected_as_v7(self):
+    def test_setup_py_alone_is_detected_as_v7(self):
         root = self._v7_tree(modules=())
         gen, evidence = self._mod().detect_generation(root)
         self.assertEqual(gen, "v7")
-        self.assertTrue(evidence.endswith("config_utils.py"))
+        self.assertTrue(evidence.endswith("setup.py"))
+
+    def test_config_utils_alone_is_not_v7(self):
+        """6.12.0 and later ship _bmad/scripts/config_utils.py, so it proves nothing."""
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        d = os.path.join(root, "_bmad", "scripts")
+        os.makedirs(d)
+        pathlib.Path(d, "config_utils.py").write_text("# 6.12\n", encoding="utf-8")
+        self.assertEqual(self._mod().detect_generation(root), ("", ""))
 
     def test_bmod_record_alone_is_detected_as_v7(self):
-        root = self._v7_tree(config_utils=False)
+        root = self._v7_tree(set_up=False)
         gen, evidence = self._mod().detect_generation(root)
         self.assertEqual(gen, "v7")
         self.assertTrue(evidence.endswith("bmod.toml"))
@@ -918,25 +930,46 @@ class TestGeneration(Base):
         """A manifest that exists but will not parse is not evidence of a working v6 tree.
         read_manifest() already returns None for it, so calling that tree v6 would send the
         caller down a path that fails again on the same file."""
-        root = self._v7_tree(config_utils=True)
+        root = self._v7_tree(set_up=True)
         mf = os.path.join(root, "_bmad", "_config")
         os.makedirs(mf, exist_ok=True)
         pathlib.Path(mf, "manifest.yaml").write_text("{[not yaml", encoding="utf-8")
         self.assertEqual(self._mod().detect_generation(root)[0], "v7")
 
-    def test_tree_with_both_generations_reads_as_v6(self):
-        """Manifest-first is what makes this change unable to alter any existing v6 result.
-        A mid-migration tree, or a v6 install with v7 skills beside it, stays v6."""
+    def test_a_6_12_install_with_config_utils_stays_v6(self):
+        """A real 6.12.x _bmad/scripts/ holds config_utils.py; that must not read as v7."""
         root = self._tree(["a-one"])
         d = os.path.join(root, "_bmad", "scripts")
         os.makedirs(d, exist_ok=True)
-        pathlib.Path(d, "config_utils.py").write_text("# v7\n", encoding="utf-8")
+        pathlib.Path(d, "config_utils.py").write_text("# 6.12\n", encoding="utf-8")
         gen, evidence = self._mod().detect_generation(root)
         self.assertEqual(gen, "v6")
         self.assertTrue(evidence.endswith("manifest.yaml"))
 
+    def test_mid_upgrade_tree_reads_as_v7(self):
+        """After `bmad setup`, the 6.x manifest stays until v7's cleanup removes it. Measured
+        on a real 6.12.4 install with v7 added at e435a22. That tree is a v7 project."""
+        root = self._tree(["a-one"])
+        d = os.path.join(root, "_bmad", "scripts")
+        os.makedirs(d, exist_ok=True)
+        pathlib.Path(d, "setup.py").write_text("# v7\n", encoding="utf-8")
+        self.assertTrue(os.path.isfile(os.path.join(root, "_bmad", "_config", "manifest.yaml")))
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v7")
+        self.assertTrue(evidence.endswith("setup.py"))
+
+    def test_v7_skills_added_to_a_v6_tree_read_as_v7(self):
+        """Before setup runs, v7's module records are already in the skills folder."""
+        root = self._tree(["a-one"])
+        d = os.path.join(root, ".claude", "skills", "bmod-method")
+        os.makedirs(d)
+        pathlib.Path(d, "bmod.toml").write_text('[bmod]\ncode = "method"\n', encoding="utf-8")
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v7")
+        self.assertTrue(evidence.endswith("bmod.toml"))
+
     def test_v7_detected_when_only_agents_root_exists(self):
-        root = self._v7_tree(tool=".agents", config_utils=False)
+        root = self._v7_tree(tool=".agents", set_up=False)
         gen, evidence = self._mod().detect_generation(root)
         self.assertEqual(gen, "v7")
         self.assertIn(".agents", evidence)
@@ -982,7 +1015,7 @@ class TestGeneration(Base):
 
     def test_detection_survives_a_malformed_record(self):
         """find_bmod_record must not stop at the broken file and report 'not installed'."""
-        root = self._v7_tree(bad_record="[bmod\ncode = ", config_utils=False)
+        root = self._v7_tree(bad_record="[bmod\ncode = ", set_up=False)
         self.assertEqual(self._mod().detect_generation(root)[0], "v7")
 
     def test_unversioned_record_forces_no_uniform_version(self):
@@ -1075,7 +1108,7 @@ class TestV7Verify(Base):
         note = [ln for ln in out.splitlines() if "evidence" in ln]
         self.assertEqual(len(note), 1, out)
         self.assertIn(root, note[0])
-        self.assertIn("config_utils.py", note[0])
+        self.assertIn("setup.py", note[0])
 
     def test_v7_json_shape(self):
         inv = self._inv([{"name": "a-one", "status": "required"}])

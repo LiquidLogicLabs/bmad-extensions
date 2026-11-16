@@ -19,7 +19,7 @@
     "references/config-resolution.md": "153baa1edb1ca9eb49fc391c546a79b1fe4260dac1c1bad27abbcbcd3726994a",
     "references/status-files.md": "bb40cda20eb67ee08ba83a22bdfd99807ca97c8314b8c9a07b94c5a8e034a0ff",
     "scripts/audit-backlog.py": "e2043b901d27bdae5d1b5f3b73aaf2265cece52a0f6d49c89341c81b89728205",
-    "scripts/bmad-deps.py": "2011f2cf9614de278ef633878f0d53e65cb9c7936831f084845c147b4a7ac5c3",
+    "scripts/bmad-deps.py": "a05178d4abd06dee4995b445fbd9c24db30d3660bc3c387cc17adbe0b718f48f",
     "scripts/check-pm-status.py": "a8ed78542dc4ee70a8533e457487de5b633cbf2637c3376ed1cdbe94870ad1d2",
     "scripts/clean-payload.py": "48dae798e964a14f426c8e78cc76b274faaac418a24c1cdff07edfa85ddadaf4",
     "scripts/detect-layout.py": "32ad8184be311fd528a842fc2d3597007dee9c1f908a4f4999e4e0136262d016",

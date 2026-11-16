@@ -15,25 +15,28 @@ else, because every later step reads or writes BMad 6.x's layout, and §2 instal
 
 ```bash
 evidence_path=""
-if [ -f "{project-root}/_bmad/_config/manifest.yaml" ]; then
-  bmad_generation=v6
-elif [ -f "{project-root}/_bmad/scripts/config_utils.py" ]; then
-  bmad_generation=v7; evidence_path="{project-root}/_bmad/scripts/config_utils.py"
-elif evidence_path=$(grep -ls '^\[bmod\]' {project-root}/.agents/skills/*/bmod.toml \
-                       {project-root}/.claude/skills/*/bmod.toml | head -1) \
+if [ -f "{project-root}/_bmad/scripts/setup.py" ]; then
+  bmad_generation=v7; evidence_path="{project-root}/_bmad/scripts/setup.py"
+elif evidence_path=$(grep -ls '^\[bmod\]' {project-root}/.*/skills/*/bmod.toml | head -1) \
      && [ -n "$evidence_path" ]; then
   bmad_generation=v7
+elif [ -f "{project-root}/_bmad/_config/manifest.yaml" ]; then
+  bmad_generation=v6
 else
   bmad_generation=unknown
 fi
 echo "bmad_generation=$bmad_generation evidence_path=$evidence_path"
 ```
 
-These are the signals `l3io-doctor`'s `bmad-deps.py` `detect_generation()` uses: 6.x writes
-`_bmad/_config/manifest.yaml` on every install; v7 has no central manifest, and is recognised
-by the shared script its resolver imports or by a module record (`bmod.toml` carrying
-`[bmod]`). The 6.x manifest wins when both are present, so a 6.x project that has had v7 skills
-added beside it is still treated as 6.x.
+The v7 signals are checked **first**, and only things no 6.x release ships count:
+`_bmad/scripts/setup.py`, which v7's `bmad setup` writes, and a module record (`bmod.toml`
+carrying `[bmod]`) in any tool's skills folder, which arrives as soon as v7's skills are
+installed. `_bmad/scripts/config_utils.py` is **not** a signal: 6.12.0 and later ship it too.
+v7 wins over 6.x's `_bmad/_config/manifest.yaml` because that manifest stays behind after
+`bmad setup` until v7's own cleanup (`migrate_v6.py`) removes it. A project mid-upgrade is
+therefore a v7 project, and 3.x stops rather than running 6.x paths against it. Verified
+against a real 6.12.4 install (no v7 signal), a v7 install at `e435a22` (`setup.py`), and that
+6.12.4 install with v7's skills added (`[bmod]` record, manifest still present).
 
 `unknown` falls through to §1, which halts if BMad core is missing.
 

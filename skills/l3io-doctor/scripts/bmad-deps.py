@@ -271,25 +271,29 @@ def find_bmod_record(project_root: str) -> str | None:
 def detect_generation(project_root: str) -> tuple:
     """('v6'|'v7'|'', evidence path). Which BMad generation is installed here.
 
-    v6 is decided by a manifest that READS, not one that merely exists: read_manifest()
+    v7 is decided FIRST, and only by things no 6.x release ships: `_bmad/scripts/setup.py`,
+    which v7's `bmad setup` writes, and a module record (a `bmod.toml` carrying `[bmod]`),
+    which arrives with v7's skills. Checked against v6.12.4's tree: neither exists there.
+    `_bmad/scripts/config_utils.py` is NOT a signal -- 6.12.0 and later ship it too.
+
+    v7 outranks the 6.x manifest because that manifest stays behind after `bmad setup` until
+    v7's own cleanup (migrate_v6.py) removes it, so a mid-upgrade tree carries both. Measured
+    on a real 6.12.4 install with v7 added at e435a22: manifest present, setup.py present.
+    Calling that tree v6 would verify a v7 project against 6.x rules.
+
+    v6 is then decided by a manifest that READS, not one that merely exists: read_manifest()
     already returns None for an unparseable file, and calling such a tree v6 would send the
     caller down a path that fails again on the same file.
-
-    Manifest-first ordering is deliberate. A tree carrying both generations -- mid-migration,
-    or a v6 install with v7 skills added beside it -- behaves exactly as it does today, so
-    this change cannot alter any existing v6 result.
-
-    v7 has no central manifest: `_config` survives only as a reserved directory name in its
-    setup script and nothing writes it. The two positive signals are the shared script that
-    v7's own resolve_config.py imports, and any module record on disk.
     """
+    setup_py = os.path.join(project_root, "_bmad", "scripts", "setup.py")
+    if os.path.exists(setup_py):
+        return "v7", setup_py
+    rec = find_bmod_record(project_root)
+    if rec:
+        return "v7", rec
     if read_manifest(project_root) is not None:
         return "v6", os.path.join(project_root, "_bmad", "_config", "manifest.yaml")
-    cu = os.path.join(project_root, "_bmad", "scripts", "config_utils.py")
-    if os.path.exists(cu):
-        return "v7", cu
-    rec = find_bmod_record(project_root)
-    return ("v7", rec) if rec else ("", "")
+    return "", ""
 
 
 def read_v7_modules(project_root: str) -> tuple:
