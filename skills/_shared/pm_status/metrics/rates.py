@@ -33,6 +33,12 @@ TOKEN_CLASSES = ("input", "output", "cache_write", "cache_read")
 # Partner-operated platforms (Bedrock, Vertex) price separately and need a
 # config override at modules.l3io-pm.token_rates.
 TOKEN_RATES = {
+    # Opus 5.5, Sonnet 5.5 and Fable 5.2 break the 0.1x cache-read rule above: their cache
+    # hits are 0.05x (Opus/Sonnet 5.5) and 0.025x (Fable 5.2) of input. Rates read from
+    # platform.claude.com/docs/en/about-claude/pricing on 2026-11-16.
+    "claude-opus-5-5":    {"input": 4.00,  "output": 20.00, "cache_write": 5.00,  "cache_read": 0.20},
+    "claude-sonnet-5-5":  {"input": 2.00,  "output": 10.00, "cache_write": 2.50,  "cache_read": 0.10},
+    "claude-fable-5-2":   {"input": 8.00,  "output": 40.00, "cache_write": 10.00, "cache_read": 0.20},
     "claude-opus-5":      {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
     "claude-opus-5-fast": {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
     "claude-fable-5":     {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
