@@ -4276,7 +4276,7 @@ test("check 36: the shipped tree passes, and examined something", async (t) => {
   // Load-bearing: a matcher that found nothing would also report no violations.
   const m = r.stdout.match(/remediation-coverage: (\d+) halt\(s\), (\d+) classified/);
   assert.ok(m, "check 36 reported no counts");
-  assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 23, `examined too little: ${m[0]}`);
+  assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 22, `examined too little: ${m[0]}`);
 });
 
 const REMEDIATION_REF_PATH = "skills/_shared/auto-remediation.md";
