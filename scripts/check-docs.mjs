@@ -1268,7 +1268,7 @@ function argparseSurface(pyRel) {
     events.push({ at: c.at, varName: c.varName, args: [argsOf(c.names, c.tail)] });
   }
   for (const [name, args] of helpers) {
-    for (const m of region.matchAll(new RegExp(`\\n\\s*${name}\\(([a-z_]+)\\)`, "g"))) {
+    for (const m of region.matchAll(new RegExp(`\\n[ \\t]*${name}\\(([a-z_]+)\\)`, "g"))) {
       events.push({ at: m.index, varName: m[1], args });
     }
   }
