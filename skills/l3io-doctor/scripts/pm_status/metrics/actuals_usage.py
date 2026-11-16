@@ -407,6 +407,7 @@ def read_transcript_usage(paths, since=None, until=None) -> dict:
             files.append(entry)
 
     totals = {c: 0 for c in TOKEN_CLASSES}
+    by_model: dict = {}
     seen, records, sidechain, outside, undated = set(), 0, 0, 0, 0
     for fp in files:
         try:
@@ -447,7 +448,9 @@ def read_transcript_usage(paths, since=None, until=None) -> dict:
                 # A window is how a node's own span is cut out of it.
                 if since is not None or until is not None:
                     when = _parse_iso(rec.get("timestamp"))
-                    if when is None:
+                    # No offset is as undatable as no timestamp: it cannot be ordered
+                    # against an aware window without guessing the writer's clock.
+                    if when is None or when.tzinfo is None:
                         undated += 1
                         continue
                     if (since is not None and when < since) or \
@@ -456,16 +459,53 @@ def read_transcript_usage(paths, since=None, until=None) -> dict:
                         continue
                 if rec.get("isSidechain"):
                     sidechain += 1
-                totals["input"] += _num_or_none(usage.get("input_tokens")) or 0
-                totals["output"] += _num_or_none(usage.get("output_tokens")) or 0
                 # Trap 2: the flat field only, never the nested mapping as well.
-                totals["cache_write"] += _num_or_none(usage.get("cache_creation_input_tokens")) or 0
-                totals["cache_read"] += _num_or_none(usage.get("cache_read_input_tokens")) or 0
+                counted = {
+                    "input": _num_or_none(usage.get("input_tokens")) or 0,
+                    "output": _num_or_none(usage.get("output_tokens")) or 0,
+                    "cache_write": _num_or_none(usage.get("cache_creation_input_tokens")) or 0,
+                    "cache_read": _num_or_none(usage.get("cache_read_input_tokens")) or 0,
+                }
+                # Every assistant record names the model that served it, so a run whose
+                # dispatched agents ran on another model can be priced per model. "" when
+                # a record carries none.
+                group = by_model.setdefault(str(msg.get("model") or ""),
+                                            {c: 0 for c in TOKEN_CLASSES})
+                for c in TOKEN_CLASSES:
+                    totals[c] += counted[c]
+                    group[c] += counted[c]
 
-    return {"tokens": totals, "files": len(files), "records": records,
+    return {"tokens": totals, "by_model": by_model, "files": len(files), "records": records,
             "unique_messages": len(seen), "sidechain_messages": sidechain,
             "outside_window": outside, "undated_skipped": undated,
             "windowed": since is not None or until is not None}
+
+
+def price_by_model(by_model: dict, default_model: str, overrides=None) -> tuple:
+    """(report lines, total USD) pricing each model's tokens at that model's own rates.
+
+    A dispatched agent may run on a different model than the session that spawned it, so
+    pricing a whole window at the parent's `--model` misprices the rest. A group whose
+    model the rate table does not know -- or which carries no model at all -- is priced at
+    `default_model` and its line says so, rather than guessing a rate for an unknown name.
+    Groups with no tokens (Claude Code's `<synthetic>` records) are skipped.
+    """
+    lines, total = [], 0.0
+    for model in sorted(by_model):
+        tokens = by_model[model]
+        if not sum(tokens.values()):
+            continue
+        k = {c: tokens[c] / 1000.0 for c in TOKEN_CLASSES}
+        try:
+            cost, note = cost_from_tokens(k, model, overrides), ""
+        except KeyError:
+            cost = cost_from_tokens(k, default_model, overrides)
+            note = (f"  (no rate for {model!r}; priced at --model {default_model})" if model
+                    else f"  (no model recorded; priced at --model {default_model})")
+        total += cost
+        lines.append(f"{model or '(none)':<20} {sum(tokens.values()):>12,} tokens  "
+                     f"{cost:>9.2f} USD{note}")
+    return lines, round(total, 2)
 
 
 def dispatch_window(state_root: str, agent: str = "", epic: str = "",
@@ -481,6 +521,11 @@ def dispatch_window(state_root: str, agent: str = "", epic: str = "",
     Matches on the keys given and ignores those left empty, so a sprint-level query does
     not have to know its stories. Uses the FIRST open and the LAST close, because a story
     is re-dispatched on every fix iteration and all of it is that story's spend.
+
+    A matching record whose `ts` carries no UTC offset voids the bracket: it cannot be
+    ordered against the aware ones, and assuming an offset would guess at someone else's
+    clock -- the same rule `_transcript_span` applies to a transcript. Skipping it instead
+    would silently narrow the window to the records that remain.
     """
     path = events_path(state_root)
     if not os.path.exists(path):
@@ -507,6 +552,12 @@ def dispatch_window(state_root: str, agent: str = "", epic: str = "",
                 when = _parse_iso(rec.get("ts"))
                 if when is None:
                     continue
+                if when.tzinfo is None:
+                    sys.stderr.write(
+                        f"pm-status.py: warning — {rec['event']} at {rec.get('ts')!r} has no "
+                        "UTC offset, so this node's dispatch bracket cannot be ordered; "
+                        "treating it as unbracketed\n")
+                    return None, None
                 if rec["event"] == "dispatch_open":
                     if first_open is None or when < first_open:
                         first_open = when
@@ -667,10 +718,20 @@ def cmd_usage(args) -> int:
     sys.stdout.write(f"  {'TOTAL':<12} {total:>12,}  ({total / 1000.0:.1f}k)\n\n")
     if args.model:
         try:
-            sys.stdout.write(f"cost {cost_from_tokens(k, args.model, rate_overrides(args)):.2f} "
-                             f"USD at {args.model} rates\n\n")
+            cost_from_tokens(k, args.model, rate_overrides(args))   # validates --model
         except KeyError as e:
             _die_usage(e.args[0])
+        lines, cost = price_by_model(res["by_model"], args.model, rate_overrides(args))
+        sys.stdout.write(f"cost {cost:.2f} USD, each model at its own rates\n")
+        for line in lines:
+            sys.stdout.write(f"  {line}\n")
+        served = [m for m, t in res["by_model"].items() if m and sum(t.values())]
+        if len(served) > 1:
+            sys.stdout.write(
+                "  note: this window ran on more than one model. set-actual records ONE\n"
+                "        --model and derives cost from it, so the recorded cost will differ\n"
+                "        from the figure above.\n")
+        sys.stdout.write("\n")
     if not res.get("windowed"):
         sys.stdout.write("set-actual flags withheld: an unscoped session total is not a "
                          "node's actual.\n")

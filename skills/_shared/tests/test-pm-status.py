@@ -6960,6 +6960,99 @@ class TestTranscriptScoping(Base):
         self.assertEqual(b, pm._parse_iso("2026-08-01T13:00:00+00:00"),
                          "last close, so fix iterations are included")
 
+    def _mrec(self, mid, model, out=0, inp=0, cr=0):
+        r = self._rec(mid, "2026-08-01T12:00:00.000Z", out=out)
+        r["message"]["model"] = model
+        r["message"]["usage"]["input_tokens"] = inp
+        r["message"]["usage"]["cache_read_input_tokens"] = cr
+        return r
+
+    def test_mixed_model_run_priced_per_model(self):
+        """A parent on Opus 5.5 dispatching a Sonnet 5.5 agent: each model's tokens are
+        priced at its own rates, and the total differs from pricing all of it at Opus."""
+        parent = self._write("S1.jsonl", [self._mrec("p", "claude-opus-5-5", out=1_000_000)])
+        sub = self._write("S1/subagents/agent-a.jsonl",
+                          [self._mrec("s", "claude-sonnet-5-5", out=1_000_000)])
+        res = pm.read_transcript_usage([parent, sub])
+        self.assertEqual(res["by_model"]["claude-opus-5-5"]["output"], 1_000_000)
+        self.assertEqual(res["by_model"]["claude-sonnet-5-5"]["output"], 1_000_000)
+        _lines, cost = pm.metrics.actuals_usage.price_by_model(res["by_model"], "claude-opus-5-5")
+        self.assertEqual(cost, 30.00, "1M output at $20 (Opus 5.5) + 1M at $10 (Sonnet 5.5)")
+        all_opus = pm.metrics.rates.cost_from_tokens(
+            {c: v / 1000.0 for c, v in res["tokens"].items()}, "claude-opus-5-5")
+        self.assertEqual(all_opus, 40.00)
+        self.assertNotEqual(cost, all_opus)
+
+    def test_unknown_or_absent_model_falls_back_to_the_given_model_and_says_so(self):
+        p = self._write("t.jsonl", [self._mrec("a", "claude-unknown-9", out=1_000_000),
+                                    self._rec("b", "2026-08-01T12:00:00.000Z", out=1_000_000)])
+        res = pm.read_transcript_usage(p)
+        lines, cost = pm.metrics.actuals_usage.price_by_model(res["by_model"], "claude-sonnet-5-5")
+        self.assertEqual(cost, 20.00)
+        text = "\n".join(lines)
+        self.assertIn("no rate for 'claude-unknown-9'; priced at --model claude-sonnet-5-5", text)
+        self.assertIn("no model recorded; priced at --model claude-sonnet-5-5", text)
+
+    def test_tokenless_synthetic_records_are_not_priced_or_listed(self):
+        p = self._write("t.jsonl", [self._mrec("a", "<synthetic>"),
+                                    self._mrec("b", "claude-opus-5-5", out=1000)])
+        lines, _ = pm.metrics.actuals_usage.price_by_model(
+            pm.read_transcript_usage(p)["by_model"], "claude-opus-5-5")
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn("synthetic", lines[0])
+
+    def test_cli_prices_per_model_and_warns_set_actual_records_one(self):
+        """The CLI's cost line is the per-model sum, and a mixed window says that
+        set-actual will price it at one model."""
+        p = self._write("t.jsonl", [self._mrec("p", "claude-opus-5-5", out=1_000_000),
+                                    self._mrec("s", "claude-sonnet-5-5", out=1_000_000)])
+        code, out = self.run_main(["usage", p, "--allow-unidentified", "--model",
+                                   "claude-opus-5-5", "--since", "2026-08-01T11:00:00Z",
+                                   "--until", "2026-08-01T13:00:00Z"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("cost 30.00 USD, each model at its own rates", out)
+        self.assertIn("ran on more than one model", out)
+
+    def test_new_model_rates_match_the_published_table(self):
+        """Read from the pricing page 2026-11-16. Cache reads are 0.05x input on Opus and
+        Sonnet 5.5 and 0.025x on Fable 5.2 -- not the 0.1x the older rows follow."""
+        r = pm.metrics.rates.TOKEN_RATES
+        self.assertEqual(r["claude-opus-5-5"], {"input": 4.00, "output": 20.00,
+                                                "cache_write": 5.00, "cache_read": 0.20})
+        self.assertEqual(r["claude-sonnet-5-5"], {"input": 2.00, "output": 10.00,
+                                                  "cache_write": 2.50, "cache_read": 0.10})
+        self.assertEqual(r["claude-fable-5-2"], {"input": 8.00, "output": 40.00,
+                                                 "cache_write": 10.00, "cache_read": 0.20})
+
+    def test_dispatch_window_naive_ts_is_refused_not_typeerror(self):
+        """A ts with no offset beside aware ones raised TypeError comparing them. It now
+        voids the bracket with a warning naming the record -- never a silently narrowed
+        window built from the records that happen to remain."""
+        root = os.path.join(self.d, "state")
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "events.jsonl"), "w", encoding="utf-8") as fh:
+            fh.writelines(json.dumps({"ts": ts, "event": ev, "story": "S"}) + "\n"
+                          for ev, ts in [("dispatch_open", "2026-08-01T10:00:00+00:00"),
+                                         ("dispatch_open", "2026-08-01T09:00:00"),
+                                         ("dispatch_close", "2026-08-01T13:00:00+00:00")])
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            got = pm.metrics.actuals_usage.dispatch_window(root, story="S")
+        self.assertEqual(got, (None, None))
+        self.assertIn("'2026-08-01T09:00:00' has no UTC offset", err.getvalue())
+
+    def test_windowed_read_counts_a_naive_record_as_undated(self):
+        """Same rule on the transcript side of usage: a naive record inside an aware window
+        is undatable, counted as such, and never raises."""
+        p = self._write("t.jsonl", [
+            self._rec("a", "2026-08-01T12:00:00", out=1000),
+            self._rec("b", "2026-08-01T12:00:00.000Z", out=7)])
+        res = pm.read_transcript_usage(
+            p, since=pm._parse_iso("2026-08-01T11:00:00.000Z"),
+            until=pm._parse_iso("2026-08-01T13:00:00.000Z"))
+        self.assertEqual(res["tokens"]["output"], 7)
+        self.assertEqual(res["undated_skipped"], 1)
+
     def test_dispatch_window_ignores_other_nodes(self):
         root = os.path.join(self.d, "state")
         os.makedirs(root, exist_ok=True)

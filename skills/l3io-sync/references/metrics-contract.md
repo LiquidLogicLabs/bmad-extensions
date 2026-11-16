@@ -376,6 +376,14 @@ every dispatched agent's spend.
 For Claude, `usage` prints the four class totals and the exact `--tokens-*` flags to paste into
 `set-actual`.
 
+**Cost is priced per model.** Every assistant record names the model that served it, and a
+dispatched agent may run on a different model from the session that spawned it. With
+`--model`, `usage` prices each model's tokens at that model's own rates and lists them; a model
+the rate table does not know, or a record naming none, is priced at `--model` and labelled so.
+`set-actual` still records **one** `--model` and derives `cost` from it, so for a window that
+ran on more than one model the recorded cost differs from `usage`'s figure — `usage` says so
+when that is the case.
+
 **Claude: "Read the usage fields and sum them" is not an executable instruction.** An agent
 asked to follow it by hand hit all three traps in the file format at once. Two inflate and one
 deflates, so the errors partly cancel and the result looks plausible rather than broken.
