@@ -95,7 +95,7 @@ Spec §13 holds the `61e01f8` → `e435a22` drift log. It is listed here so the 
 > `epic-*/*-plan.md`. Leftover shims are not offered for removal, as expected. Three findings
 > were new: the preview reports `6.13.0-next`; v7 treats a multi-tool install as duplicates and
 > offers to delete copies; and `config_utils.py` is not a v7 marker, which made 3.7.0's v7
-> refusal miss mid-upgrade trees. That is fixed on `main` (`378c0d1`) for 3.7.2. Ruling: Step 3
+> refusal miss mid-upgrade trees. That is fixed on `main` (`129776e`) for 3.7.2. Ruling: Step 3
 > was run by applying each migration's `detect` prose by hand to a real project, because
 > `bmad migrate` is an agent reading prose, not a script.
 
@@ -164,24 +164,24 @@ There is no layer through which a module contributes customization (§14.2). Tha
 
 ## Phase 1 — 3.x correct on BMad 6.x (`main`)
 
-> **Done 2026-11-16 — shipped as 3.7.0** (tag `3.7.0`, merged into this branch as `d07cdd5`).
-> Task 1.1 → `25fe7eb`; 1.2 → `c39a1ae`, extended by `651146b` (actuals record a per-model
+> **Done 2026-11-16 — shipped as 3.7.0** (tag `3.7.0`, merged into this branch as `80a2d5d`).
+> Task 1.1 → `f25166b`; 1.2 → `91de947`, extended by `ada8563` (actuals record a per-model
 > split as `by_model`, and `claude-sonnet-5` corrected to $2/$10 with `RATE_HISTORY` so older
-> actuals still verify — both at the user's request); 1.3 → `c39a1ae`; 1.4 → `ab43581` (refuse
-> on v7, replacing the shim warning); 1.5 → `ab43581`, with the v7 facts marked "read from code"
-> until Task 0.2 observes them; 1.6 → `8fd9cd2`, design note awaiting review. Ruling: Task 1.2
+> actuals still verify — both at the user's request); 1.3 → `91de947`; 1.4 → `c687afd` (refuse
+> on v7, replacing the shim warning); 1.5 → `c687afd`, with the v7 facts marked "read from code"
+> until Task 0.2 observes them; 1.6 → `809a897`, design note awaiting review. Ruling: Task 1.2
 > priced from each record's `message.model` rather than subagent `meta.json`, because it is
 > exact, present on every record, and read from the same file. The task text below is the
 > record of what was planned.
 
 Everything here must work on BMad 6.x and is verified against v6.12.4. It lands on `main` and merges forward. Nothing here makes 3.x run on v7.
 
-### Task 1.1: Rework `1b78b73` against BMad 6.x's install targets — then **user gate** to push
+### Task 1.1: Rework `57e09aa` against BMad 6.x's install targets — then **user gate** to push
 
-`1b78b73` (unpushed) derived its probe roots from **v7's** `registry.py` `default_roots()`. That is the wrong source for 3.x. BMad 6.12.4's `tools/installer/ide/platform-codes.yaml` installs skills for 48 platforms into **22 distinct project directories** (`.agents/skills` for 27 of them, `.claude/skills` for one, and 20 tool-specific ones such as `.cline/skills`, `.kiro/skills`, `.junie/skills`, `.trae/skills`) and 26 distinct global ones. 3.x probes only `.claude` and `.agents`, so on any of the other 20 tools every dependency reads as absent and its phase self-skips silently. The bare `{project-root}/skills` root `1b78b73` added is a v7 location and does not belong in 3.x.
+`57e09aa` (unpushed) derived its probe roots from **v7's** `registry.py` `default_roots()`. That is the wrong source for 3.x. BMad 6.12.4's `tools/installer/ide/platform-codes.yaml` installs skills for 48 platforms into **22 distinct project directories** (`.agents/skills` for 27 of them, `.claude/skills` for one, and 20 tool-specific ones such as `.cline/skills`, `.kiro/skills`, `.junie/skills`, `.trae/skills`) and 26 distinct global ones. 3.x probes only `.claude` and `.agents`, so on any of the other 20 tools every dependency reads as absent and its phase self-skips silently. The bare `{project-root}/skills` root `57e09aa` added is a v7 location and does not belong in 3.x.
 
 - [ ] **Step 1:** Primary signal: `_bmad/_config/skill-manifest.csv` (`canonicalId`), which 6.x writes on every install regardless of tool. Directory probes become the fallback, rooted at the target dirs of the IDEs recorded in `_bmad/_config/manifest.yaml` `ides:` (6.12.4 `manifest-generator.js:380`), mapped through a vendored copy of the 6.12.4 `target_dir`/`global_target_dir` table.
-- [ ] **Step 2:** Keep `1b78b73`'s removal of the 16 dead `.agents/commands` probes; drop its bare-root probe from `main` (it moves to the v7 branch).
+- [ ] **Step 2:** Keep `57e09aa`'s removal of the 16 dead `.agents/commands` probes; drop its bare-root probe from `main` (it moves to the v7 branch).
 - [ ] **Step 3:** Tests: a `.cline/skills` install resolves; a manifest-only record resolves; a bare `skills/` install on 6.x is **not** probed. Mutate each.
 - [ ] **Step 4:** Full gates and suites; **user gate** before push.
 
