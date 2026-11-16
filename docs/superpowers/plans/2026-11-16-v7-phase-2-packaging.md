@@ -176,6 +176,12 @@ Retired, and listed in `bmod-l3io-pm/retired.toml`:
 - [ ] **Step 3:** Run against the real fixture's `_bmad/custom/`: wire, unwire, then `git diff --exit-code` over a commit of the fixture taken before.
 - [ ] **Step 4: Commit.** `feat(l3io-util): reversible wire-in for team customization files (ADR-0020)`.
 
+**Done 2026-11-16 (`76249b7`).** Wire then unwire on the real fixture left every file byte-identical. **Ruling:** v7's resolver (`config_utils.py:55-74` at the pin) lets a team-file entry *replace* a shipped default when the two share a `code`/`id`, so `wire-in.py` refuses (exit 2) any keyed entry whose `code`/`id` does not start with `l3io-`. Open, for Phases 4–5:
+- **A user can override our hook unseen.** A `<skill>.user.toml` that sets the same single-value hook overrides ours silently. `wire` should report it.
+- **No lock.** Two concurrent `wire`/`unwire` runs can both write the ledger.
+- **Deleted entries come back.** A team that deletes an entry we added gets it back on the next `wire`. Decide whether the ledger records the deletion as a refusal.
+- **No check reaches the doctor's Menu column on v7.** `check:module` rule 9 skips v7 modules, so its menu rows are hand-mirrored in `help/help.md`. Task 2.5's check:docs rescope should cover that.
+
 ### Task 2.5: Tooling
 
 **Files:** `scripts/check-module.mjs`, `scripts/check-bmb.mjs`, `scripts/smoke-install.sh`, `scripts/check-docs.mjs`, `package.json`, `.github/workflows/checks.yml`, `.claude-plugin/marketplace.json`.
