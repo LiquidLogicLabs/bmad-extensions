@@ -123,6 +123,27 @@ Retired, and listed in `bmod-l3io-pm/retired.toml`:
   - Write `modules.l3io-pm.lane_count = "3"` into the fixture's `_bmad/custom/config.toml` first. `resolve_config.py --key modules.l3io-pm.lane_count` must print `3`, and setup must not ask for it (**Review Focus 4**).
 - [ ] **Step 5: Commit.** `feat(infra)!: package all four modules as v7 bmods (ADR-0014)`.
 
+**Done 2026-11-16 (`970d1a3`).** Findings that change later work:
+- **RF4 holds only for resolution.** `resolve_config` returns the `_bmad/custom/config.toml` value, but
+  `setup.py`'s `find_pending_questions` (pin, `setup.py:2107-2126`) treats a team question as
+  answered only when it is in `_bmad/config.toml`. Setup therefore asks again, writes the answer
+  there, and the custom value then silently overrides it. **Ruling:** the 3.x→4.x migration
+  (`migration-<n>.toml`, ADR-0019) copies each `modules.l3io-*` answer from `custom/config.toml`
+  into `_bmad/config.toml` and leaves the custom value in place, so the two cannot disagree.
+  Raised in the upstream proposal as well.
+- **`validate_manifests.py` treats `skills/_shared/` as a skill** and reports a missing
+  `bmod.toml`. Over a view without `_shared` it passes (5 skills, 4 records). Task 2.5's
+  `check:bmod` validates that view. Moving the shared sources out of `skills/` is the
+  alternative and would amend ADR-0021.
+- `research_cache_ttl_days` is **user**-scoped, not team: the scanner reports `user_setting: true`.
+  `roster.toml` omits `name`, because today's value is empty.
+- Unverified offline, so check in Task 2.5's smoke: setup's update check reads `bmod.toml` from
+  `main`, which has none while 3.x ships; and its install hint
+  (`npx skills add LiquidLogicLabs/bmad-extensions --skill l3io-doctor`) has no `skills/<code>`
+  path.
+- Dead now, removed in 2.5 or Phase 3: the single-skill modules' 6.x setup files
+  (`module-setup.md`, the merge scripts, `write-module-config.py`).
+
 ### Task 2.4: Wire-in and unwire, owned by `l3io-doctor`
 
 **Files:**
