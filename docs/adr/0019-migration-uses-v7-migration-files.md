@@ -8,7 +8,7 @@
 
 v7 runs module migrations through `bmad migrate`: an agent lists every module's
 `migration-<n>.toml`, applies each one's `detect` prose, and follows its `guide` and
-`checklist`. The alternative was our own `/l3io-doctor migrate-v7` conductor. Measured (§13.5):
+`checklist`. The alternative was a migration conductor of our own inside `l3io-doctor`. Measured (§13.5):
 method's own `migration-1` and `migration-2` can both match an l3io-shaped project.
 
 ## Decision
