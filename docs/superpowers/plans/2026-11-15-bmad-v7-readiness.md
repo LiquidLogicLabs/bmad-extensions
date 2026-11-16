@@ -248,6 +248,11 @@ Spec §8.1 holds 4.0.0's detailed planning until GA stops the surface moving. §
 
 ## Phase 2 — Packaging and wire-in (`feat/bmad-v7-layer`) — needs ADRs a, b, f, h, i
 
+> **Detailed sub-plan:** `docs/superpowers/plans/2026-11-16-v7-phase-2-packaging.md` (2026-11-16). It
+> adds two facts measured with Toolsmith's own `scan_legacy_module.py` at the pin. The scanner
+> misses `l3io-pm`'s two setup questions, because they are declared in a `variables:` list. And
+> v7 questions cannot carry our validation regexes.
+
 1. **Run Toolsmith's migrate mode over each module first** and keep its "cannot convert" list. Hand-finishing a machine conversion is cheaper and less error-prone than hand-converting.
 2. **Re-lay the repository as `skills/<code>/`** for `l3io-pm`, `l3io-util`, `l3io-sec` and `l3io-arch`, per ADR i. Repoint `sync-shared-scripts.mjs`, `write-payload-manifest.mjs`, and every path in `check-docs.mjs`.
 3. **Write the module records.** `bmod-l3io-pm/bmod.toml` gets `[[bmod.config_questions]]` for every key `l3io-setup` asks today (`lane_count`, `business_ac_required`, …). The single-skill modules get theirs in their own `bmod.toml`. Every member skill gets a `bmod.toml` with `[skill]`.
