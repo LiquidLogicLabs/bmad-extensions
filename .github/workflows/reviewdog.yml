@@ -27,7 +27,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - name: detect-secrets
-      uses: reviewdog/action-detect-secrets@v0.31.0
+      uses: reviewdog/action-detect-secrets@v0.32.0
       with:
         reporter: github-pr-review
         level: error
