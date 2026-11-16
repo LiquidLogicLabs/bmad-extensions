@@ -55,7 +55,7 @@ class TestCli(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.d, True)
         self.expected = mod._expected_version()
-        self.assertIsNotNone(self.expected, "premise: the doctor's module.yaml is readable")
+        self.assertIsNotNone(self.expected, "premise: the doctor's bmod.toml is readable")
 
     def install(self, version: str):
         p = Path(self.d) / "_bmad" / "scripts" / "pm-status"
@@ -154,7 +154,7 @@ class TestCli(unittest.TestCase):
         r = subprocess.run([sys.executable, _SCRIPT], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
 
-    def test_an_unreadable_module_yaml_is_exit_2_not_a_false_current(self):
+    def test_an_unreadable_bmod_toml_is_exit_2_not_a_false_current(self):
         """The one case that must never degrade to 0: with no expected version there is
         nothing to compare against, and saying 'current' would be an unfounded all-clear."""
         self.install(self.expected)
@@ -164,11 +164,11 @@ class TestCli(unittest.TestCase):
              ("import importlib.util,sys;"
              f"s=importlib.util.spec_from_file_location('m',{_SCRIPT!r});"
              "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
-             "m._MODULE_YAML=__import__('pathlib').Path('/nonexistent/module.yaml');"
+             "m._BMOD_TOML=__import__('pathlib').Path('/nonexistent/bmod.toml');"
              f"sys.exit(m.main(['--project-root',{self.d!r}]))")],
             capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 2)
-        self.assertIn("cannot read module_version", r.stderr)
+        self.assertIn("cannot read [bmod] version", r.stderr)
 
 
 if __name__ == "__main__":

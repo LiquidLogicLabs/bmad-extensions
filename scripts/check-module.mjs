@@ -16,7 +16,8 @@
 //                            (a) every standalone (non-`*-setup`) module home also carries
 //                                `module.yaml` at its SKILL ROOT, byte-identical to its
 //                                `assets/module.yaml`;
-//                            (b) `skills/module.yaml` exists and declares neither `code:`,
+//                            (b) while any 6.x module home remains, `skills/module.yaml`
+//                                exists and declares neither `code:`,
 //                                `name:` nor `agents:`;
 //                            (c) `skills/module-help.csv` does NOT exist.
 //                            See docs/bmad-module-yaml-discovery.md and ADR-0008. This rule
@@ -75,7 +76,8 @@
 //                            READ FROM THE TABLE, not listed here, and the expectation
 //                            survives the table being deleted -- see the rule's own header.
 //                            Rules 8 and 9 skip a module carrying a v7 record
-//                            (`skills/<code>/bmod-<code>/`): v7 installs it without
+//                            (`skills/<code>/bmod-<code>/`, or a `[bmod]` table in a
+//                            single-skill module's own `bmod.toml`): v7 installs it without
 //                            PluginResolver, and its menu is `help/help.md`, not a CSV.
 //  10. agent-roster          every `agents[]` entry in a module.yaml agrees, field for
 //                            field, with the `[agent]` block in the customize.toml of the
@@ -85,6 +87,8 @@
 //                            OWN block at activation, so drift gives the agent two
 //                            identities. `code` is the TOML section key, never a directory
 //                            name -- see the rule's own header for the verification.
+//                            For a v7 module the roster is `roster.toml`: an `[agent]` block
+//                            is claimed by a `[[members]]` entry naming its skill.
 //  11. setup-singleton       at most ONE `*-setup` directory per module code. BMad resolves a
 //                            module's setup skill by scanning for the FIRST directory whose
 //                            name ends in `-setup` and returning it -- `find_setup_skill()` in
@@ -214,12 +218,52 @@ function listSkillDirs() {
   return [...SKILL_REL.keys()];
 }
 
-// A module that carries a v7 record, `skills/<code>/bmod-<code>/` (ADR-0014, ADR-0021), is
-// packaged for BMad v7: `npx skills add` installs it and its menu is the record's
-// `help/help.md`. Rules 8 and 9 model 6.x's installer -- PluginResolver and module-help.csv --
-// so they do not apply to it. The module code is the folder a skill sits in.
+// A module that carries a v7 record (ADR-0014, ADR-0021) is packaged for BMad v7: `npx skills
+// add` installs it, its menu is the record's `help/help.md` and its roster is `roster.toml`.
+// The record is `skills/<code>/bmod-<code>/` for a multi-skill module, or a `[bmod]` table in
+// the one skill's own `bmod.toml` for a single-skill module. Rules 8, 9 and 10 model 6.x's
+// installer -- PluginResolver, module-help.csv and the module.yaml roster -- so they do not
+// apply to it. The module code is the folder a skill sits in.
 function isV7Module(code) {
-  return exists(`skills/${code}/bmod-${code}`);
+  if (exists(`skills/${code}/bmod-${code}`)) return true;
+  return v7RecordDirs(code).length > 0;
+}
+// The folders under skills/<code>/ whose bmod.toml carries a `[bmod]` table for <code>.
+function v7RecordDirs(code) {
+  let entries;
+  try {
+    entries = fs.readdirSync(path.join(repoRoot, "skills", code), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries.filter((e) => e.isDirectory()).map((e) => `skills/${code}/${e.name}`)
+    .filter((dir) => {
+      if (!exists(`${dir}/bmod.toml`)) return false;
+      try {
+        return fieldText(parseToml(read(`${dir}/bmod.toml`)).bmod?.code) === code;
+      } catch {
+        return false;
+      }
+    });
+}
+// Skill names a v7 module's roster.toml lists as agents (`[[members]] skill`).
+function v7RosterSkills(code) {
+  const out = new Set();
+  for (const dir of v7RecordDirs(code)) {
+    const rel = `${dir}/roster.toml`;
+    if (!exists(rel)) continue;
+    let doc;
+    try {
+      doc = parseToml(read(rel));
+    } catch (e) {
+      failures.push(`${rel}: is not valid TOML (${String(e.message).split("\n")[0]})`);
+      continue;
+    }
+    for (const m of Array.isArray(doc.members) ? doc.members : []) {
+      if (typeof m?.skill === "string") out.add(m.skill);
+    }
+  }
+  return out;
 }
 function moduleFolderOf(skill) {
   const parts = skillRel(skill).split("/");
@@ -316,8 +360,11 @@ function checkDiscoveryLayout(byCode, skills) {
   // back to each module's own name; declaring no `agents:` there stops one agent block being
   // emitted once per installed module. Both produce a duplicate TOML table, which `tomllib`
   // rejects outright. The file itself documents the mechanism.
+  // A tree with no 6.x module home has nothing for the marker to protect.
   const markerRel = "skills/module.yaml";
-  if (!exists(markerRel)) {
+  if (byCode.size === 0) {
+    // nothing to check
+  } else if (!exists(markerRel)) {
     failures.push(
       `${markerRel} is missing -- it is the first candidate BMad's searchRootAll() returns, ` +
       `and without it a local --custom-source install resolves every module to whichever ` +
@@ -476,7 +523,8 @@ function parseCsvRows(rel, text) {
 // added skill is picked up automatically.
 const PM_STATUS_PAYLOADS = ["scripts/pm-status.py", "scripts/pm_status/__main__.py"];
 function checkPmStatusSingleton(byCode, skills) {
-  for (const code of byCode.keys()) {
+  const v7Codes = skills.map(moduleFolderOf).filter((c) => c && isV7Module(c));
+  for (const code of new Set([...byCode.keys(), ...v7Codes])) {
     const siblings = [...siblingsOfCode(code, skills, byCode)];
     // Both layouts: the flat file the package shipped through 3.5.x, and the package's entry
     // point. Looking for the old path alone would make this gate silently inert after the move.
@@ -580,6 +628,10 @@ function siblingsOfCode(code, skills, byCode) {
   const marketplaceSkills = new Set(marketplaceSkillsForCode(code));
   const out = new Set();
   for (const s of skills) {
+    if (moduleFolderOf(s) === code && isV7Module(code)) {
+      out.add(s);
+      continue;
+    }
     const explicit = codeOfSkill.get(s);
     if (explicit !== undefined) {
       if (explicit === code) out.add(s);
@@ -746,7 +798,7 @@ function checkPluginResolverStrategy() {
     }
 
     if (isV7Module(name)) {
-      report.push(`  plugin '${name}' is a v7 module (skills/${name}/bmod-${name}/) -- not resolved by PluginResolver`);
+      report.push(`  plugin '${name}' is a v7 module (a [bmod] record under skills/${name}/) -- not resolved by PluginResolver`);
       continue;
     }
 
@@ -1184,6 +1236,8 @@ function checkAgentRoster(byCode, skills) {
       continue;
     }
     if (claimed.has(`${skill}\u0000${agentCode}`)) continue;
+    const folder = moduleFolderOf(skill);
+    if (folder && isV7Module(folder) && v7RosterSkills(folder).has(skill)) continue;
     failures.push(
       `${rel}: declares agent '${agentCode}', but no module.yaml roster in its module lists ` +
       `it -- the installer writes [agents.<code>] blocks from the roster ALONE, so this ` +
@@ -1527,5 +1581,5 @@ if (failures.length > 0) {
     "These are the structural facts the module layout must hold. Fix the tree, not this check.\n");
   process.exitCode = 1;
 } else {
-  console.log("Module structure checks passed: one module.yaml per module, correctly homed.");
+  console.log("Module structure checks passed.");
 }

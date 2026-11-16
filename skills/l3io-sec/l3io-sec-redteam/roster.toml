@@ -1,0 +1,11 @@
+# The l3io-sec module's roster: the agent it offers, read by `_bmad/scripts/roster.py` for
+# party mode and any other skill that casts personas. `name` is left out because the agent
+# names itself at First Breath; until then roster.py falls back to `code`, and once the skill's
+# customization carries a name, that name wins.
+
+[[members]]
+code = "redteam"
+skill = "l3io-sec-redteam"
+icon = "🔴"
+title = "Red Team Agent"
+persona = "Adversarial security analysis across five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research."

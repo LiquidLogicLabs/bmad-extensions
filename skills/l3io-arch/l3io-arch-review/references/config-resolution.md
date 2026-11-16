@@ -145,8 +145,8 @@ the base.
 is the normal state — none of the l3io modules declare required settings, so a correct
 install produces no section at all. Bind the defaults from §3 and carry on.
 
-**This applies to a module's home only** — the three skills that carry a module manifest and a
-setup procedure of their own (`l3io-doctor/assets/module.yaml` and
+**This applies to a module's home only** — the three skills that carry a module record and a
+setup procedure of their own (`l3io-doctor/bmod.toml` and
 `l3io-doctor/assets/module-setup.md`, and the same two paths inside `l3io-sec-redteam` and
 `l3io-arch-review`). A module home loads that setup
 procedure only when:

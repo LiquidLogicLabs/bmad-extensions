@@ -337,15 +337,15 @@ skills/
                          write-module-config.py, tests/, status-files.md, metrics-contract.md,
                          calibration-model.md, config-resolution.md, module-setup.md, steps/
   l3io-pm/               module folder
-    bmod-l3io-pm/        module record: retired.toml (skills this module no longer ships)
-    l3io-plan/           SKILL.md, customize.toml, references/, scripts/, steps/
-    l3io-execute/        SKILL.md, customize.toml, references/, scripts/ (incl. pm_status/), steps/
+    bmod-l3io-pm/        module record: bmod.toml, help/, retired.toml, SKILL.md (a redirect to `bmad setup`)
+    l3io-plan/           SKILL.md, bmod.toml, customize.toml, references/, scripts/, steps/
+    l3io-execute/        SKILL.md, bmod.toml, customize.toml, references/, scripts/ (incl. pm_status/), steps/
   l3io-sec/              module folder
-    l3io-sec-redteam/    SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
+    l3io-sec-redteam/    SKILL.md, bmod.toml (module record), roster.toml, help/, customize.toml, references/, assets/ (module-setup.md), scripts/
   l3io-util/             module folder
-    l3io-doctor/         SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/, steps/
+    l3io-doctor/         SKILL.md, bmod.toml (module record), help/, customize.toml, references/, assets/ (module-setup.md), scripts/, steps/
   l3io-arch/             module folder
-    l3io-arch-review/    SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
+    l3io-arch-review/    SKILL.md, bmod.toml (module record), help/, customize.toml, references/, assets/ (module-setup.md), scripts/
 .claude/commands/        symlinks → ../../skills/<module>/<skill>/SKILL.md
 .claude-plugin/          marketplace.json (required for installation)
 ```

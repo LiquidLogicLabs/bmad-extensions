@@ -6,9 +6,10 @@
 // directory holding a SKILL.md, at any depth; a directory without one is a group and is walked
 // through. The walk stops at a skill, because everything beneath it is that skill's payload.
 //
-// A module record (`bmod-<code>/`, holding `bmod.toml`) is not a skill, but its files are
-// owned, so strayFiles() treats it as an owner too. A `bmod-<code>/` folder holding only
-// `retired.toml` is a record as well: the module retires names before its `bmod.toml` exists.
+// A multi-skill module's record (`bmod-<code>/`, ADR-0014) carries a SKILL.md, because BMad's
+// validator requires one, so it is found here like a skill; tools that ship shared payload
+// exclude it by its `bmod-` prefix. strayFiles() also treats a folder holding `bmod.toml`, or a
+// `bmod-<code>/` folder holding only `retired.toml`, as an owner.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -58,8 +59,8 @@ export function skillDirByName(root = DEFAULT_ROOT) {
 }
 
 // Every file under skills/ that no skill and no module record owns, repo-relative and sorted.
-// Files directly in skills/ (the multi-module marker `skills/module.yaml`) and everything under
-// skills/_shared/ are owned by the repository rather than a module.
+// Files directly in skills/ and everything under skills/_shared/ are owned by the repository
+// rather than a module.
 export function strayFiles(root = DEFAULT_ROOT) {
   const stray = [];
   const visit = (rel) => {

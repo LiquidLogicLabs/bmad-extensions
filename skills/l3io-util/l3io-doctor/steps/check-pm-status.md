@@ -1,10 +1,10 @@
 # check-pm-status — verify the installed pm-status.py is current
 
 Invoked with `check-pm-status`. **Read-only.** Compares the installed
-`{project-root}/_bmad/scripts/pm-status/__main__.py` against this doctor's `module_version` and reports
+`{project-root}/_bmad/scripts/pm-status/__main__.py` against this doctor's module version (`[bmod] version` in its `bmod.toml`) and reports
 whether it is current, stale, or absent.
 
-Why this lives here: only module homes carry `module_version`. This mode lets any consumer
+Why this lives here: only module records carry a version. This mode lets any consumer
 ask "is pm-status.py current?" without a cross-skill file read of its own — it calls this,
 then reads the exit code.
 

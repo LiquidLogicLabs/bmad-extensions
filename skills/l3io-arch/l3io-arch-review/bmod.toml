@@ -1,0 +1,18 @@
+[bmod]
+code = "l3io-arch"
+version = "3.7.1"
+update_source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-arch"
+required_skills = [
+  { skill = "bmad", version = "6.13.0", source = "github:bmad-code-org/BMAD-METHOD/skills/core-tools" },
+]
+pre_install_message = ""
+post_install_message = """l3io-arch is installed.
+Use /l3io-arch-review to apply engineering standards at new-project design time, during an architectural review, or when recording an architecture or technology decision (ADR).
+The standards are the single source of truth in the skill's references/standards-*.md. Active stack overlays: python, nodejs, dotnet, github-actions, docker, powershell, shell."""
+
+[[bmod.config_questions]]
+key = "preferred_diagram_format"
+prompt = "Preferred diagram format for architecture docs (mermaid or ascii)?"
+default = "mermaid"
+
+[skill]

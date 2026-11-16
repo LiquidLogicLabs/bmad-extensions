@@ -1,0 +1,14 @@
+[bmod]
+code = "l3io-util"
+version = "3.7.1"
+update_source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-util"
+required_skills = [
+  { skill = "bmad", version = "6.13.0", source = "github:bmad-code-org/BMAD-METHOD/skills/core-tools" },
+]
+pre_install_message = ""
+post_install_message = """l3io-util is installed.
+Run /l3io-doctor for a project health check, or /l3io-doctor stats for the plan-aware progress dashboard.
+Run /l3io-doctor once after installing or upgrading, before any epic run: it detects the state layout and sequences every migration you need behind one confirmation.
+Requires uv on PATH: the Python helpers run via `uv run`."""
+
+[skill]

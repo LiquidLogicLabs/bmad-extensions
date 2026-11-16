@@ -320,7 +320,7 @@ node scripts/write-payload-manifest.mjs   # regenerate the manifests after editi
 
 ## Release
 
-The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and all `module.yaml` files — do not manually bump those files.
+The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and every `bmod.toml` module record — do not manually bump those files.
 
 > **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/`, a `payload-manifest.json` is stale, or `package-lock.json` no longer matches `package.json` (runs `sync-shared-scripts.mjs --check`, `write-payload-manifest.mjs --check`, `check-docs.mjs`, `check-pm-status-version.mjs`, and `npm ls --package-lock-only` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
 

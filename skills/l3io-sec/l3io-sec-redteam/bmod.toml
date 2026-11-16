@@ -1,0 +1,19 @@
+[bmod]
+code = "l3io-sec"
+version = "3.7.1"
+update_source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-sec"
+required_skills = [
+  { skill = "bmad", version = "6.13.0", source = "github:bmad-code-org/BMAD-METHOD/skills/core-tools" },
+]
+pre_install_message = ""
+post_install_message = """l3io-sec is installed.
+Use /l3io-sec-redteam for red team analysis at sprint, epic, or solution scope. The agent builds its research cache over time for faster platform best practices lookups.
+Ensure WebSearch is enabled in your agent's permissions for live platform research."""
+
+[[bmod.config_questions]]
+key = "research_cache_ttl_days"
+scope = "user"
+prompt = "How many days before platform best practices cache entries are refreshed?"
+default = "30"
+
+[skill]

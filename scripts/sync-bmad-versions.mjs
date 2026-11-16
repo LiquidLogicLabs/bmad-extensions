@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { skillDirs } from "./lib/skill-dirs.mjs";
+import { bmodFiles, stampBmodVersion } from "./lib/bmod-records.mjs";
 
 const repoRoot = process.cwd();
 const packageJsonPath = path.join(repoRoot, "package.json");
@@ -74,32 +74,25 @@ function pmStatusVersionFiles(dir) {
   }
 }
 
-// Update module_version in every module's assets/module.yaml (the module home) AND in the
-// skill-root module.yaml a standalone module home carries beside it. The root copy is not
-// legacy -- it is the only location bmad-method 6.12.0's installer discovers for a
-// non-*-setup skill (check:module rule 1, docs/bmad-module-yaml-discovery.md), and
-// check:module requires the two to stay byte-identical, so bumping one without the other
-// would fail the gate.
-let moduleYamlCount = 0;
-for (const skillRel of skillDirs(repoRoot)) {
-  for (const rel of [
-    path.join("assets", "module.yaml"),
-    "module.yaml",
-  ]) {
-    const moduleYamlPath = path.join(repoRoot, skillRel, rel);
-    if (!fs.existsSync(moduleYamlPath)) continue;
-    const content = fs.readFileSync(moduleYamlPath, "utf8");
-    const updated = content.replace(
-      /^module_version:\s*.+$/m,
-      `module_version: ${releaseVersion}`
-    );
-    if (updated !== content) {
-      fs.writeFileSync(moduleYamlPath, updated, "utf8");
-      console.log(`Synced module_version in ${skillRel}/${rel} to ${releaseVersion}`);
-      moduleYamlCount++;
-    }
+// Stamp every v7 module record (ADR-0014): the `[bmod]` version, and each requirement on one
+// of this repository's own modules, which is pinned to the release that ships it.
+// validate_manifests.py requires every record in one repository to carry one version.
+let bmodCount = 0;
+for (const rel of bmodFiles(repoRoot)) {
+  const file = path.join(repoRoot, rel);
+  const before = fs.readFileSync(file, "utf8");
+  let after;
+  try {
+    after = stampBmodVersion(before, releaseVersion);
+  } catch (e) {
+    throw new Error(`Could not stamp ${rel}: ${e.message}`);
+  }
+  if (after !== before) {
+    fs.writeFileSync(file, after, "utf8");
+    console.log(`Synced version in ${rel} to ${releaseVersion}`);
+    bmodCount++;
   }
 }
-if (moduleYamlCount === 0) {
-  console.log("No module.yaml files needed version update");
+if (bmodCount === 0) {
+  console.log("No bmod.toml files needed version update");
 }

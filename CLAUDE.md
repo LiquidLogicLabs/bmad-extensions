@@ -234,8 +234,8 @@ The `postbump` hook chains sync automatically, so every release keeps the payloa
 
 ## Commands
 
-The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and all
-`module.yaml` files — do not manually bump those files. The release gates and the rest of the
+The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and every
+`bmod.toml` module record — do not manually bump those files. The release gates and the rest of the
 build tooling are documented in `scripts/CLAUDE.md`.
 
 ## Skill Authoring Conventions

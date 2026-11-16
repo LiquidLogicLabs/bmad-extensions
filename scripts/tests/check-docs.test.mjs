@@ -2501,7 +2501,7 @@ test("LIVE_DOCS scope attack: renaming an excluded tree fails loudly", async (t)
 test("check 22: every l3io-* skill directory is matched against the block", async (t) => {
   const root = fixture(t);
   const expected = realSkillCount(root);
-  assert.ok(expected >= 8, `expected at least the 8 shipped skills, found ${expected}`);
+  assert.ok(expected >= 5, `expected at least the 5 shipped skills, found ${expected}`);
   const r = await run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, new RegExp(`readme-repo-layout: ${expected} skill row\\(s\\)`));

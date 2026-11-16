@@ -52,10 +52,9 @@ class Base(unittest.TestCase):
             {"version": version, "generated_from": generated_from, "files": {}})
         (d / "payload-manifest.json").write_text(body, encoding="utf-8")
         if module or module_text is not None:
-            (d / "assets").mkdir(exist_ok=True)
             my = module_text if module_text is not None else (
-                f"code: {module}\nname: \"m\"\nmodule_version: {version}\n")
-            (d / "assets" / "module.yaml").write_text(my, encoding="utf-8")
+                f'[bmod]\ncode = "{module}"\nversion = "{version}"\n')
+            (d / "bmod.toml").write_text(my, encoding="utf-8")
         return d
 
     def run_cli(self, *extra):
@@ -74,14 +73,14 @@ class TestAgreement(Base):
         self.assertIn("2 skills installed", out)
 
     def test_a_module_home_reports_its_module_code_and_version(self):
-        self.skill("l3io-setup", "3.2.4", module="l3io-pm")
+        self.skill("bmod-l3io-pm", "3.2.4", module="l3io-pm")
         code, out, _ = self.run_cli()
         self.assertEqual(code, 0)
         self.assertIn("module l3io-pm 3.2.4", out)
 
-    def test_a_skill_without_module_yaml_is_not_a_finding(self):
-        """Only the four module homes carry module.yaml. The other four payload-bearing
-        skills correctly have none, and that must not read as an error."""
+    def test_a_skill_without_a_record_is_not_a_finding(self):
+        """Only the four module records carry [bmod]. A member skill correctly has none,
+        and that must not read as an error."""
         self.skill("l3io-execute", "3.2.4")
         code, out, _ = self.run_cli()
         self.assertEqual(code, 0)
@@ -117,9 +116,8 @@ class TestScope(Base):
         """The two surfaces are written by different build steps, so they can disagree
         with each other inside a single skill -- not only across skills."""
         d = self.skill("l3io-doctor", "3.2.4")
-        (d / "assets").mkdir(exist_ok=True)
-        (d / "assets" / "module.yaml").write_text(
-            "code: l3io-util\nmodule_version: 3.1.9\n", encoding="utf-8")
+        (d / "bmod.toml").write_text(
+            '[bmod]\ncode = "l3io-util"\nversion = "3.1.9"\n', encoding="utf-8")
         code, out, _ = self.run_cli()
         self.assertEqual(code, 3, out)
         self.assertIn("3.1.9", out)
@@ -151,10 +149,10 @@ class TestCorruptInput(Base):
         self.assertIn("l3io-extensions 3.2.4", out)
         self.assertEqual(code, 0, out)
 
-    def test_an_unreadable_module_yaml_is_reported_not_crashed(self):
-        self.skill("l3io-doctor", "3.2.4", module_text="code: [unclosed\n")
+    def test_an_unreadable_bmod_toml_is_reported_not_crashed(self):
+        self.skill("l3io-doctor", "3.2.4", module_text="[bmod\ncode = \n")
         code, out, _ = self.run_cli()
-        self.assertIn("module.yaml unreadable", out)
+        self.assertIn("bmod.toml unreadable", out)
         self.assertEqual(code, 0, out)
 
 

@@ -1,0 +1,10 @@
+{
+  "version": "3.7.1",
+  "generated_from": "skills/<skill>/",
+  "files": {
+    "SKILL.md": "438d86644aeacf6f861ae0ca1a40e77ff716696b90cde21ce3a2d8563ec0d8a7",
+    "bmod.toml": "ba384d10ff05cb0cbce1afd0126260eefb6561258cc4cf94c011a89ca1ce32a6",
+    "help/help.md": "3a2e86ac334527f481749c758e9cac41a205057480265e7ff2bca53675c7c21e",
+    "retired.toml": "cb5a2380781a20f0792ccdbe3f6952068c329037726bab8d4cfb32901c46a53d"
+  }
+}

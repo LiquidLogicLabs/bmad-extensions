@@ -3,16 +3,16 @@
 # requires-python = ">=3.11"
 # ///
 """
-check-pm-status.py -- verify the installed pm-status.py matches this doctor's module_version.
+check-pm-status.py -- verify the installed pm-status.py matches this doctor's module version.
 
 Why this exists
 ---------------
 `pm-status.py` self-installs at each PM/doctor activation (see CLAUDE.md), which normally
 keeps the installed copy fresh. But between an extension upgrade and the next activation, or
 when a project's activation cadence lags, the installed copy can drift behind the source
-copy the extension ships. The freshness check lives here because the doctor's module.yaml
-carries a `module_version` bumped at postbump, so its value is the source of truth for
-pm-status.py's expected version at this extension level.
+copy the extension ships. The freshness check lives here because the doctor's `bmod.toml`
+carries the module's `[bmod] version`, stamped at postbump, so its value is the source of truth
+for pm-status.py's expected version at this extension level.
 
 Single-consumer (l3io-doctor), so it ships in doctor's own scripts/ per ADR-0001,
 peer to bmad-deps.py and audit-backlog.py -- not synced or shared.
@@ -21,10 +21,10 @@ Usage
 -----
   check-pm-status.py --project-root R [--format {text,json}]
 
-Exit 0 -- installed pm-status.py matches module_version (or a strictly newer version).
-Exit 3 -- installed pm-status.py is older than module_version (stale).
+Exit 0 -- installed pm-status.py matches the module version (or a strictly newer version).
+Exit 3 -- installed pm-status.py is older than the module version (stale).
 Exit 4 -- installed pm-status.py is absent (never self-installed here yet).
-Exit 2 -- usage error, or the doctor's module.yaml is unreadable.
+Exit 2 -- usage error, or the doctor's bmod.toml is unreadable.
 """
 from __future__ import annotations
 
@@ -33,12 +33,11 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_MODULE_YAML = _HERE.parent / "assets" / "module.yaml"
-
-_VERSION_RE = re.compile(r"^module_version:\s*(\S+)", re.MULTILINE)
+_BMOD_TOML = _HERE.parent / "bmod.toml"
 _INSTALLED_PATH = "_bmad/scripts/pm-status/__main__.py"
 
 
@@ -74,11 +73,12 @@ def _version_text(text: str) -> str:
 
 def _expected_version() -> str | None:
     try:
-        text = _MODULE_YAML.read_text(encoding="utf-8")
-    except OSError:
+        data = tomllib.loads(_BMOD_TOML.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
         return None
-    m = _VERSION_RE.search(text)
-    return m.group(1).strip().strip("'\"") if m else None
+    table = data.get("bmod")
+    version = table.get("version") if isinstance(table, dict) else None
+    return version if isinstance(version, str) and version.strip() else None
 
 
 def _installed_version(project_root: Path) -> tuple[str | None, int | None]:
@@ -104,7 +104,7 @@ def main(argv=None) -> int:
 
     expected = _expected_version()
     if expected is None:
-        sys.stderr.write(f"check-pm-status.py: cannot read module_version from {_MODULE_YAML}\n")
+        sys.stderr.write(f"check-pm-status.py: cannot read [bmod] version from {_BMOD_TOML}\n")
         return 2
 
     installed_raw, _ = _installed_version(Path(args.project_root))

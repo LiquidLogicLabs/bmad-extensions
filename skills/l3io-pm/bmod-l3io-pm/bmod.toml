@@ -1,0 +1,33 @@
+[bmod]
+code = "l3io-pm"
+version = "3.7.1"
+update_source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-pm"
+skills = ["l3io-execute", "l3io-plan"]
+required_skills = [
+  { skill = "bmad", version = "6.13.0", source = "github:bmad-code-org/BMAD-METHOD/skills/core-tools" },
+  { skill = "l3io-doctor", version = "3.7.1", source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-util" },
+]
+recommended_skills = [
+  { skill = "l3io-arch-review", source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-arch" },
+  { skill = "l3io-sec-redteam", source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-sec" },
+]
+pre_install_message = ""
+post_install_message = """l3io-pm is installed.
+Use /l3io-plan to build the execution plan, then /l3io-execute to run it.
+l3io-arch-review adds the epic architecture gate and drift reviews; l3io-sec-redteam adds the closure security review.
+Requires uv on PATH: the Python helpers run via `uv run`."""
+
+# lane_count and lane carry no regex here: v7 config questions have none, so the skills
+# validate both on read and halt naming the allowed range.
+[[bmod.config_questions]]
+key = "lane_count"
+prompt = "How many developers will work this plan in parallel? Each works their own clone and owns whole epics, so their state files never collide. Choose 1 for a single developer; lanes then stay completely out of your way. (A whole number from 1 to 999.)"
+default = "1"
+
+# User-scoped: who works a lane is personal, and keeping it out of git is what keeps a lane a
+# number and never a name in the repository.
+[[bmod.config_questions]]
+key = "lane"
+scope = "user"
+prompt = "Which lane are YOU? Leave this empty for a single developer; otherwise answer a number between 1 and the lane count. It is stored in your personal, gitignored config, which is why a lane is a number and never a name."
+default = ""

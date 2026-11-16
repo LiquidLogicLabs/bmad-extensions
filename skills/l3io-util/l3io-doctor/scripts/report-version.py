@@ -17,10 +17,10 @@ the module on that ref for every later upgrade, so it is not the answer either.
 The version IS in the installed tree, in two places the installer writes:
 
   * `<skill>/payload-manifest.json` -> `version`, in every skill that ships payload
-  * `<module home>/assets/module.yaml` -> `module_version`, in the four module homes
+  * `<module record>/bmod.toml` -> `[bmod] version`, in the four module records
 
 Both come from `package.json` at build time and are guarded in CI (`check:manifest`
-reports STALE on drift; `check:version` asserts the module homes agree). This script
+reports STALE on drift; `check:version` asserts the module records agree). This script
 reads them back.
 
 Why it does NOT lead with the installed pm-status.py
@@ -44,7 +44,7 @@ their absence is correct and is not a finding.
 
 Exit codes
 ----------
-0 -- every discovered skill and module home reports the same version
+0 -- every discovered skill and module record reports the same version
 3 -- they disagree (a partial or interrupted install); the disagreement is printed
 4 -- no l3io skills discovered under --skills-root
 2 -- usage error
@@ -53,6 +53,7 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -61,14 +62,7 @@ _INSTALLED_PM_STATUS = Path("_bmad") / "scripts" / "pm-status" / "__main__.py"
 
 
 def _load_yaml(path: Path):
-    """Parse with a real YAML parser rather than a regex over `module_version:`.
-
-    `check-pm-status.py` greps that one field on purpose -- it must run with no
-    dependencies at all. This script already needs ruamel for nothing else, but the
-    project rule is that a format gets its parser, and a regex here would also read a
-    `module_version` that happened to appear inside the `module_greeting` block scalar
-    two lines below it.
-    """
+    """Parse BMad's install manifest with a real YAML parser, never a regex over one field."""
     from ruamel.yaml import YAML
     with open(path, encoding="utf-8") as fh:
         return YAML(typ="safe").load(fh)
@@ -101,14 +95,16 @@ def discover(skills_root: Path) -> list[dict]:
         if data.get("generated_from") != _GENERATED_FROM:
             continue                      # not ours
         rec["payload_version"] = data.get("version")
-        module_yaml = entry / "assets" / "module.yaml"
-        if module_yaml.is_file():
+        record = entry / "bmod.toml"
+        if record.is_file():
             try:
-                my = _load_yaml(module_yaml) or {}
-                rec["module_code"] = my.get("code")
-                rec["module_version"] = my.get("module_version")
-            except Exception as e:        # noqa: BLE001 -- any parse failure is a finding, not a crash
-                rec["errors"].append(f"module.yaml unreadable: {e}")
+                table = tomllib.loads(record.read_text(encoding="utf-8")).get("bmod")
+            except (OSError, UnicodeError, tomllib.TOMLDecodeError) as e:
+                rec["errors"].append(f"bmod.toml unreadable: {e}")
+            else:
+                if isinstance(table, dict):
+                    rec["module_code"] = table.get("code")
+                    rec["module_version"] = table.get("version")
         found.append(rec)
     return found
 

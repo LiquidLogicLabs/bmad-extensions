@@ -3,11 +3,12 @@
   "generated_from": "skills/<skill>/",
   "files": {
     "SKILL.md": "53a8e9d68cd6b6aa8bdee32a2d1f4821f983e6080e1f6d392c98d23fd255744f",
+    "bmod.toml": "793f9827e86ce6fca61be70fad38ced63166474e88f544cd1ba1bb26351dc273",
     "customize.toml": "fca175b99ad4d5e45ea3b699486d0895ccab16179b84c9d044d1cf5325ea11b4",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
     "references/auto-remediation.md": "9280270d3eaa915a06a455199c2baa775261d42c5bb90d5cce287b04b29a9ad7",
     "references/calibration-model.md": "e3fc8d9fc41285bca19257f0ac796856e025e9992ce6401a5c41437f55830f27",
-    "references/config-resolution.md": "d96e6923a4310ca95ae8632474932d95f66f6217d38d40fc355e66d5e5bf0b3d",
+    "references/config-resolution.md": "7df9e5f06942550371c66079396cbd2defba9403c012c452385546802c193407",
     "references/metrics-contract.md": "1b7e5fd9429cd1692c13637eb1d57b3bbb6071fa58642c20189f64952920606d",
     "references/status-files.md": "aaffb03176fba6dd30531e21ebfc58fd1ce972062d1b646a9ce0390a0947a72e",
     "scripts/plan-graph.py": "d1c96108428aa916b7fe3f7a61c37731a6d0cf6f01b1798e3dadc19f0880fc88",

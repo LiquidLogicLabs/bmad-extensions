@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pm-status.py's version, and every module's module_version, must equal the package release
+// pm-status.py's version, and every module record's version, must equal the package release
 // version.
 //
 // Why pm-status.py's part exists: self-install places one runtime copy per project and
@@ -12,7 +12,7 @@
 //
 // Two changes retired that failure. self-install now compares content, so a stale copy heals
 // itself. And the script's version is no longer its own: postbump writes it from
-// package.json, alongside marketplace.json and every module.yaml. Nobody has to remember it.
+// package.json, alongside marketplace.json and every bmod.toml. Nobody has to remember it.
 //
 // This check asserts the invariant that makes both true:
 //
@@ -22,21 +22,18 @@
 // last released version -- so it is checkable on any commit, which the previous tag-diff
 // heuristic was not.
 //
-// Why the module_version part exists: Task 7 relocated module.yaml under assets/ and, in the
-// same change, retired check:docs check 16 (module-yaml-agreement) -- the only place that used
-// to READ module_version. sync-bmad-versions.mjs's postbump loop is now the field's only
-// consumer; nothing verifies it wrote correctly. A writer with no reader can drift silently:
-// the loop could stop finding files (it did, briefly, mid-relocation, until fixed to look
-// under assets/) and log a success-shaped line ("No module.yaml files needed version update")
-// forever. Scope is derived by walking skills/ for every module home
-// (assets/module.yaml, or a not-yet-migrated skill-root module.yaml) -- never a hand-kept
-// list of module codes.
+// Why the module-version part exists: sync-bmad-versions.mjs's postbump loop writes every module
+// record's version, and a writer with no reader can drift silently -- the loop could stop
+// finding files and log a success-shaped line forever. BMad's validate_manifests.py also
+// requires one version across every record in a repository. Scope is derived by walking
+// skills/ for every bmod.toml -- never a hand-kept list of module codes.
 //
 // Usage: node scripts/check-pm-status-version.mjs [-v]
 import fs from "node:fs";
 import path from "node:path";
 import { writeAllSync } from "./write-all-sync.mjs";
-import { skillDirs } from "./lib/skill-dirs.mjs";
+import { parse as parseToml } from "smol-toml";
+import { bmodFiles, statedVersions } from "./lib/bmod-records.mjs";
 
 // CHECK_VERSION_ROOT points the checker at another tree -- scripts/tests/check-pm-status-version.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -112,40 +109,34 @@ if (marker && konst && marker === konst && marker !== pkg) {
   );
 }
 
-// Every module home's module_version must equal package.json's version. A module home is
-// assets/module.yaml, falling back to a skill-root module.yaml -- read both so this survives a
-// tree where only one of the two exists instead of silently checking zero modules. A standalone
-// module home carries BOTH (check:module rule 1: the root copy is what BMad's installer
-// discovers), and check:module requires them byte-identical, so checking the first found here
-// is sufficient: drift between them is a check:module failure, not a silent pass.
-const moduleHomes = [];
-for (const skillRel of skillDirs(repoRoot)) {
-  for (const rel of [`${skillRel}/assets/module.yaml`, `${skillRel}/module.yaml`]) {
-    if (exists(rel)) { moduleHomes.push(rel); break; }
-  }
-}
-
+// Every v7 module record's `[bmod]` version, and each requirement on one of this repository's
+// own modules, must equal package.json's version. sync-bmad-versions.mjs writes them at
+// postbump; this is the reader that proves it did. Scope is every bmod.toml under skills/
+// (bmodFiles), never a list of module codes.
 let moduleChecked = 0;
-for (const rel of moduleHomes) {
-  const m = read(rel).match(/^module_version:\s*(\S+)/m);
-  if (!m) {
-    failures.push(`${rel}: no "module_version:" field found`);
+for (const rel of bmodFiles(repoRoot)) {
+  let data;
+  try {
+    data = parseToml(read(rel));
+  } catch (e) {
+    failures.push(`${rel}: is not valid TOML (${String(e.message).split("\n")[0]})`);
     continue;
   }
-  moduleChecked += 1;
-  if (m[1] !== pkg) {
+  if (data.bmod) moduleChecked += 1;
+  for (const { where, version } of statedVersions(data)) {
+    if (version === pkg) continue;
     failures.push(
-      `${rel}: module_version is ${m[1]} but ${PKG} says ${pkg}\n` +
-        `      postbump writes every module home's module_version from package.json (see\n` +
+      `${rel}: ${where} is ${version} but ${PKG} says ${pkg}\n` +
+        `      postbump writes every module record's version from package.json (see\n` +
         `      sync-bmad-versions.mjs); a mismatch means a release did not complete or the\n` +
-        `      file was hand-edited. Do not hand-edit module_version: run a release, or\n` +
+        `      file was hand-edited. Do not hand-edit it: run a release, or\n` +
         `      "node scripts/sync-bmad-versions.mjs" to bring it back in line.`,
     );
   }
 }
 
 // One buffered write, then `process.exitCode`. This reporter's line count is bounded by the
-// number of module homes, so it is well under the ~300 lines where the console loop starts
+// number of module records, so it is well under the ~300 lines where the console loop starts
 // losing findings -- it follows the rule anyway, because "this one is short enough" is the
 // judgement that has to be re-made correctly every time someone adds a failure. See
 // scripts/write-all-sync.mjs.
@@ -160,10 +151,10 @@ if (failures.length) {
   // passed" underneath its own failures and exit 1 -- the worst of both.
   if (verbose) {
     console.log(`  pm-status-version: ${marker} == PM_STATUS_VERSION == ${PKG}`);
-    console.log(`  module-version: ${moduleChecked} module home(s) at ${pkg}`);
+    console.log(`  module-version: ${moduleChecked} module record(s) at ${pkg}`);
   }
   console.log(
     `pm-status.py version check passed: ${marker} in all three places; ` +
-      `${moduleChecked} module home(s) at ${pkg}.`,
+      `${moduleChecked} module record(s) at ${pkg}.`,
   );
 }

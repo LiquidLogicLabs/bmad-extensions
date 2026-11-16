@@ -459,12 +459,15 @@ test("the real repository passes check:module with the expected module-home shap
   const moduleHomes = skillDirs(root)
     .filter((rel) => fs.existsSync(path.join(root, rel, "assets", "module.yaml")));
 
-  // A v7 module (skills/<code>/bmod-<code>/) has no 6.x module home, so it is not counted.
+  // A v7 module (a [bmod] record under skills/<code>/) has no 6.x module home, so it is not counted.
   const marketplace = JSON.parse(
     fs.readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"),
   );
-  const declaredPluginCount = marketplace.plugins
-    .filter((p) => !fs.existsSync(path.join(root, "skills", p.name, `bmod-${p.name}`))).length;
+  const isV7 = (code) => fs.existsSync(path.join(root, "skills", code, `bmod-${code}`)) ||
+    skillDirs(root).some((rel) => rel.startsWith(`skills/${code}/`) &&
+      /^\[bmod\]/m.test(fs.existsSync(path.join(root, rel, "bmod.toml"))
+        ? fs.readFileSync(path.join(root, rel, "bmod.toml"), "utf8") : ""));
+  const declaredPluginCount = marketplace.plugins.filter((p) => !isV7(p.name)).length;
   assert.equal(
     moduleHomes.length,
     declaredPluginCount,
@@ -500,40 +503,17 @@ function writeMarketplace(root, plugins) {
 // (writeModuleHome already writes assets/module.yaml + assets/module-help.csv, which is what
 // PluginResolver strategies 2/3/4 look for.)
 
-// THE SCOPE ATTACK. Deleting a module-help.csv is the easy mutation: it tests the rule. What
-// matters here is the rule's REACH -- whether the check still sees a plugin after the plugin
-// itself changes shape. `l3io-arch` resolves by strategy 3 for one reason only:
-// _trySingleStandalone requires `skillPaths.length === 1`. Adding a second skill to its
-// `skills` array -- an entirely ordinary change, nothing deleted, every authored file still in
-// place -- drops it to synthesis, silently. A check that derived its plugin set or its skill
-// lists from the filesystem instead of marketplace.json would not notice.
-test("check:module rejects a plugin that a second skill drops to synthesized fallback", (t) => {
-  const root = fixtureFromRepo(t);
-  const mpPath = path.join(root, ".claude-plugin", "marketplace.json");
-  const marketplace = JSON.parse(fs.readFileSync(mpPath, "utf8"));
-  const arch = marketplace.plugins.find((p) => p.name === "l3io-arch");
-  assert.ok(arch, "fixture precondition: marketplace.json declares an l3io-arch plugin");
-  assert.deepEqual(arch.skills, ["./skills/l3io-arch/l3io-arch-review"], "fixture precondition: one skill");
-  arch.skills.push("./skills/l3io-pm/l3io-plan");
-  fs.writeFileSync(mpPath, JSON.stringify(marketplace, null, 2) + "\n");
-
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /plugin 'l3io-arch'/);
-  assert.match(r.stderr, /strategy 5/);
-});
-
-// The positive half of the same fact: the real tree resolves every plugin by an authored
-// strategy, and -v names which one, so a reader can see what the check concluded rather than
-// trusting that it concluded anything.
+// The real tree: -v names what rule 8 concluded for every plugin, so a reader can see what the
+// check concluded rather than trusting that it concluded anything.
 test("the real repository resolves every plugin by an authored PluginResolver strategy", (t) => {
   const root = fixtureFromRepo(t);
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /plugin 'l3io-pm' is a v7 module/);
-  assert.match(r.stdout, /plugin 'l3io-sec' resolves by PluginResolver strategy 3/);
-  assert.match(r.stdout, /plugin 'l3io-util' resolves by PluginResolver strategy 3/);
-  assert.match(r.stdout, /plugin 'l3io-arch' resolves by PluginResolver strategy 3/);
+  // Every module now carries a v7 record (ADR-0014), so none is resolved by PluginResolver;
+  // the synthetic tests around this one keep rule 8 itself covered.
+  for (const code of ["l3io-pm", "l3io-sec", "l3io-util", "l3io-arch"]) {
+    assert.match(r.stdout, new RegExp(`plugin '${code}' is a v7 module`));
+  }
 });
 
 // _tryMultipleStandalone's partial-match branch: `resolved.length === skillPaths.length` or
@@ -1195,4 +1175,39 @@ test("check:module still applies both rules to a module with no v7 record", (t) 
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /keyword `go` is marked 'registered'/);
   assert.match(r.stderr, /plugin 'l3io-x' resolves by PluginResolver strategy 5/);
+});
+
+// A single-skill v7 module keeps its record in the skill's own bmod.toml, not in a bmod-<code>/
+// folder (BMad docs/reference/module-files.md, "Where the Files Live").
+function writeSingleSkillV7(root, { roster }) {
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  const dir = "skills/l3io-y/l3io-y-agent";
+  put(`${dir}/SKILL.md`,
+    "# agent\n\n**Recognized keywords**\n\n| Keyword | Load | Menu | Notes |\n|---|---|---|---|\n" +
+    "| `go` | `steps/go.md` | registered | note |\n");
+  put(`${dir}/steps/go.md`, "# go\n");
+  put(`${dir}/bmod.toml`, '[bmod]\ncode = "l3io-y"\nversion = "1.0.0"\nupdate_source = "file:x"\n\n[skill]\n');
+  put(`${dir}/customize.toml`, '[agent]\ncode = "red"\nname = ""\ntitle = "T"\nicon = "I"\ndescription = "D"\n');
+  if (roster) put(`${dir}/roster.toml`, `[[members]]\ncode = "red"\nskill = "${roster}"\n`);
+  writeMarketplace(root, [{ name: "l3io-y", skills: [`./${dir}`] }]);
+}
+
+test("check:module exempts a single-skill v7 module and accepts its roster.toml", (t) => {
+  const root = fixture(t);
+  fs.rmSync(path.join(root, "skills/module.yaml"));
+  writeSingleSkillV7(root, { roster: "l3io-y-agent" });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /plugin 'l3io-y' is a v7 module/);
+});
+
+test("check:module still rejects a v7 [agent] block that no roster.toml lists", (t) => {
+  const root = fixture(t);
+  writeSingleSkillV7(root, { roster: "someone-else" });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /declares agent 'red'/);
 });

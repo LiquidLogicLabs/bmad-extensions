@@ -3,11 +3,12 @@
   "generated_from": "skills/<skill>/",
   "files": {
     "SKILL.md": "3f07a3ea92943561dd0892a5dc10da25120cb6d5f22c7aa81a5e6cdc2d926413",
+    "bmod.toml": "793f9827e86ce6fca61be70fad38ced63166474e88f544cd1ba1bb26351dc273",
     "customize.toml": "01335a9c30204cdbc6d552f7556fa487010f8504b74928411d3be00047b11ae0",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
     "references/auto-remediation.md": "9280270d3eaa915a06a455199c2baa775261d42c5bb90d5cce287b04b29a9ad7",
     "references/calibration-model.md": "e3fc8d9fc41285bca19257f0ac796856e025e9992ce6401a5c41437f55830f27",
-    "references/config-resolution.md": "d96e6923a4310ca95ae8632474932d95f66f6217d38d40fc355e66d5e5bf0b3d",
+    "references/config-resolution.md": "7df9e5f06942550371c66079396cbd2defba9403c012c452385546802c193407",
     "references/metrics-contract.md": "1b7e5fd9429cd1692c13637eb1d57b3bbb6071fa58642c20189f64952920606d",
     "references/status-files.md": "aaffb03176fba6dd30531e21ebfc58fd1ce972062d1b646a9ce0390a0947a72e",
     "scripts/pm_status/__init__.py": "ce45f268c7bbe7a7afd3287dee6f71d7f148f2b86efb75f30e07345f20b53476",

@@ -211,9 +211,12 @@ const newUtilDoctorDirs = [
 // a forwarder whose sentence was worded differently, which is a change to what ships triggered
 // by a reworded sentence. The line-matched frontmatter read it used to do is gone with it: a
 // quoted or folded description now parses the same as a plain one.
+// A v7 module record (`bmod-<code>/`, ADR-0014) carries a SKILL.md only because BMad's
+// validator requires one; it redirects to `bmad setup` and resolves no config, so it is not a
+// skill any shared payload is for.
 const allSkillDirs = skillDirs(repoRoot)
   .map((rel) => path.join(repoRoot, rel))
-  .filter((dir) => !declaresForwarder(dir));
+  .filter((dir) => !declaresForwarder(dir) && !path.basename(dir).startsWith("bmod-"));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir
 const sharedStepFiles = [

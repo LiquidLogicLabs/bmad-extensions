@@ -55,7 +55,7 @@ Print the output as-is. Then:
 
 Two lines in the output are explanatory, not findings, and should not be escalated:
 
-- A skill with no `module.yaml` is normal — only the four module homes carry one.
+- A skill with no `[bmod]` record is normal — only the four module records carry one.
 - `self-installed pm-status.py` lagging the shipped version is normal immediately after an
   upgrade; it is refreshed at the next skill activation. It never changes the exit code.
 
