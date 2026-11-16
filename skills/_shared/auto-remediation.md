@@ -101,7 +101,7 @@ if it is shorter; placeholders in braces match whatever they hold at runtime.
 **Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. The
 phase status-line template (`BLOCKED: [one-line reason]`, indented in
 `execute/step-05-epic-loop.md`) is a report format, not a halt, and is deliberately out of
-scope. Outside the inventory, and so not among the 23, are `BLOCKED:` lines this scope does not reach:
+scope. Outside the inventory, and so not among the 24, are `BLOCKED:` lines this scope does not reach:
 
 - `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blocked pending external
   resolution`) — a genuine halt, indented.
@@ -158,6 +158,7 @@ convert them, whatever remedy appears to exist.
 | `step-02-detect-platform: platform detection failed.` | Environment, not state | `halt` |
 | `step-02-story-prep: story {story_key} still missing required acceptance` | Content authoring | `halt` |
 | `step-00-activate: l3io-setup/scripts/pm_status/__main__.py is missing beside this skill.` | The install itself is broken | `halt` |
+| `step-00-activate: BMad v7 detected ({evidence_path}). This is` | Wrong product line, not a defect: l3io 3.x supports BMad 6.x only, and the remedy is installing l3io 4.x, which no step can do | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
 | `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |
 | `step-00-activate: {pm_state_root} is gitignored. Project state must` | Appending negations was attempted and withdrawn (ADR-0012): `{pm_state_root}` is absolute and gitignore patterns are relative to their file, so the negation matched nothing; relative negations work only if every excluded parent is negated, and when the rule excludes a parent directory git cannot re-include from inside it, which changes what else the repository tracks. The halt locates the rule with `check-ignore -v` and names the file | `halt` |

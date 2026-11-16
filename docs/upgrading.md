@@ -849,8 +849,21 @@ full backup first and will not write anything before you approve its plan, so th
 destructive by surprise — but two migrations competing over one tree is a mess, and ours has
 to run in a known order relative to theirs.
 
-**Until this package ships v7 support, stay on BMad 6.12.** Run `/l3io-doctor check-deps` to
-see which generation is installed; exit 6 means v7 was detected and verification is degraded.
+**l3io 3.x supports BMad 6.x only; l3io 4.x is the line for BMad v7.** Until l3io 4.0.0 ships,
+stay on BMad 6.x. A 3.x skill (`/l3io-execute`, `/l3io-plan`, `/l3io-sync`) run on a v7 install
+now stops at activation and says so, rather than running 6.x paths against v7's layout. Run
+`/l3io-doctor check-deps` to see which generation is installed; exit 6 means v7 was detected.
+
+Three further things about the v7 preview, recorded against `bmad-code-org/BMAD-METHOD` at
+`e435a22` (2026-11-12). **These are read from the code, not yet observed on a real install:**
+
+- v7's method module now has a second migration, `migration-2` (`7 preview` → `7`), for
+  projects already on the preview. It does not target a 6.x project.
+- v7 removed `bmad-prd`, `bmad-prfaq` and `bmad-product-brief`; their work moved to
+  `bmad-facilitate`.
+- `bmad-create-story` and `bmad-dev-story` are not in v7's `retired.toml`, so `bmad setup` is
+  not expected to offer to remove them if they are left over from a 6.x install. 3.x prefers
+  them where they are present, which is one more reason 3.x refuses to run on v7.
 
 ## Verifying the upgrade
 
