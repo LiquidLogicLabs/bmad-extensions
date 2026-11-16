@@ -114,6 +114,13 @@ Three spec claims are explicitly marked unverified, and Phases 3, 4 and 6 build 
 
 ### Task 0.3: Measure the config-read rewrite
 
+> **Done 2026-11-16** — `docs/superpowers/notes/2026-11-v7-config-reads.md`. v7's resolver
+> returns only `core.project_name` and `core.output_folder`. The rewrite is mostly deletion: 31
+> boilerplate language lines, plus dead `user_name`/`communication_language` plumbing that
+> already defaults safely. Every `output_folder` read already uses `core.output_folder`. One
+> behavioural fix: `drift-report.py` must expand the literal `{project-root}` that v7's value
+> carries. No module key repeats its module code.
+
 **Files:** create `docs/superpowers/notes/2026-11-v7-config-reads.md`.
 
 - [ ] **Step 1:** List every file reading `user_name`, `communication_language`, `document_output_language` or `output_folder`, **canonical sources only** — `skills/_shared/**` plus each skill's own non-synced files. Derive the synced set from `node scripts/sync-shared-scripts.mjs --dump-deliveries`. The 85/19/14/21 in §13.3 include synced copies and are an upper bound.
