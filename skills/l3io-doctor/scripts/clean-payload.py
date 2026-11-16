@@ -62,9 +62,13 @@ import json
 import sys
 from pathlib import Path
 
-# Where an installer puts skills. Derived per-root rather than assumed: a project may carry
-# one, both, or neither, and a missing one is not an error.
-_SKILL_ROOTS = (".claude/skills", ".agents/skills")
+# Where an installer puts skills: every `<project>/.<tool>/skills` directory. BMad 6.12.4
+# installs into 22 distinct project directories across its 48 platforms (`.agents/skills`,
+# `.claude/skills`, `.cline/skills`, `.kiro/skills`, ...; see
+# assets/bmad-install-targets.json), every one of that shape. Globbing the shape rather than
+# listing two roots is safe because identity is the manifest's `generated_from`, never the
+# location: a directory that is not ours is not touched. A missing root is not an error.
+_SKILL_ROOT_GLOB = ".*/skills"
 
 # BOTH VALUES ARE OURS, and the pair is a migration, not an accident.
 #
@@ -106,8 +110,7 @@ def discover(project: Path) -> list[tuple[Path, dict]]:
     no change here.
     """
     found = []
-    for root_rel in _SKILL_ROOTS:
-        root = project / root_rel
+    for root in sorted(project.glob(_SKILL_ROOT_GLOB)):
         if not root.is_dir():
             continue
         for entry in sorted(root.iterdir(), key=lambda p: p.name):

@@ -72,10 +72,10 @@ where its behavior is the `adversarial` lens.
 ls {project-root}/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls {project-root}/.claude/commands/bmad-review.md 2>/dev/null \
   || ls {project-root}/.agents/skills/bmad-review/SKILL.md 2>/dev/null \
-  || ls {project-root}/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls ~/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-review.md 2>/dev/null \
-  || ls ~/.agents/skills/bmad-review/SKILL.md 2>/dev/null
+  || ls ~/.agents/skills/bmad-review/SKILL.md 2>/dev/null \
+  || { grep -qs '^"bmad-review",' {project-root}/_bmad/_config/skill-manifest.csv && echo {project-root}/_bmad/_config/skill-manifest.csv:bmad-review; }
 ```
 
 A path printed → `{adversarial_reviewer}` = `bmad-review`, invoked as
@@ -146,10 +146,10 @@ for n in bmad-ux-review bmad-ux; do
   ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
     || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
-    || ls {project-root}/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls ~/.claude/commands/$n.md 2>/dev/null \
-    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
+    || { grep -qs "^\"$n\"," {project-root}/_bmad/_config/skill-manifest.csv && echo {project-root}/_bmad/_config/skill-manifest.csv:$n; }
 done | head -1
 ```
 Bind `{ux_reviewer}` to whichever resolved — the legacy `bmad-ux-review` preferred because it is

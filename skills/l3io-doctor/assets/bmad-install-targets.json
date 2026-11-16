@@ -1,0 +1,198 @@
+{
+  "_source": "bmad-code-org/BMAD-METHOD tools/installer/ide/platform-codes.yaml at v6.12.4",
+  "_regenerate": "node scripts/vendor-bmad-install-targets.mjs <platform-codes.yaml> <tag>",
+  "platforms": {
+    "adal": {
+      "target_dir": ".adal/skills",
+      "global_target_dir": "~/.adal/skills"
+    },
+    "amp": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.config/agents/skills"
+    },
+    "antigravity": {
+      "target_dir": ".agent/skills",
+      "global_target_dir": "~/.gemini/antigravity/skills"
+    },
+    "antigravity-cli": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.gemini/antigravity-cli/skills"
+    },
+    "auggie": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "bob": {
+      "target_dir": ".bob/skills",
+      "global_target_dir": "~/.bob/skills"
+    },
+    "claude-code": {
+      "target_dir": ".claude/skills",
+      "global_target_dir": "~/.claude/skills"
+    },
+    "cline": {
+      "target_dir": ".cline/skills",
+      "global_target_dir": "~/.cline/skills"
+    },
+    "codex": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.codex/skills"
+    },
+    "codewhale": {
+      "target_dir": ".codewhale/skills",
+      "global_target_dir": "~/.codewhale/skills"
+    },
+    "codebuddy": {
+      "target_dir": ".codebuddy/skills",
+      "global_target_dir": "~/.codebuddy/skills"
+    },
+    "command-code": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "cortex": {
+      "target_dir": ".cortex/skills",
+      "global_target_dir": "~/.snowflake/cortex/skills"
+    },
+    "crush": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.config/agents/skills"
+    },
+    "cursor": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "droid": {
+      "target_dir": ".factory/skills",
+      "global_target_dir": "~/.factory/skills"
+    },
+    "firebender": {
+      "target_dir": ".firebender/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "gemini": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "github-copilot": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "goose": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.config/agents/skills"
+    },
+    "grok": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.grok/skills"
+    },
+    "hermes": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.hermes/skills"
+    },
+    "iflow": {
+      "target_dir": ".iflow/skills",
+      "global_target_dir": "~/.iflow/skills"
+    },
+    "junie": {
+      "target_dir": ".junie/skills",
+      "global_target_dir": "~/.junie/skills"
+    },
+    "kilo": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.kilocode/skills"
+    },
+    "kimi-code": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "kiro": {
+      "target_dir": ".kiro/skills",
+      "global_target_dir": "~/.kiro/skills"
+    },
+    "kode": {
+      "target_dir": ".kode/skills",
+      "global_target_dir": "~/.kode/skills"
+    },
+    "mistral-vibe": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.vibe/skills"
+    },
+    "mux": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "neovate": {
+      "target_dir": ".neovate/skills",
+      "global_target_dir": "~/.neovate/skills"
+    },
+    "ona": {
+      "target_dir": ".ona/skills",
+      "global_target_dir": null
+    },
+    "openclaw": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "opencode": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "openhands": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "pi": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "pochi": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "polytoken": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": null
+    },
+    "qoder": {
+      "target_dir": ".qoder/skills",
+      "global_target_dir": "~/.qoder/skills"
+    },
+    "qwen": {
+      "target_dir": ".qwen/skills",
+      "global_target_dir": "~/.qwen/skills"
+    },
+    "replit": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": null
+    },
+    "roo": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "rovo-dev": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "trae": {
+      "target_dir": ".trae/skills",
+      "global_target_dir": null
+    },
+    "warp": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "windsurf": {
+      "target_dir": ".agents/skills",
+      "global_target_dir": "~/.agents/skills"
+    },
+    "zcode": {
+      "target_dir": ".zcode/skills",
+      "global_target_dir": "~/.zcode/skills"
+    },
+    "zencoder": {
+      "target_dir": ".zencoder/skills",
+      "global_target_dir": "~/.zencoder/skills"
+    }
+  }
+}

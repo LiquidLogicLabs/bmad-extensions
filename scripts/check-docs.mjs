@@ -125,13 +125,21 @@
 //                    status-line template) are outside the inventory by the reference's own
 //                    rule.
 //  37. probe-tool-root-parity  a dependency probe naming .claude/skills/<n>/SKILL.md must also
-//                    name .agents/skills/<n>/SKILL.md in the same file. BMad v7 installs under
-//                    .agents/; check-deps (bmad-deps.py resolve()) probes both, so a step file
+//                    name .agents/skills/<n>/SKILL.md in the same file. .agents/skills is the
+//                    cross-tool standard 27 of BMad 6.12.4's 48 platforms install to;
+//                    check-deps (bmad-deps.py resolve()) probes both, so a step file
 //                    probing .claude/ alone reports the skill present while its own probe finds
 //                    nothing and the phase self-skips silently. Sibling of check 29, one axis
 //                    over (29: layout within a root; 37: the root). No exemption, this
 //                    package's own l3io-doctor included. Same file-scoped KNOWN GAP as 29. See
 //                    the block above probeToolRootParity().
+//  38. probe-manifest-parity  a dependency probe naming <tool>/skills/<n>/SKILL.md must also
+//                    test BMad's install record for <n> (`skill-manifest.csv`, a line matching
+//                    '^"<n>",') in the same file. 20 of 6.12.4's platforms install to a
+//                    tool-specific directory no step file lists (.cline/skills, .kiro/skills,
+//                    ...); the manifest is the one record covering all of them. Same
+//                    file-scoped KNOWN GAP as 29 and 37. See the block above
+//                    probeManifestParity().
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -2749,10 +2757,13 @@ const DEP_STATUSES = ["required", "optional", "related", "deprecated", "removed"
 // This is NOT exhaustive: a sentence that names a deprecated skill as the thing in use without
 // any verb, assignment, or heading (e.g. a plain declarative "the enricher is `bmad-create-
 // story`" with no `=`) still escapes all three and is not observed by this check.
-// A probe line: `ls` is the command and a tool-root path is its argument, under EITHER root BMad
-// installs into (.claude/ on 6.x, .agents/ on v7). Exported so a test can pin it. Token-bounded on
-// `ls` because a bare includes("ls ") is satisfied by "tools " or "controls ".
-export const PROBE_LINE_RE = /(?:^|[^\w-])ls\s+\S*\.(?:claude|agents)\//;
+// A probe line, in one of two forms. (a) `ls` is the command and a tool-root path is its
+// argument, under either root BMad installs into (.claude/, or .agents/, the cross-tool standard).
+// Token-bounded on `ls` because a bare includes("ls ") is satisfied by "tools " or "controls ".
+// (b) `grep` tests BMad's install record, `skill-manifest.csv` (check 38 requires one beside
+// every tool-directory probe); a manifest test dispatches nothing either. Exported so a test can
+// pin it.
+export const PROBE_LINE_RE = /(?:^|[^\w-])(?:ls\s+\S*\.(?:claude|agents)\/|grep\s.*skill-manifest\.csv)/;
 
 const PREFERENCE_RE = /\b(?:bind|prefer(?:red|s)?|spawn|invoke|dispatch)\b/i;
 const BINDING_ASSIGNMENT_RE = /`\{[\w-]+\}`\s*=/;
@@ -4769,9 +4780,9 @@ export function probePathParity(opts = {}) {
 // Every name probed through .claude/skills/<n>/SKILL.md is also probed through
 // .agents/skills/<n>/SKILL.md IN THE SAME FILE.
 //
-// BMad v7 installs skills under .agents/, not .claude/ (its registry.py names both roots, plus
-// ~/ variants). bmad-deps.py's resolve() already probes both, so on a v7 tree `check-deps`
-// reports a skill present while a step file probing .claude/ alone finds nothing and the phase
+// `.agents/skills` is the cross-tool standard on BMad 6.x: 27 of 6.12.4's 48 platforms install
+// there. bmad-deps.py's resolve() probes both, so on such an install `check-deps` reports a
+// skill present while a step file probing .claude/ alone finds nothing and the phase
 // self-skips with no message -- the failure check 29's header calls worse than a missing skill.
 // Check 29 guards the layout axis inside one tool root; this guards the tool-root axis.
 //
@@ -4804,8 +4815,62 @@ export function probeToolRootParity(opts = {}) {
       if (!viaAgents.has(name)) {
         violations.push(
           `${file}: probes \`.claude/skills/${name}/SKILL.md\` but never ` +
-          `\`.agents/skills/${name}/SKILL.md\` — BMad v7 installs under .agents/, so on that ` +
-          `tree the probe finds nothing and the phase self-skips silently`);
+          `\`.agents/skills/${name}/SKILL.md\` — .agents/skills is BMad's cross-tool install ` +
+          `root, so on such an install the probe finds nothing and the phase self-skips silently`);
+      }
+    }
+  }
+  return { violations, scanned };
+}
+
+// --- check 38: probe-manifest-parity ------------------------------------------------ //
+// A dependency probe through a tool directory also tests BMad's install record for the same
+// name, IN THE SAME FILE.
+//
+// BMad 6.12.4 installs skills for 48 platforms into 22 distinct project directories:
+// `.agents/skills` for 27, `.claude/skills` for one, and a tool-specific directory for the
+// other 20 (`.cline/skills`, `.kiro/skills`, `.junie/skills`, ...). Step files probe .claude/
+// and .agents/ by path; listing the other 20 in every chain is not maintainable, and a chain
+// missing them reports every dependency absent on that tool. Measured on a real 6.12.4
+// `--tools cline` install: all eight step-file probes found nothing and check-deps reported
+// every skill missing. `_bmad/_config/skill-manifest.csv` is written on every 6.x install
+// whatever the tool, one row per skill, first field the quoted canonical id -- so a line
+// testing it for '^"<n>",' covers all 22.
+//
+// The matched text is the grep pattern on a line naming `skill-manifest.csv`, in either
+// quoting: '^"bmad-review",' or "^\"$n\"," (the loop form). Prose naming the manifest does
+// not satisfy it.
+//
+// Scope is derived: every .md under skills/. A file with no tool-directory probe is out.
+// KNOWN GAP: file-scoped, not block-scoped, exactly as checks 29 and 37.
+const MANIFEST_PROBE_RE = /\^\\?"([$\w.:-]+)\\?",/g;
+
+export function probeManifestParity(opts = {}) {
+  const violations = [];
+  const scanned = [];
+  const sources = [
+    ...walkSkillFiles([".md"]).map((f) => ({ file: f, text: read(f) })),
+    ...(opts.extraSources || []),
+  ];
+  for (const { file, text } of sources) {
+    scanned.push(file);
+    const probed = new Set([
+      ...[...text.matchAll(PROBE_CLAUDE_SKILLS_RE)].map((m) => m[1]),
+      ...[...text.matchAll(PROBE_AGENTS_SKILLS_RE)].map((m) => m[1]),
+    ]);
+    if (!probed.size) continue;
+    const viaManifest = new Set();
+    for (const line of text.split("\n")) {
+      if (!line.includes("skill-manifest.csv")) continue;
+      for (const m of line.matchAll(MANIFEST_PROBE_RE)) viaManifest.add(m[1]);
+    }
+    for (const name of probed) {
+      if (!viaManifest.has(name)) {
+        violations.push(
+          `${file}: probes \`${name}\` through a tool directory but never tests ` +
+          `\`_bmad/_config/skill-manifest.csv\` for it — 20 of BMad 6.12.4's platforms ` +
+          `install to a tool-specific directory only the manifest covers, so there the ` +
+          `phase self-skips silently`);
       }
     }
   }
@@ -5367,6 +5432,12 @@ function checkProbeToolRootParity() {
   if (verbose) console.log(`  probe-tool-root-parity: ${violations.length} violation(s)`);
 }
 
+function checkProbeManifestParity() {
+  const { violations } = probeManifestParity();
+  for (const v of violations) failures.push(`[check 38] ${v}`);
+  if (verbose) console.log(`  probe-manifest-parity: ${violations.length} violation(s)`);
+}
+
 function checkResolverInvariant() {
 
 
@@ -5409,6 +5480,7 @@ checkNoHandEditDirectives();
 checkForwarderVersionOracle();
 checkProbePathParity();
 checkProbeToolRootParity();
+checkProbeManifestParity();
 checkSubcommandRequired();
 checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();

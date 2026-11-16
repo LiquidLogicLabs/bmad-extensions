@@ -105,6 +105,17 @@ class TestRemoval(Base):
         self.assertFalse(self.exists(".claude/skills/l3io-doctor/scripts/a.py"))
         self.assertFalse(self.exists(".agents/skills/l3io-doctor/scripts/a.py"))
 
+    def test_a_tool_specific_skill_root_is_covered(self):
+        """BMad 6.12.4 installs into the chosen tool's own directory for 20 of its 48
+        platforms (`.cline/skills`, `.kiro/skills`, ...). Measured on a real `--tools cline`
+        install: uninstall reported no payload and removed nothing. Inverted: restoring a
+        two-root list makes this fail."""
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)}, root=".cline/skills")
+        self.assertTrue(self.exists(".cline/skills/l3io-doctor/scripts/a.py"))
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(self.exists(".cline/skills/l3io-doctor/scripts/a.py"))
+
     def test_no_payload_found_is_exit_4(self):
         code, out, _ = self.run_cli()
         self.assertEqual(code, 4)

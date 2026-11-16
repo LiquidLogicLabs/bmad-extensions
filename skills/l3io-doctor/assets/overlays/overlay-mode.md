@@ -36,20 +36,22 @@ Config is already resolved and `{implementation_artifacts}` bound per the *On Ac
 section above. One further binding is needed by all three actions below.
 
 Resolve the root BMad's skills are installed under and bind `{bmad_skills_root}`. **Never
-hardcode `.claude/`** — `.agents/skills` is BMad's cross-tool standard on 6.x (6.12.4's
-installer names it as such; cursor and gemini installs share one), so a hardcoded path reports
-BMad's own scripts missing on a perfectly good non-Claude install. These are the roots BMad's
-`registry.py` `default_roots()` scans, in that order:
+hardcode `.claude/`.** BMad 6.x installs skills into the directory of each tool the user chose
+— `.agents/skills` for 27 of the 48 platforms 6.12.4 supports, and a tool-specific directory
+such as `.cline/skills` or `.kiro/skills` for most of the rest — so a hardcoded path reports
+BMad's own scripts missing on a perfectly good non-Claude install. `bmad-deps.py` derives the
+candidates from the tools recorded in `_bmad/_config/manifest.yaml` and finds `bmad-customize`
+among them; BMad installs its skills side by side, so that skill's parent directory is the
+root:
 
 ```bash
-for r in {project-root}/.claude/skills {project-root}/.agents/skills {project-root}/skills \
-         ~/.claude/skills ~/.agents/skills; do
-  [ -d "$r" ] && echo "$r" && break
-done
+hit=$(uv run {skill-root}/scripts/bmad-deps.py resolve --project-root {project-root} --name bmad-customize) \
+  && dirname "$(dirname "$hit")"
 ```
 
-Bind `{bmad_skills_root}` to the printed root. If nothing prints, no skill root exists here:
-report `BLOCKED: no BMad skill root found — is BMad installed in this project?` and stop.
+Bind `{bmad_skills_root}` to the printed root. If nothing prints, `bmad-customize` is not
+installed in any tool directory here: report `BLOCKED: bmad-customize is not installed —
+install it to enumerate customizable skills.` and stop.
 
 ## `list`
 

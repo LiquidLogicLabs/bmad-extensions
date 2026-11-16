@@ -24,6 +24,7 @@ scripts/ per ADR-0001, like audit-backlog.py, with no sync group.
 Usage
 -----
   bmad-deps.py verify --project-root R [--inventory PATH] [--format {text,json}]
+  bmad-deps.py resolve --project-root R --name SKILL   (prints the path; exit 1 when absent)
 
 Exit 0 when every required skill resolves (optional ones only warn), 6 on a BMad v7 install
 (verification is degraded there and the code outranks 3 -- see verify()), 2 on a usage error or an
@@ -100,6 +101,7 @@ from ruamel.yaml import YAML
 
 DEFAULT_INVENTORY = pathlib.Path(__file__).resolve().parent.parent / "assets" / "bmad-dependencies.json"
 DEFAULT_BASELINE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "bmad-baseline.json"
+DEFAULT_TARGETS = pathlib.Path(__file__).resolve().parent.parent / "assets" / "bmad-install-targets.json"
 
 # The only statuses this script knows how to act on. Anything else is a broken inventory, not
 # a skill to be treated leniently -- see check_inventory().
@@ -121,30 +123,59 @@ DEFAULT_BASELINE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "
 STATUSES = ("required", "optional", "related", "deprecated", "removed", "not-a-skill")
 
 
-def skill_roots(project_root: str) -> list[str]:
-    """Every directory that may hold installed skills: project first, then the user's home.
+def recorded_ides(project_root: str) -> list[str]:
+    """The tool codes a 6.x install recorded in `_bmad/_config/manifest.yaml` `ides:`, or []."""
+    path = pathlib.Path(project_root) / "_bmad" / "_config" / "manifest.yaml"
+    try:
+        data = YAML(typ="safe").load(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    ides = data.get("ides") if isinstance(data, dict) else None
+    return [i for i in ides if isinstance(i, str)] if isinstance(ides, list) else []
 
-    Derived from BMad's own `registry.py` `default_roots()`, NOT by mirroring `.claude`'s
-    shape onto `.agents`. That list is `<project>/.agents/skills`, `<project>/.claude/skills`,
-    `<project>/skills`, `~/.agents/skills` and `~/.claude/skills`; `scan_paths.py`'s
-    SKILL_DIR_RE corroborates it (`skills|.claude/skills|.agents/skills|_bmad`).
 
-    `.agents` sits beside `.claude` because `.agents/skills` is the CROSS-TOOL STANDARD on
-    6.x -- 6.12.4's installer calls it exactly that, and cursor and gemini installs share one
-    -- so this is a live-install concern, not v7 forward work. Probing one tool directory
-    mis-detects such an install as absent, the same shape as the single-layout probe that
-    once let a gate self-skip.
+def load_install_targets(path=DEFAULT_TARGETS) -> dict:
+    """{tool code: {target_dir, global_target_dir}} vendored from 6.12.4, or {} if unreadable."""
+    try:
+        data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    platforms = data.get("platforms") if isinstance(data, dict) else None
+    return platforms if isinstance(platforms, dict) else {}
 
-    The BARE project `skills/` root is the one `registry.py` names that mirroring cannot
-    reach. Relative order of the pre-existing roots is preserved; the bare root is appended
-    to the project group so nothing that resolved before resolves differently now.
+
+def skill_roots(project_root: str, targets: dict | None = None) -> list[str]:
+    """Every directory that may hold installed skills, as `<root>/skills/<name>/SKILL.md`
+    parents: project first, then the user's home.
+
+    BMad 6.x installs a skill into the `target_dir` (and, for a global install, the
+    `global_target_dir`) of each tool the user chose -- 22 distinct project directories across
+    the 48 platforms 6.12.4 supports (`assets/bmad-install-targets.json`). `.claude` and
+    `.agents` are always probed: the first is the one layout with a pre-6.12 `commands/` form,
+    the second is the cross-tool standard 27 platforms share. The rest are derived from the
+    tools the install recorded in `manifest.yaml` `ides:`, so a Cline install is probed under
+    `.cline` and nowhere it was not installed.
+
+    Each returned root is the directory ABOVE `skills/`, the shape resolve() expects. A
+    target_dir not ending in `/skills` is skipped rather than guessed at.
     """
     home = os.path.expanduser("~")
-    return [os.path.join(project_root, ".claude"),
-            os.path.join(project_root, ".agents"),
-            project_root,
-            os.path.join(home, ".claude"),
-            os.path.join(home, ".agents")]
+    project = [os.path.join(project_root, ".claude"), os.path.join(project_root, ".agents")]
+    user = [os.path.join(home, ".claude"), os.path.join(home, ".agents")]
+    if targets is None:
+        targets = load_install_targets()
+    for ide in recorded_ides(project_root):
+        t = targets.get(ide) or {}
+        for key, group, base in (("target_dir", project, project_root),
+                                 ("global_target_dir", user, home)):
+            rel = t.get(key)
+            if not isinstance(rel, str) or not rel.endswith("/skills"):
+                continue
+            rel = rel[:-len("/skills")]
+            root = os.path.join(home, rel[2:]) if rel.startswith("~/") else os.path.join(base, rel)
+            if root not in group:
+                group.append(root)
+    return project + user
 
 
 def resolve(name: str, project_root: str) -> str | None:
@@ -155,9 +186,8 @@ def resolve(name: str, project_root: str) -> str | None:
     which is how a gate came to self-skip silently -- so both are tried wherever both exist.
 
     `commands/` is probed under `.claude` ONLY. There is no `.agents/commands` upstream (zero
-    references at 61e01f8, against 15 for `.agents/skills`) and `default_roots()` names no
-    `commands` dir on any root, so probing one would read as supported layout while matching
-    nothing. The bare project root takes `skills/` alone for the same reason.
+    references at 61e01f8, against 15 for `.agents/skills`), so probing one would read as
+    supported layout while matching nothing.
     """
     for root in skill_roots(project_root):
         rels = [os.path.join("skills", name, "SKILL.md")]
@@ -168,6 +198,15 @@ def resolve(name: str, project_root: str) -> str | None:
             if os.path.exists(p):
                 return p
     return None
+
+
+def resolve_cmd(args: argparse.Namespace) -> int:
+    """Print where `--name` is installed (its SKILL.md or legacy command file); exit 1 if nowhere."""
+    hit = resolve(args.name, args.project_root)
+    if hit is None:
+        return 1
+    print(hit)
+    return 0
 
 
 def read_manifest(project_root: str):
@@ -557,6 +596,10 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--strict", action="store_true",
                    help="exit 5 when status_contradictions is non-empty")
     v.set_defaults(fn=verify)
+    r = sub.add_parser("resolve", help="print where one skill is installed; exit 1 if nowhere")
+    r.add_argument("--project-root", required=True)
+    r.add_argument("--name", required=True)
+    r.set_defaults(fn=resolve_cmd)
     args = ap.parse_args(argv)
     return args.fn(args)
 

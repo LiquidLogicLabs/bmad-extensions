@@ -187,7 +187,7 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs thirty-seven checks asserting facts that have each drifted in this repo's history. **They compare documented CLI *surface* to the code — flag names, `choices`, subcommand names, counts, paths, versions — and never documented *behaviour*.** A reference row can name every flag correctly, describe the wrong semantics, and pass forever; both reference docs did exactly that for `sync-agent-instructions` until 2026-10-12. The scope statement at the top of `scripts/check-docs.mjs` has the measured case.
+`check:docs` runs thirty-eight checks asserting facts that have each drifted in this repo's history. **They compare documented CLI *surface* to the code — flag names, `choices`, subcommand names, counts, paths, versions — and never documented *behaviour*.** A reference row can name every flag correctly, describe the wrong semantics, and pass forever; both reference docs did exactly that for `sync-agent-instructions` until 2026-10-12. The scope statement at the top of `scripts/check-docs.mjs` has the measured case.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
 states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's
@@ -202,6 +202,13 @@ Three things that header does not tell you:
   requires any name probed through `.claude/commands/` to be probed through
   `.claude/skills/<name>/SKILL.md` in the same file. `/l3io-doctor check-deps` remains the
   runtime verification against a real install; check 29 catches the reversion, not the install.
+  Checks 37 and 38 are the same guard on two more axes: a `.claude/skills` probe must also
+  probe `.agents/skills`, and any tool-directory probe must also test
+  `_bmad/_config/skill-manifest.csv` for the name. BMad 6.12.4 installs into 22 tool
+  directories (`.cline/skills`, `.kiro/skills`, …) and only the manifest covers all of them;
+  `bmad-deps.py` derives the same set from `manifest.yaml` `ides:` via
+  `skills/l3io-doctor/assets/bmad-install-targets.json`. l3io 3.x targets BMad 6.x only, so a
+  bare `<project>/skills` root (v7's) is deliberately not probed.
 - Check 1 deliberately allows a doc to name a removed skill when mapping it to its replacement or
   explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
   `/l3io-execute`. Docs are allowed to quote values inline; they are not allowed to quote them
