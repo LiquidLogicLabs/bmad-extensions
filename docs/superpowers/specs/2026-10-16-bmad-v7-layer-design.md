@@ -8,10 +8,14 @@
 
 | | |
 |---|---|
-| Pinned at | `61e01f8` (2026-10-18) |
-| Re-measured | 2026-10-20 |
-| Previously pinned at | `8f0d50e` (2026-10-13) — 31 commits behind |
-| v7 released? | **No.** No `v7` tag; latest release `v6.12.4` (2026-10-14) |
+| Pinned at | `e435a22` (2026-11-12) |
+| Re-measured | 2026-11-15 — see §13 |
+| Previously pinned at | `61e01f8` (2026-10-18) — 29 commits behind; `8f0d50e` (2026-10-13) before that |
+| v7 released? | **No.** No `v7` tag; latest release `v6.12.4` (2026-10-14). Upstream's stated ETA is now "mid-November 2026, and it might be sooner" |
+
+**Sections §1–§12 were written at `61e01f8` and are not rewritten in place.** §13 records every
+claim re-checked at `e435a22`, and where §13 contradicts an earlier section, §13 wins. The
+implementation plan is `docs/superpowers/plans/2026-11-15-bmad-v7-readiness.md`.
 
 **v7 is four days past its own stated ETA and the preview is churning hard** — 31 commits in
 five days, including an agent consolidation that renamed the single skill this design is built
@@ -642,3 +646,131 @@ v7 is **past its own stated ETA** with no tag, while the preview absorbed three 
 new agent in a single week. §8's split — ship the bridge, hold 4.0.0 until the surface settles —
 is not caution, it is the measured read. A 4.0.0 plan written against `8f0d50e` would already
 have needed rework in six of its sections.
+
+## 13. Drift log — `61e01f8` (2026-10-18) → `e435a22` (2026-11-12)
+
+29 commits, 300 files (106 renamed, 91 added, 74 removed). Re-measured 2026-11-15 against
+source fetched at `e435a22`. **No decision in §2–§5 reverses.** Two sections need redesign
+before they are implemented — §6's `l3io-setup` row and §7's migration entry point — and both
+are caused by mechanisms that **already existed at `61e01f8`** and that this spec missed, not by
+churn. Each row says which.
+
+### 13.1 Verified unchanged at `e435a22`
+
+- **§1** — `# estimate = 2 # only if the user gives one` (`tickets-template.toml:19`); still no
+  estimation model.
+- **§3.1** — `tickets.py move` writes `next_id` (`tickets-template.toml:5`); "`tickets.py`
+  ignores unknown keys" (`:1`); `write_leaf` (`tickets.py:1208`), `cmd_mark` (`:1283`).
+- **§3.2** — still **zero** `flock` / `fcntl` / `os.replace` in `tickets.py` (1,891 lines).
+- **§3.4** — `read_module_scripts`, `declared_scripts_tree`, `read_declared_script`,
+  `ensure_scripts`, `ensure_plain_tree`, `stage_bmad`, `replace_dir` all present in `setup.py`.
+  Module scripts land in `_bmad/<code>/scripts/` (`setup.py:315`, `:1372`). Nested paths still
+  allowed; a declared path must begin `scripts/` (`:1686`), which ours do.
+- **§4.1** — `[[initiative]]` parent containers present.
+- **§4.4** — `StoreRefusal` on non-`repo` stores in `cmd_mark`, now `tickets.py:1288` (was 1266).
+- **§5 — fully intact.** `bmad-review` carries five `[[workflow.lenses]]` with fields `code`,
+  `name`, `instruction`, `applies_to`, `when`, `after`; `bmad-code-review` carries
+  `[[workflow.quick_lenses]]` / `[[workflow.thorough_lenses]]`; `_KEYED_MERGE_FIELDS =
+  ("code", "id")` (`config_utils.py:15`); the "add an org-specific lens" invitation stands
+  (`bmad-review/customize.toml:98`). Third consecutive pin this section survived unchanged.
+- **§9** — three config layers (`config_utils.py:100-102`); `resolve_config.py --project-root
+  --key modules.<code>.<key>` unchanged.
+- **§10** — `bmad-sprint-planning`, `bmad-check-implementation-readiness`,
+  `bmad-create-epics-and-stories` in `removed`; `bmad-help` → `bmad` in core-tools' `renamed`;
+  method's module `code = "method"`.
+- **Every v7 skill this package depends on still ships.** Checked name by name against
+  `skills/l3io-doctor/assets/bmad-dependencies.json`.
+
+### 13.2 Changed since `61e01f8`
+
+| Change | Effect here |
+|---|---|
+| **Source regrouped one folder per module** (`3cf35b6`): `skills/<code>/<skill>/` | **No effect on installs.** `registry.py` `default_roots()` is unchanged and still walks one level, requiring `<root>/<skill>/SKILL.md`. Probes need no change. It is, however, the layout v7 now prescribes for a multi-module *source* repo — see 13.3 |
+| `bmad-prd`, `bmad-prfaq`, `bmad-product-brief` **removed**; planning moved onto new `bmad-facilitate` | Not referenced by any l3io skill. Add to the ADR-0006 amendment |
+| New `bmad-ingest`, `bmad-shard-pro`, founder module; advanced elicitation rebuilt (breaking) | Not dependencies |
+| `sprint` now also appears in `bmad-ingest` templates (`template-sprint-review.md`) | §1's "only in `retired.toml`, `migration-1.toml`, `help.md`" is no longer literally true. **Conclusion holds**: ingest converts an outside sprint document into v7's tree; there is still no sprint level |
+| `bmad-toolsmith`'s `script-utility/shape.md:18` **still** says `_bmad/scripts/`; new `docs/reference/module-files.md:68` says `_bmad/<code>/scripts/` | The docs now disagree with each other rather than with the code. The code says `_bmad/<code>/scripts/`. §3.4's "verify against a real install" stands |
+| v7 ETA moved to "mid-November 2026, and it might be sooner" (`0487413`) | GA is imminent; see 13.4 |
+
+### 13.3 Missed at `61e01f8` — present then, absent from this spec
+
+These change the design, and none is churn.
+
+**The module distribution contract.** A multi-module repository lays each module out as
+`skills/<code>/`, with `update_source = "github:<owner>/<repo>/skills/<code>"`, and users install
+with `npx skills add <owner>/<repo>/skills/<code>`. Every skill folder carries a `bmod.toml`;
+`validate_manifests.py` requires every record in one repository to share one version. A folder
+with neither `SKILL.md` nor `bmod.toml` is treated as a group, so `skills/_shared/` survives
+validation as an empty group. `.claude-plugin/marketplace.json` is not used by the v7 install
+path. **§9 named `bmod.toml`; it did not name the layout, the install command, or the
+validator — all three are readiness work.**
+
+**Setup skills are deleted, not extended.** Toolsmith's migrate mode
+(`docs/toolsmith/migrate-an-old-module.md`) converts an old-format module: the setup skill and
+its merge scripts are deleted and listed in `retired.toml`; `module.yaml` becomes
+`bmod-<code>/bmod.toml` with one `[[bmod.config_questions]]` per key; agents become
+`roster.toml`; `module-help.csv` becomes `help/help.md`. **§6's "`l3io-setup` gains lens
+registration" is therefore wrong** — there will be no `l3io-setup` to gain it. Lens
+registration needs a different home; candidates are a `post_install_message` directing the user,
+a `/l3io-doctor` mode, or a `migration-<n>.toml` step. Decide in an ADR.
+
+**Config reads v7 does not have.** The same converter removes reads of `user_name`,
+`communication_language` and `document_output_language` ("the current format has no such
+keys"), rewrites `output_folder` → `core.output_folder`, and requires renaming any module key
+that repeats its module code. Shipped files reading the first three: 19 / 85 / 14, synced
+copies included; the canonical set is smaller and must be measured before planning the rewrite.
+
+**`retired.toml` is the native retirement path for our own names.** `renamed` moves a user's
+`_bmad/custom/` files to the new name and `bmad setup` offers to delete the old skill. This is
+the v7 replacement for our four deprecated `l3io-pm-*` forwarders, for `l3io-setup`, and later
+for `l3io-sync` (§6). A forwarder is unnecessary once `renamed` carries the mapping.
+
+**`migration-<n>.toml` is the native migration path.** `bmad migrate` (`bmad/references/migrate.md`)
+is a conversational runner: it reads each candidate's `detect`, lists the matches in the order
+`migrations` gives, lets the user choose, and runs chosen migrations **one at a time, each
+verified before the next**, re-checking a module's later migrations after each one. It does not
+order across modules by dependency. Ordering is expressed **in `detect`**: method's own
+`migration-1.toml` applies "only while there is no `active_initiative`…". **§7's custom
+`/l3io-doctor migrate-v7` conductor should be re-evaluated against shipping
+`skills/l3io-pm/bmod-l3io-pm/migration-1.toml`**, whose `detect` requires method's migration to
+have run and whose `guide` invokes the existing deterministic `migrate-engine.py`. The engine
+survives either way; only the entry point is in question.
+
+**`migration-2.toml` (`7 preview` → `7`)** moves each initiative's and epic's breakdown into a
+`tickets/` folder. It detects `initiative-*/` or `epic-*/` folders **directly under
+`core.output_folder`** holding `tickets.toml`, a `story-*.md` / `spike-*.md` / `bug-*.md` leaf
+or a `*-plan.md`. l3io artifacts live at `{implementation_artifacts}/epic-NNN/sprint-NN/stories/E…md`,
+a level deeper and named differently, so it **probably** does not fire on an l3io tree. Unverified
+— test it on a fixture before §7 is built.
+
+**Tracker-store status is not an open question.** §11 says the tracker write path "needs a real
+Jira or Linear project to verify". The source already answers the shape: `tickets.py mirror`
+"write[s] what a tracker returned into leaf files (tracker stores only)", and `tickets.py next`
+**refuses on any non-`repo` store** unless passed `--synced` ("sync ticket status from the
+tracker first", `tickets.py:1002`). So §4.2's readiness step must mirror before `next`, and
+§4.4's store-aware write path is: write through the tracker, then `mirror`. A real tracker
+project is still needed to verify, but the design need not wait for one.
+
+**`bmad-build-auto` takes two selectors.** `--set workflow.route=oneshot|full` and
+`--set workflow.review=none|quick|thorough`. §4.3's pipeline runs "our code review → fix loop"
+after it, but never chose `review`. `none` keeps one review engine (ours); `thorough` lets §5's
+lenses run inside BMad's loop and makes ours a second pass. Decide in the §4.3 ADR.
+
+**§4.3 cites the wrong evidence.** It says v7 removed `bmad-create-story` / `bmad-dev-story`
+"(`bmod-method/retired.toml`)". Neither name is in that file, at `61e01f8` or now; v7 simply
+does not ship them. The conclusion stands. The consequence the spec missed: **because they are
+not retired, `bmad setup` will not offer to delete a leftover v6.12 shim**, and the 3.x step
+files *prefer* the legacy name when installed. A v6 project migrated to v7 can keep resolving
+the v6 shim. 4.0.0 removes the fallback chain; the 3.x line should warn.
+
+**Cross-module dependencies are declarable.** `required_skills = [{ skill, version, source }]`
+in `[bmod]` (module-wide) or `[skill]` (one member). This is v7's answer to the `l3io-util`
+dependency `module.yaml` declares today but v6 never enforces.
+
+### 13.4 What this says about timing
+
+§8 held 4.0.0 "until the surface settles". In 29 commits the surface that §2–§5 depend on did
+**not** move — lenses, config layers, the ticket store, `StoreRefusal`, declared scripts. What
+moved was packaging and distribution, and most of what this re-measure found was there to be
+read a month ago. The readiness risk is now less "v7 changes under us" and more "we have not
+planned the parts of v7 that were already settled".
