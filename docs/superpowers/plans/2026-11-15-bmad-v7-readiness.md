@@ -312,6 +312,17 @@ Everything here attaches to a v7 skill. Each item names its host and extension p
 
 ## Phase 5 — Lenses and architecture (`feat/bmad-v7-layer`) — needs ADRs e, h
 
+> **Done 2026-11-17.** Eleven lenses ship as declared scripts (`l3io-arch`'s five, `l3io-sec`'s
+> six) and `/l3io-doctor wire` adds each to `bmad-review`'s `lenses` and to the `thorough_lenses`
+> of `bmad-code-review`, `bmad-build` and `bmad-build-auto`. `l3io-arch`'s design review is a
+> `bmad-architecture` `finalize_reviewers` entry (the re-homed epic architecture gate), beside
+> its standards (`external_sources`) and documentation standard (`doc_standards`); `design`
+> routes there, `decision` stays a skill. The epic-closure spec sync is a `bmad-retrospective`
+> `persistent_facts` entry; applying a reconciliation is manual by design, because the
+> retrospective may write only its document and approved records. R6 passes through v7's own
+> merge and render code (`tests/l3io-doctor/test-lenses.py`) and on the fixture
+> (`smoke:install`).
+
 1. **Write the eleven lenses** in §5.2 (five engineering, five threat, plus AI-poisoning `after` external). Each one's `instruction` points at our own reference file. Wire them into `bmad-review` and into `bmad-code-review`/`bmad-build`'s `thorough_lenses`.
 2. **`l3io-arch-review`'s standards join `bmad-architecture`.** Design guardrails go through `doc_standards` and `external_sources`; the epic design review is appended to `finalize_reviewers`. Mode A stops being a separate workflow. Mode C (ADR recording with `adr-reserve`) stays a skill.
 3. **`l3io-sec-redteam`:** threat viewpoints become lenses; the persona and sanctum stay a skill for explicit red-team sessions.
