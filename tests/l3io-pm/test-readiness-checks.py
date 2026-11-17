@@ -102,6 +102,19 @@ class TestReadinessEntries(unittest.TestCase):
                 self.assertTrue(cmd.startswith("uv run " + INSTALLED), cmd)
             self.assertNotRegex(e["value"], r"tickets\.py\S*\s+mark\b", e["id"])
 
+    def test_entry_with_no_leaf_file_is_advisory(self):
+        """Sofia builds an entry with no leaf file as it is (validate-checks.md, Ticket: only
+        bugs, `refine = true` entries and leaves with no entry need full criteria). Holding
+        it not ready would fight v7's rule, so ours is a suggestion, never a fix or a fail."""
+        (e,) = bh.entries("l3io-check-technical-ac")
+        text = " ".join(e["value"].split())
+        self.assertNotRegex(text, r"no leaf file[^.]*\bis a finding\b")
+        self.assertNotIn("not ready until", text)
+        m = re.search(r"An entry with no leaf file[^.]*\.[^.]*\.", text)
+        self.assertIsNotNone(m, "the check says nothing about an entry with no leaf file")
+        self.assertIn("suggest", m.group(0))
+        self.assertIn("never", m.group(0))
+
     def test_the_fact_file_is_the_canonical_reference(self):
         self.assertEqual((_EXECUTE / "scripts" / "facts" / "ac-dimensions.md").read_bytes(),
                          (_SHARED / "ac-dimensions.md").read_bytes())

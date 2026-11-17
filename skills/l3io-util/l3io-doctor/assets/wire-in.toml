@@ -225,7 +225,7 @@ uv run {project-root}/_bmad/l3io-pm/scripts/spec-align.py --project-root {projec
 ```
 
 - `<work type>`: `CODE`, `DOCS`, `CONFIG` or `MIXED`, for what the ticket changes. The command reads the project's `business_ac_required` policy to decide whether a missing business section fails.
-- Exit 0: the ticket is ready. Exit 2: each line it printed on stderr is a finding for this ticket. Containers are not checked. An entry with no leaf file is a finding too: it is not ready until it is pulled and refined.
+- Exit 0: the ticket is ready. Exit 2: each line it printed on stderr is a finding for this ticket. Containers are not checked. An entry with no leaf file is advisory only: Sofia builds such an entry as it is, so at most suggest pulling and refining it, and never sort it as a fix or hold the ticket back for it. Where her own rule needs full criteria (a bug, or an entry with `refine = true`), her own Ticket check already says so.
 - The command only reads."""
 
 [[entry]]
