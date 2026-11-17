@@ -33,7 +33,6 @@ from ..core import _die_notfound, _die_usage, _now_iso, append_event
 from . import reconcile
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---(?:\n|\Z)", re.DOTALL)
-_TICKET_LINE_RE = re.compile(r"^ticket:\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$", re.MULTILINE)
 
 def route(args):
     """The handler for a parsed command line: the v7 one when any v7 address flag is
@@ -64,6 +63,38 @@ def route(args):
     return handler
 
 
+def plan_rel(plan: str, project_root: str) -> str:
+    """A plan's path relative to the project root, as event payloads carry it."""
+    return os.path.relpath(plan, os.path.realpath(project_root)).replace(os.sep, "/")
+
+
+def write_ticket_actual(path: str, provided: dict) -> None:
+    """`[actual]` in a ticket sidecar, the five metrics in canonical order. A re-capture not
+    split per model drops an earlier split, which verify would otherwise sum against
+    a tokens_k it no longer describes."""
+    with sidecar.edit(path) as doc:
+        tbl = sidecar.table(doc, "actual")
+        if "tokens_k" in provided and "by_model" not in provided and "by_model" in tbl:
+            del tbl["by_model"]
+        sidecar.put_metrics(tbl, provided)
+
+
+def record_test_run(path: str, command: str, exit_code: int) -> bool:
+    """Append one run to `completion_evidence.test_runs` and re-derive `tests_passing`
+    from the last run of each distinct command. Returns the derived value."""
+    tk = sidecar._tomlkit()
+    with sidecar.edit(path) as doc:
+        ce = sidecar.table(doc, "completion_evidence")
+        if "test_runs" not in ce:
+            ce["test_runs"] = tk.aot()
+        run = tk.table()
+        run["command"] = command
+        run["exit_code"] = int(exit_code)
+        ce["test_runs"].append(run)
+        ce["tests_passing"] = verbs.tests_passing(sidecar.plain(ce["test_runs"]))
+        return bool(ce["tests_passing"])
+
+
 def _plan_or_die(plan_file: str) -> tuple:
     """(absolute plan path, its sidecar path); exit 3 when the plan does not exist."""
     sidecar_path = nodes.ticket_sidecar(plan_file)
@@ -73,13 +104,21 @@ def _plan_or_die(plan_file: str) -> tuple:
     return plan, sidecar_path
 
 
-def _ticket_of(plan: str) -> str:
-    """The plan's `ticket:` frontmatter value (the entry id), else the plan's stem."""
+def plan_field(plan: str, name: str):
+    """One scalar from a plan's frontmatter, quotes stripped; None when absent."""
     with open(plan, encoding="utf-8-sig") as fh:
         m = _FRONTMATTER_RE.match(fh.read())
-    t = _TICKET_LINE_RE.search(m.group(1)) if m else None
+    if not m:
+        return None
+    line = re.search(rf"^{re.escape(name)}:\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$",
+                     m.group(1), re.MULTILINE)
+    return line.group(1).strip() if line else None
+
+
+def _ticket_of(plan: str) -> str:
+    """The plan's `ticket:` frontmatter value (the entry id), else the plan's stem."""
     stem = os.path.basename(plan)[:-len(".md")]
-    return (t.group(1).strip() if t else "") or stem
+    return plan_field(plan, "ticket") or stem
 
 
 def _set_estimate(args) -> int:
@@ -124,16 +163,12 @@ def _set_actual(args) -> int:
     plan, path = _plan_or_die(args.plan_file)
     state_root = nodes.project_state_root(args.project_root)
     provided = metrics.actuals_usage.actual_values(args)
-    with sidecar.edit(path) as doc:
-        tbl = sidecar.table(doc, "actual")
-        if "tokens_k" in provided and "by_model" not in provided and "by_model" in tbl:
-            del tbl["by_model"]
-        sidecar.put_metrics(tbl, provided)
+    write_ticket_actual(path, provided)
     if not args.no_events:
-        rel = os.path.relpath(plan, os.path.realpath(args.project_root)).replace(os.sep, "/")
         append_event(state_root, {"ts": _now_iso(), "event": "actual", "from": None,
                                   "to": None, "session": args.session_id, "node": "ticket",
-                                  "key": _ticket_of(plan), "plan": rel})
+                                  "key": _ticket_of(plan),
+                                  "plan": plan_rel(plan, args.project_root)})
     sys.stdout.write(f"OK set-actual ticket {os.path.basename(plan)} {sorted(provided)} "
                      "[no calibration sample: build-close pairs actuals with estimates]\n")
     return 0
@@ -145,17 +180,7 @@ def _add_test_run(args) -> int:
         return 2
     plan, path = _plan_or_die(args.plan_file)
     nodes.project_state_root(args.project_root)
-    tk = sidecar._tomlkit()
-    with sidecar.edit(path) as doc:
-        ce = sidecar.table(doc, "completion_evidence")
-        if "test_runs" not in ce:
-            ce["test_runs"] = tk.aot()
-        run = tk.table()
-        run["command"] = args.command
-        run["exit_code"] = int(args.exit_code)
-        ce["test_runs"].append(run)
-        ce["tests_passing"] = verbs.tests_passing(sidecar.plain(ce["test_runs"]))
-        passing = bool(ce["tests_passing"])
+    passing = record_test_run(path, args.command, args.exit_code)
     sys.stdout.write(f"OK {os.path.basename(plan)} test run recorded "
                      f"({args.command} -> {args.exit_code}); tests_passing={passing}\n")
     return 0

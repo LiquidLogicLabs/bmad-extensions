@@ -11,10 +11,18 @@
 #                        any other team value is refused
 #   path       dotted key of the array or hook, e.g. `workflow.lenses`
 #   value      the table (keyed) or string (list, scalar) to add
+#   requires   a module whose installed script the value calls (`l3io-pm`); the entry is
+#              skipped, with nothing written, while that module is not set up
 #   test_only  skipped unless wire-in.py is given --include-test-only
 #
-# The one entry below exists to exercise the mechanism on a real install and is never
-# applied by a normal `wire`. Phases 4-5 add the real entries.
+# Every hook value calls a script `bmad setup` installs under
+# `{project-root}/_bmad/<module>/scripts/`, never `{skill-root}`: in a hook, `{skill-root}` is
+# bound to the HOST skill's generation directory (render_skill.py:359-368), not ours.
+# `check:bmod` judges every non-test entry's `path` and `kind` against the host skill's
+# pinned customize.toml, because a key the host does not declare halts its every render.
+#
+# The first entry exists to exercise the mechanism on a real install and is never applied
+# by a normal `wire`.
 
 [[entry]]
 id = "wire-in-self-test"
@@ -29,3 +37,83 @@ name = "l3io wire-in self-test"
 applies_to = "any"
 when = "Never in a default review: run only when requested by code."
 instruction = ""
+
+# --------------------------------------------------------------------------------------------
+# Measurement on every build (R13). The prepend opens a bracket in a gitignored spool, so the
+# clean-tree check bmad-build-auto makes at its step 1 still passes; On Complete closes it,
+# records the ticket's actuals, events and calibration sample, and commits what it wrote.
+# bmad-build runs On Complete on success only (step-05-present.md:41, step-oneshot.md:132);
+# bmad-build-auto runs it at every HALT, `blocked` included (workflow.md:46-52).
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-build-open"
+skill = "bmad-build"
+kind = "list"
+path = "workflow.activation_steps_prepend"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) measures this build. Open its bracket now, before anything else, and continue whatever the command prints. It writes only a gitignored spool file:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-open --project-root {project-root} --agent bmad-build
+```
+
+If it fails, say so in one line and carry on with the build."""
+
+[[entry]]
+id = "l3io-build-close"
+skill = "bmad-build"
+kind = "scalar"
+path = "workflow.on_complete"
+requires = "l3io-pm"
+value = """
+Close l3io's measurement bracket for this build (l3io-pm). Fill the slots, then run it as the last thing before exiting:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-close --project-root {project-root} --agent bmad-build --plan-file {plan_file} --runtime <runtime> --man-hours <man_hours> --hitl-hours <hitl_hours> --test-run '<verification command>=<exit code>'
+```
+
+- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Never type token counts: under Claude the command reads them from this session's transcript.
+- `<man_hours>`: the counterfactual, not the wall-clock. How long a developer would have taken to do this work by hand, assessed from the diff, the tests and the scope you delivered (l3io's HARD RULE on estimates and actuals). Never 0.
+- `<hitl_hours>`: the human attention this build actually took: the time the user spent answering, reviewing and approving.
+- `--test-run`: one per command you ran from the plan's `## Verification`, with its exit code. Repeat the flag for each command, and drop it when you ran none.
+- With no plan file, drop `--plan-file {plan_file}`.
+
+The command records the ticket's actuals and commits only l3io's own files. Never run v7's `mark` verb for it: the plan's status is the build's to write. If the command fails, report its message in one line and exit as you would have."""
+
+[[entry]]
+id = "l3io-build-auto-open"
+skill = "bmad-build-auto"
+kind = "list"
+path = "workflow.activation_steps_prepend"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) measures this build. Open its bracket now, before anything else, and continue whatever the command prints. It writes only a gitignored spool file, so the tree stays clean:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-open --project-root {project-root} --agent bmad-build-auto
+```
+
+If it fails, note the message in the result and carry on with the build."""
+
+[[entry]]
+id = "l3io-build-auto-close"
+skill = "bmad-build-auto"
+kind = "scalar"
+path = "workflow.on_complete"
+requires = "l3io-pm"
+value = """
+Close l3io's measurement bracket for this run (l3io-pm), whatever the final status. Fill the slots, then run it as the last thing before stopping:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-close --project-root {project-root} --agent bmad-build-auto --plan-file {plan_file} --runtime <runtime> --man-hours <man_hours> --hitl-hours 0 --test-run '<verification command>=<exit code>'
+```
+
+- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Never type token counts: under Claude the command reads them from this session's transcript.
+- `<man_hours>`: the counterfactual, not the wall-clock. How long a developer would have taken to do this work by hand, assessed from the diff, the tests and the scope you delivered (l3io's HARD RULE on estimates and actuals). Never 0 unless nothing was delivered.
+- `hitl_hours` is 0: this run is unattended.
+- `--test-run`: one per command you ran from the plan's `## Verification`, with its exit code. Repeat the flag for each command, and drop it when you ran none.
+- With no plan file, drop `--plan-file {plan_file}`.
+
+The command records the ticket's actuals and commits only l3io's own files, so the tree stays clean for the next build. Never run v7's `mark` verb for it: the HALT above has already written the status. If the command fails, report its message in one line and stop."""

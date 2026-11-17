@@ -314,6 +314,24 @@ Subcommands
                 plan. Without J, sweeps D: a plan sidecar whose plan is gone is moved beside
                 the one same-named plan elsewhere in D; an [entry.<id>] whose id no
                 tickets.toml has is reported. One line per action; exit 0, 2 on usage)
+  build-open    --project-root P  --agent {bmad-build,bmad-build-auto}  [--plan-file F]
+                [--session-id ID]
+                (v7 build hook, activation_steps_prepend: opens the build's measurement
+                bracket in {output_folder}/l3io/.inflight/, a spool that ignores itself, so
+                no tracked or untracked file appears; a stale open under the same key or
+                for the same plan is retired as abandoned)
+  build-close   --project-root P  --agent {bmad-build,bmad-build-auto}  [--plan-file F]
+                --runtime {claude,codex,copilot,other}  [--model M]  --man-hours H
+                --hitl-hours H  [--test-run 'CMD=EXIT' ...]  [--token-rates JSON]
+                [--session-id ID]
+                (v7 build hook, on_complete: appends the dispatch_open/dispatch_close pair,
+                appends the bracket to the ticket sidecar's `dispatch` list and writes
+                [actual] as their sum -- tokens read from the Claude transcript over the
+                bracket, N/A under other runtimes, cost derived -- records each --test-run,
+                takes one calibration sample when the plan reads built and its entry was
+                estimated beforehand, then commits each path it wrote inside the worktree
+                as `chore(l3io): actuals <ticket>`. Exit 4 when no bracket was open: the
+                close is recorded as unmatched)
   sync-agent-instructions  --runtime {claude,codex,copilot,other}  --project-root P
                 [--body-file F] [--version V]  (--apply | --remove | --check)
                 (creates, replaces or removes the marker-wrapped l3io block in the running
@@ -423,7 +441,12 @@ if not __package__ and __name__ == "__main__":
 # in `sidecar.verbs`, which sits above `verbs` and `metrics` and is imported by name: its
 # `register` adds `sidecar-reconcile`, and `main` asks its `route` which handler a parsed
 # command line runs.
+#
+# `build` is the ninth: `build-open` and `build-close`, the measurement bracket v7's
+# `bmad-build` and `bmad-build-auto` run through their hooks. It sits above `sidecar.verbs`
+# and `metrics`, and nothing imports it but `build_parser`.
 from . import (
+    build,
     core,  # noqa: F401 -- re-export only
     instructions,
     issues,
@@ -626,7 +649,7 @@ from .verbs import (
 # may grow an empty `register` to look symmetrical — an empty hook is a place for a
 # verb to be registered by accident.
 #
-# TestSubcommandRegistration is the standing guard: it pins all 43 names, and attributes a
+# TestSubcommandRegistration is the standing guard: it pins all 45 names, and attributes a
 # shortfall to the module whose call went missing.
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
@@ -640,6 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.register(sub)
     instructions.register(sub)
     sidecar_verbs.register(sub)
+    build.register(sub)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

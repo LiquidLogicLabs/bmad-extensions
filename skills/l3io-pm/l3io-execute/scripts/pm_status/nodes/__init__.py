@@ -468,6 +468,15 @@ def project_state_root(project_root: str) -> str:
     return _STATE_ROOTS[root]
 
 
+INFLIGHT_DIR = ".inflight"
+
+
+def inflight_dir(state_root: str) -> str:
+    """The build bracket's spool under a project state root: one JSON file per open
+    bracket, gitignored, so opening one never dirties the tree (`build`)."""
+    return os.path.join(state_root, INFLIGHT_DIR)
+
+
 # --------------------------------------------------------------------------- #
 # computed roll-ups — sprint/epic aggregates over per-story child files
 # --------------------------------------------------------------------------- #

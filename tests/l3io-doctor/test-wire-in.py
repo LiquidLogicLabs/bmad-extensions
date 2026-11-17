@@ -69,6 +69,16 @@ path = "workflow.on_complete"
 value = "Run the l3io capture."
 """
 
+REQUIRING = """
+[[entry]]
+id = "needs-pm"
+skill = "bmad-build"
+kind = "list"
+path = "workflow.activation_steps_prepend"
+requires = "l3io-pm"
+value = "Run the l3io-pm build-open."
+"""
+
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -231,16 +241,43 @@ class TestWireInEdges(Base):
         self.assertEqual(code, 2, out + err)
         self.assertIn("l3io-", err)
 
-    def test_shipped_entries_are_test_only_and_valid(self):
-        self.assertTrue(all(e.get("test_only") for e in
-                            tomllib.loads(_ASSET.read_text())["entry"]))
+    def test_shipped_entries_are_test_only_or_require_a_module(self):
+        shipped = tomllib.loads(_ASSET.read_text())["entry"]
+        self.assertTrue(all(e.get("test_only") or e.get("requires") for e in shipped))
         code, out, err = self.run_cli("wire", entries=False)
         self.assertEqual(code, 0, out + err)
-        self.assertEqual(self.snapshot(), {})
+        self.assertEqual(self.snapshot(), {}, "no module is installed, so nothing is wired")
         code, out, err = self.run_cli("wire", "--include-test-only", entries=False)
         self.assertEqual(code, 0, out + err)
         self.assertIn("l3io-wire-in-self-test",
                       (self.root / "_bmad" / "custom" / "bmad-review.toml").read_text())
+
+    def test_requires_absent_module_skips(self):
+        """An entry that calls a module's declared script is skipped, with nothing written,
+        while that module's script is not installed; installed, it applies."""
+        self.entries.write_text(ENTRIES + REQUIRING)
+        code, out, err = self.run_cli("wire", "--format", "json")
+        self.assertEqual(code, 0, out + err)
+        status = {r["id"]: r["status"] for r in json.loads(out)["results"]}
+        self.assertEqual(status["needs-pm"], "skipped", out)
+        self.assertEqual(status["hook"], "applied", out)
+        build = (self.root / "_bmad" / "custom" / "bmad-build.toml").read_text()
+        self.assertNotIn("l3io-pm build-open", build)
+        main = self.root / "_bmad" / "l3io-pm" / "scripts" / "pm_status" / "__main__.py"
+        main.parent.mkdir(parents=True)
+        main.write_text("")
+        code, out, err = self.run_cli("wire", "--format", "json")
+        self.assertEqual(code, 0, out + err)
+        status = {r["id"]: r["status"] for r in json.loads(out)["results"]}
+        self.assertEqual(status["needs-pm"], "applied", out)
+        self.assertIn("l3io-pm build-open",
+                      (self.root / "_bmad" / "custom" / "bmad-build.toml").read_text())
+
+    def test_requires_names_a_known_module(self):
+        self.entries.write_text(ENTRIES + REQUIRING.replace('"l3io-pm"', '"l3io-nope"'))
+        code, out, err = self.run_cli("wire")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("l3io-nope", err)
 
     def test_output_folder_expands_project_root(self):
         scripts = self.root / "_bmad" / "scripts"

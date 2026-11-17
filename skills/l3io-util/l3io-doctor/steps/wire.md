@@ -15,11 +15,26 @@ uv run {skill-root}/scripts/wire-in.py wire --project-root {project-root}
 It is idempotent: a second run changes nothing. Comments, key order and every entry the
 team wrote survive.
 
+What it adds (`assets/wire-in.toml`):
+
+| Entry | Team file | Key | What it does |
+|---|---|---|---|
+| `l3io-build-open` | `bmad-build.toml` | `workflow.activation_steps_prepend` | opens l3io's measurement bracket (`build-open`) |
+| `l3io-build-close` | `bmad-build.toml` | `workflow.on_complete` | closes it: the ticket's actuals, events, calibration sample, and a commit of them (`build-close`) |
+| `l3io-build-auto-open` | `bmad-build-auto.toml` | `workflow.activation_steps_prepend` | as `l3io-build-open` |
+| `l3io-build-auto-close` | `bmad-build-auto.toml` | `workflow.on_complete` | as `l3io-build-close`, with `hitl_hours` 0 |
+
+Each of these calls `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py`, which
+`bmad setup l3io-pm` installs, and carries `requires = "l3io-pm"`: while that file is
+absent the entry is `skipped` and nothing is written for it.
+
 ## 2. Report
 
 Print the output as-is. Each line is one entry: `applied`, `already` (ours, from an
 earlier run), `present` (the team already holds the same value), `yielded` (the team holds
-an entry with the same `code`/`id` — the team's wins and ours is not added), or `refused`.
+an entry with the same `code`/`id` — the team's wins and ours is not added), `skipped` (the
+module it calls is not set up: suggest `bmad setup <module>`, then `wire` again), or
+`refused`.
 Then:
 
 - Exit 0 → `DONE — wired; run /l3io-doctor unwire to remove it.`

@@ -37,6 +37,14 @@ export const KNOWN_TOOLS = {
     [`${SCRIPTS}/setup.py`]: "8607707c686978bd24bf509d9e0eb9534fb5bb58c6df6a1a4929e9878321d13f",
     [`${SCRIPTS}/knowledge.py`]: "89b8d223dfdd1ef1e99e1b4367a58d31bf0c43bebcc738c8bc7455249bf55caa",
     [`${SCRIPTS}/list_templates.py`]: "71da9423c2977fd803d5bda91b415f265c7d96f980ef73ffc50eb8dbbdba320b",
+    // The host skills' shipped customization defaults, which check:bmod judges every
+    // wire-in entry against (a key a host does not declare halts its every render).
+    "skills/method/bmad-agent-po/customize.toml": "7331dd40e9f0efbdb8dbb986ba5554a41be7f64331dfed5d0e1050e4dcef103a",
+    "skills/method/bmad-build/customize.toml": "5dfd76c8c08463e6d01c7664d8e783033a5ae968baf0a2d86535df3ab2f10fb8",
+    "skills/method/bmad-build-auto/customize.toml": "56836bc55bb01c205c7931e42b913be2e7b0df148b7a0a56a9e771e7e541a5e8",
+    "skills/method/bmad-retrospective/customize.toml": "4e954664043e193f874f3e8bd090afd65a2d221668c827efbbb9acaab4683f92",
+    "skills/core-tools/bmad-review/customize.toml": "36666ad3517e89177bdafbca7c50b3acf9e6e6d720885e3309e605e7c7b9a21b",
+    "skills/method/bmad-code-review/customize.toml": "f8b2b8c65f643008935c63d819e025468635a4ad89650bd699d4b0fb657f8a3c",
   },
 };
 

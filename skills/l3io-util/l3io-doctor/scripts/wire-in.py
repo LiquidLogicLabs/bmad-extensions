@@ -30,6 +30,13 @@ and merges arrays of tables by `code`, else `id`, when every item carries that f
   scalar  a single-slot string hook (`on_complete`, `tickets_after`). Set only when the key
           is absent or empty; any other team value is a refusal naming both values.
 
+Entries that call a module's script
+-----------------------------------
+An entry carrying `requires = "<module>"` runs a script that module's `bmad setup` installs
+under `{project-root}/_bmad/<module>/scripts/`. It is `skipped`, with nothing written, while
+that script is absent: a hook naming a command the project cannot run would fail inside
+every invocation of the host skill. Run `wire` again after setting the module up.
+
 Byte-exact unwire
 -----------------
 The ledger (`{output_folder}/l3io/wire-in.json`) keeps, per file, the bytes it held before
@@ -70,6 +77,8 @@ OUR_PREFIX = "l3io-"
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 PATH_RE = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$")
 LEDGER_VERSION = 1
+# What `requires` may name, and the installed file whose presence satisfies it.
+REQUIRES = {"l3io-pm": "_bmad/l3io-pm/scripts/pm_status/__main__.py"}
 DEFAULT_ENTRIES = Path(__file__).resolve().parent.parent / "assets" / "wire-in.toml"
 
 
@@ -199,6 +208,10 @@ def load_entries(path: Path, include_test_only: bool) -> list[dict]:
             e = {**e, "field": field, "ident": ident}
         elif not isinstance(value, str) or not value:
             raise UsageError(f"{where} ({eid}): a {kind} entry's `value` is a non-empty string")
+        req = e.get("requires")
+        if req is not None and req not in REQUIRES:
+            raise UsageError(f"{where} ({eid}): `requires` must be one of "
+                             f"{', '.join(sorted(REQUIRES))}, got {req!r}")
         if e.get("test_only") and not include_test_only:
             continue
         entries.append(e)
@@ -338,6 +351,13 @@ def cmd_wire(args) -> tuple[int, list[dict]]:
         rec = ledger["files"].get(rel)
         new_records = []
         for e in file_entries:
+            missing = e.get("requires") and not (root / REQUIRES[e["requires"]]).is_file()
+            if missing:
+                results.append({"id": e["id"], "file": rel, "status": "skipped",
+                                "detail": (f"{e['requires']} is not set up "
+                                           f"({REQUIRES[e['requires']]} is absent); run "
+                                           f"`bmad setup {e['requires']}`, then wire again")})
+                continue
             status, detail, record = apply_entry(doc, e, rec)
             refused |= status == "refused"
             results.append({"id": e["id"], "file": rel, "status": status, "detail": detail})

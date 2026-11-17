@@ -32,6 +32,15 @@ recorded in that script's `KNOWN_TOOLS`, cached outside the repository
 (pin, path) with no recorded hash is refused before any network call; moving the pin means
 reading the new files and recording their hashes in the same diff.
 
+`check:bmod` has a second arm, over the doctor's `assets/wire-in.toml`: every non-test entry's
+`path` must be a key the host skill's pinned `customize.toml` declares, and its `kind` must
+match that key's shipped default (`scalar` a string, `list` a list of strings, `keyed` a
+non-empty array of tables). v7 halts the render of the whole host skill on an undeclared or
+mistyped team key (`render_skill.py:122-128`, `:301-317`), so a bad entry would break every
+invocation of the user's planner or builder. The six host `customize.toml` files are fetched
+through `fetch-bmad-tool.mjs` like the validator, hashes in `KNOWN_TOOLS`;
+`CHECK_BMOD_CUSTOMIZE_DIR` substitutes them in the offline tests.
+
 `check:module` has two rules. **pm-status-singleton**: one `pm_status` payload copy per module
 (the folder under `skills/` a skill sits in). **help-registration**: every keyword a skill's
 routing table marks `registered` is named, in backticks, in its module's `help/help.md` (alone,
@@ -54,7 +63,7 @@ resolves; each module's declared `pm_status` (`l3io-pm`, `l3io-util`) is install
 `_bmad/<module-code>/scripts/`, every file its `bmod.toml` lists, and `uv run` of its `__main__.py
 --help` exits 0; the installed doctor's `report-version.py` finds the two copies agreeing, and
 with one copy's version marker changed exits 3 with one finding naming both paths (the copy is
-restored after); a hand-written initiative under the project's `core.output_folder` reads byte-identically through v7's own `tickets.py status` before and after `set-estimate`/`set-actual` with v7 addressing, with the sidecars and `{output_folder}/l3io/events.jsonl` written beside it; a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
+restored after); a hand-written initiative under the project's `core.output_folder` reads byte-identically through v7's own `tickets.py status` before and after `set-estimate`/`set-actual` with v7 addressing, with the sidecars and `{output_folder}/l3io/events.jsonl` written beside it; after the doctor's `wire`, v7's `render_skill.py` renders `bmad-build` and `bmad-build-auto` with the `build-open`/`build-close` hook commands in place, `unwire` restores both team files byte for byte, and a team `on_complete` planted first makes `wire` exit 3 and stay untouched; a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
 the older single file) is gone after setup runs again, while BMad's own `setup.py` there stays;
 with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
 it with `--skill`, and following that hint against this checkout satisfies it. Setup's update

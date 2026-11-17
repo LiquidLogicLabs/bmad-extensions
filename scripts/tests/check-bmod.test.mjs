@@ -9,7 +9,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { buildView, VIEW_PREFIX } from "../check-bmod.mjs";
+import { parse as parseToml } from "smol-toml";
+import { buildView, checkWireIn, CUSTOMIZE_PATHS, VIEW_PREFIX, WIRE_IN_REL } from "../check-bmod.mjs";
 
 const SCRIPT = path.join(import.meta.dirname, "..", "check-bmod.mjs");
 
@@ -99,4 +100,108 @@ test("a failing run keeps its view, names it, and passes the validator's exit th
   assert.match(r.stderr, /stand-in says 1/);
   assert.ok(fs.existsSync(root), "a failing run keeps its view");
   assert.ok(r.stderr.includes(root), `the kept view is named: ${r.stderr}`);
+});
+
+// The wire-in arm (Review Focus 1 of the Phase 4 plan): a team file may set only keys the v7
+// skill declares, with the type of the shipped default, or render_skill.py halts EVERY
+// invocation of that skill (render_skill.py:122-128, :301-317). The arm judges each non-test
+// wire-in entry against the pinned customize.toml.
+const BUILD_AUTO_CUSTOMIZE = [
+  "[workflow]",
+  "activation_steps_prepend = []",
+  'on_complete = ""',
+  'review = "quick"',
+  "[[workflow.quick_lenses]]",
+  'id = "quick"',
+  'name = "Quick"',
+  'instruction = "x"',
+  "",
+].join("\n");
+
+const PO_CUSTOMIZE = [
+  "[agent]",
+  "[[agent.menu]]",
+  'code = "SL"',
+  'description = "Slice"',
+  'prompt = "x"',
+  "",
+].join("\n");
+
+function wireIn(entries) {
+  return entries.map((e) => [
+    "[[entry]]",
+    `id = "${e.id}"`,
+    `skill = "${e.skill}"`,
+    `kind = "${e.kind}"`,
+    `path = "${e.path}"`,
+    ...(e.test_only ? ["test_only = true"] : []),
+    ...(e.kind === "keyed"
+      ? ["[entry.value]", 'code = "l3io-x"', 'prompt = "y"']
+      : ['value = "y"']),
+    "",
+  ].join("\n")).join("\n");
+}
+
+test("checkWireIn names an undeclared key (workflow.interactive on bmad-build-auto)", () => {
+  const findings = checkWireIn(parseToml(wireIn([
+    { id: "planted", skill: "bmad-build-auto", kind: "scalar", path: "workflow.interactive" },
+  ])), { "bmad-build-auto": parseToml(BUILD_AUTO_CUSTOMIZE) });
+  assert.equal(findings.length, 1, findings.join("\n"));
+  assert.match(findings[0], /planted/);
+  assert.match(findings[0], /workflow\.interactive/);
+  assert.match(findings[0], /bmad-build-auto/);
+});
+
+test("checkWireIn judges the kind against the shipped default", () => {
+  const findings = checkWireIn(parseToml(wireIn([
+    { id: "ok-scalar", skill: "bmad-build-auto", kind: "scalar", path: "workflow.on_complete" },
+    { id: "ok-list", skill: "bmad-build-auto", kind: "list", path: "workflow.activation_steps_prepend" },
+    { id: "ok-keyed", skill: "bmad-agent-po", kind: "keyed", path: "agent.menu" },
+    { id: "bad-list", skill: "bmad-build-auto", kind: "list", path: "workflow.review" },
+    { id: "bad-scalar", skill: "bmad-build-auto", kind: "scalar", path: "workflow.activation_steps_prepend" },
+    { id: "bad-keyed", skill: "bmad-build-auto", kind: "keyed", path: "workflow.activation_steps_prepend" },
+    { id: "bad-list-of-tables", skill: "bmad-agent-po", kind: "list", path: "agent.menu" },
+    { id: "skipped", skill: "bmad-build-auto", kind: "scalar", path: "workflow.nope", test_only: true },
+  ])), {
+    "bmad-build-auto": parseToml(BUILD_AUTO_CUSTOMIZE),
+    "bmad-agent-po": parseToml(PO_CUSTOMIZE),
+  });
+  const named = findings.map((f) => f.match(/^([^:]+):/)[1]).sort();
+  assert.deepEqual(named, ["bad-keyed", "bad-list", "bad-list-of-tables", "bad-scalar"],
+    findings.join("\n"));
+});
+
+test("checkWireIn reports a skill whose customize.toml was not supplied", () => {
+  const findings = checkWireIn(parseToml(wireIn([
+    { id: "orphan", skill: "bmad-unknown", kind: "scalar", path: "workflow.on_complete" },
+  ])), {});
+  assert.equal(findings.length, 1);
+  assert.match(findings[0], /bmad-unknown/);
+});
+
+test("a planted undeclared key fails the gate end to end, naming the key", (t) => {
+  const repo = tree(t, {
+    ...REPO_FILES,
+    [WIRE_IN_REL]: wireIn([
+      { id: "planted", skill: "bmad-build-auto", kind: "scalar", path: "workflow.interactive" },
+    ]),
+  });
+  const custom = tree(t, { "bmad-build-auto/customize.toml": BUILD_AUTO_CUSTOMIZE });
+  const v = standIn(t, 0);
+  const r = spawnSync(process.execPath, [SCRIPT], {
+    cwd: repo, encoding: "utf8",
+    env: { ...process.env, CHECK_BMOD_VALIDATOR: v.script, CHECK_BMOD_CUSTOMIZE_DIR: custom },
+  });
+  const { root } = v.seen();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /workflow\.interactive/);
+});
+
+test("the shipped wire-in entries all name skills whose customize.toml the arm can fetch", () => {
+  const shipped = parseToml(fs.readFileSync(
+    path.join(import.meta.dirname, "..", "..", WIRE_IN_REL), "utf8"));
+  for (const e of shipped.entry.filter((x) => !x.test_only)) {
+    assert.ok(CUSTOMIZE_PATHS[e.skill], `no pinned customize.toml for ${e.skill} (${e.id})`);
+  }
 });

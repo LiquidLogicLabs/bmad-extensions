@@ -221,6 +221,57 @@ check "the sidecars landed beside the tree (l3io.toml and three plan sidecars)" 
 check "the actual events landed in {output_folder}/l3io/events.jsonl" \
   "[ \"\$(grep -c '\"event\": \"actual\"' '$out_folder/l3io/events.jsonl')\" -eq 3 ]"
 
+echo "== measurement hooks on bmad-build and bmad-build-auto (Phase 4 Task 4.2) =="
+# /l3io-doctor wire writes the four build hooks into the team files; v7's own renderer must then
+# render both skills (an undeclared or mistyped key halts it) with our commands in place, and
+# unwire must put the team files back byte for byte (R15).
+wire_py="$proj/.agents/skills/l3io-doctor/scripts/wire-in.py"
+custom="$proj/_bmad/custom"
+snap() { # <dest>: each build team file's bytes, or an "absent" marker
+  mkdir -p "$1"
+  for f in bmad-build bmad-build-auto; do
+    if [ -f "$custom/$f.toml" ]; then cp "$custom/$f.toml" "$1/$f.toml"; else : > "$1/$f.absent"; fi
+  done
+}
+same_as() { # <snapshot dir>
+  for f in bmad-build bmad-build-auto; do
+    if [ -e "$1/$f.absent" ]; then [ ! -e "$custom/$f.toml" ] || return 1
+    else cmp -s "$1/$f.toml" "$custom/$f.toml" || return 1; fi
+  done
+}
+render() { # <skill>
+  (cd "$proj" && uv run --quiet --no-project _bmad/scripts/render_skill.py --project-root . \
+    --skill ".claude/skills/$1")
+}
+snap "$work/team-before"
+check "wire applies the build hooks (exit 0)" \
+  "(cd '$proj' && uv run --quiet '$wire_py' wire --project-root . > '$work/wire.txt')"
+check "wire wrote the l3io-build-* entries into both team files" \
+  "grep -q 'build-open' '$custom/bmad-build.toml' && grep -q 'build-close' '$custom/bmad-build-auto.toml'"
+check "bmad-build renders after wire (exit 0), its prepend naming build-open" \
+  "render bmad-build > '$work/render-build.md' && grep -q 'pm_status/__main__.py build-open' '$work/render-build.md'"
+check "bmad-build's rendered On Complete (step-05-present.md) names build-close" \
+  "grep -rlq 'pm_status/__main__.py build-close' '$proj/_bmad/render/bmad-build'"
+check "bmad-build-auto renders after wire (exit 0), with build-open and build-close" \
+  "render bmad-build-auto > '$work/render-auto.md' && grep -q 'build-open' '$work/render-auto.md' \
+     && grep -q 'pm_status/__main__.py build-close' '$work/render-auto.md'"
+check "unwire puts both team files back byte for byte (R15)" \
+  "(cd '$proj' && uv run --quiet '$wire_py' unwire --project-root . >/dev/null) && same_as '$work/team-before'"
+# A team's own single-slot hook is never overwritten: wire refuses (exit 3) and leaves it.
+cp -a "$custom" "$work/custom-before-plant"
+printf '[workflow]\non_complete = "Team hook: post to chat."\n' >> "$custom/bmad-build.toml"
+cp "$custom/bmad-build.toml" "$work/planted.toml"
+code=0; (cd "$proj" && uv run --quiet "$wire_py" wire --project-root . > "$work/wire-planted.txt") || code=$?
+check "with a team on_complete planted, wire exits 3" "[ '$code' = 3 ]"
+check "the refused entry is named and the team's on_complete is unchanged" \
+  "grep -q 'refused.*l3io-build-close' '$work/wire-planted.txt' \
+     && grep -q 'Team hook: post to chat.' '$custom/bmad-build.toml' \
+     && ! grep -q 'build-close' '$custom/bmad-build.toml'"
+(cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
+check "unwire after the refusal leaves the planted team file as the team wrote it" \
+  "cmp -s '$work/planted.toml' '$custom/bmad-build.toml'"
+rm -rf "$custom" && cp -a "$work/custom-before-plant" "$custom"
+
 echo "== only l3io-pm (Review Focus 3) =="
 add_module "$pm_only" "$pkg/skills/l3io-pm" -s '*'
 status="$work/pm-only-status.json"

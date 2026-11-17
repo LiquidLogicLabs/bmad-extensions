@@ -720,7 +720,7 @@ never reads one.
 |---|---|---|
 | `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` (1–999) | lane assignment |
 | `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `orchestration` | `set-estimate --ticket-dir DIR --entry ID`, estimation, epic closure |
-| `<…>/tickets/<stem>-plan.l3io.toml`, beside `<stem>-plan.md` | `actual`, `fix_iterations`, `completion_evidence.test_runs` / `tests_passing`, `dispatch` | `set-actual`, `add-test-run` with `--plan-file PATH` |
+| `<…>/tickets/<stem>-plan.l3io.toml`, beside `<stem>-plan.md` | `actual`, `fix_iterations`, `completion_evidence.test_runs` / `tests_passing`, `dispatch`, `calibration_sampled_at` | `build-close`; `set-actual`, `add-test-run` with `--plan-file PATH` |
 | `{state_root}` = `<main checkout>/<core.output_folder>/l3io/` | `events.jsonl`, `pm-calibration.yaml`, `adr-register.yaml`, `.notices.yaml`, `.inflight/` | every verb with `--project-root P` |
 
 **The state root is the main checkout's from any worktree.** The main checkout is the
@@ -752,3 +752,18 @@ repoints `[entry.<old_id>]` to `[entry.<id>]` in the destination's `l3io.toml` a
 plan's sidecar beside the moved plan. Without `--moved-json` it sweeps `D`: a plan sidecar
 whose plan is gone is moved beside the one same-named plan elsewhere, and an `[entry.<id>]`
 no `tickets.toml` holds is reported, since it cannot be followed without the move.
+
+**Every build is measured through its own hooks.** `/l3io-doctor wire` gives `bmad-build` and
+`bmad-build-auto` a prepend that runs `build-open` and an On Complete that runs `build-close`.
+`build-open` writes only `{state_root}/.inflight/<key>.json`; the spool holds a `.gitignore`
+of `*`, so it is invisible to git and `bmad-build-auto`'s clean-tree check still passes.
+`build-close` appends the `dispatch_open`/`dispatch_close` pair, adds the bracket to the
+plan sidecar's `dispatch` list and writes `actual` as the sum of that list (tokens from the
+Claude transcript over the bracket, `N/A` under other runtimes, `cost` derived), records each
+`--test-run`, and takes `fix_iterations` from the plan's `review_loop_iteration`. It takes one
+calibration sample per ticket, and only when the plan reads `built` or `done` and the entry's
+`[entry.<id>].estimate` exists: an estimate made after the build is not a prediction. It then
+commits each path it wrote inside the current worktree, and nothing else, as
+`chore(l3io): actuals <ticket>`, so the tree is clean for the next build. A bracket that never
+closed is retired as `abandoned` by the next open under the same key or for the same plan,
+and its events are written at the next close.
