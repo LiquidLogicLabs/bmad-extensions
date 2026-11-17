@@ -30,7 +30,7 @@ import sys
 
 from .. import metrics, nodes, sidecar, verbs
 from ..core import _die_notfound, _die_usage, _now_iso, append_event
-from . import estimate, reconcile
+from . import estimate, lanes, reconcile
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---(?:\n|\Z)", re.DOTALL)
 
@@ -219,3 +219,4 @@ def register(sub):
                          "for stdin; omit to sweep for orphans")
     rc.set_defaults(func=reconcile.cmd_sidecar_reconcile)
     estimate.register(sub)
+    lanes.register(sub)

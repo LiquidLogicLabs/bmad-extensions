@@ -372,13 +372,20 @@ function findStalePackageFiles() {
 //
 // The declarers are derived from syncGroups -- every skill a pm_status file is delivered to --
 // so a module that gains a shipper declares there without an edit here.
-function pmStatusDeclarers() {
+function pmStatusShippers() {
   const pkgPrefix = path.join("scripts", PM_STATUS_PKG) + path.sep;
   const dirs = new Set();
   for (const { files, dirs: targets, skipMissing } of syncGroups) {
     if (!files.some(({ rel }) => rel.startsWith(pkgPrefix))) continue;
     for (const dir of targets) if (!(skipMissing && !fs.existsSync(dir))) dirs.add(dir);
   }
+  return dirs;
+}
+
+// Every skill whose bmod.toml carries a generated list: each pm_status shipper, plus each skill
+// with DECLARED_EXTRAS, which declares those alone when it ships no pm_status copy.
+function pmStatusDeclarers() {
+  const dirs = pmStatusShippers();
   for (const name of Object.keys(DECLARED_EXTRAS)) dirs.add(skillDir(name));
   return [...dirs].sort();
 }
@@ -386,17 +393,20 @@ function pmStatusDeclarers() {
 // Files a declarer declares beside its pm_status tree, keyed by skill name. A hook value can
 // name only a path under `{project-root}/_bmad/<module>/scripts/` (in a hook, `{skill-root}` is
 // the HOST's), so whatever a wire-in entry runs or reads is declared here. Each must also be
-// delivered to that skill by a sync group; --check fails on one the payload does not contain.
+// delivered to that skill by a sync group or be the skill's own file; --check fails on one the
+// payload does not contain. l3io-plan's plan-graph.py is its own (Sofia's board hook runs it),
+// and l3io-plan ships no pm_status copy, so it declares that one file and nothing else.
 const DECLARED_EXTRAS = {
   "l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/spec-align.py"],
+  "l3io-plan": ["scripts/plan-graph.py"],
 };
 
 function declaredScripts(dir) {
-  return [
-    ...walkPy(path.join(sharedDir, PM_STATUS_PKG))
-      .map((relPy) => ["scripts", PM_STATUS_PKG, ...relPy.split(path.sep)].join("/")),
-    ...(DECLARED_EXTRAS[path.basename(dir)] ?? []),
-  ].sort();
+  const pkg = pmStatusShippers().has(dir)
+    ? walkPy(path.join(sharedDir, PM_STATUS_PKG))
+      .map((relPy) => ["scripts", PM_STATUS_PKG, ...relPy.split(path.sep)].join("/"))
+    : [];
+  return [...pkg, ...(DECLARED_EXTRAS[path.basename(dir)] ?? [])].sort();
 }
 
 // The generated form, one entry per line so a new module is a one-line diff. Written as the last

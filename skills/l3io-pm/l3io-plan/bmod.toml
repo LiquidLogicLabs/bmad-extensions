@@ -1,3 +1,6 @@
 [skill]
 bmod = "bmod-l3io-pm"
 source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-pm"
+scripts = [
+  "scripts/plan-graph.py",
+]

@@ -2,20 +2,20 @@
   "version": "3.7.1",
   "generated_from": "skills/<skill>/",
   "files": {
-    "SKILL.md": "c102f2e91da6fc4138921a6844b28d750d59b0c87cf370bfcf67a408a3fb8b5e",
-    "bmod.toml": "793f9827e86ce6fca61be70fad38ced63166474e88f544cd1ba1bb26351dc273",
+    "SKILL.md": "d947a169824e052570fe02eac4ee35fdfef96f58cf3978f49e48c4223d43b1c8",
+    "bmod.toml": "e3832a9d592f95a3a5b991218a9695634bc55800f63d8bad2b92b72c0365e2a6",
     "customize.toml": "fca175b99ad4d5e45ea3b699486d0895ccab16179b84c9d044d1cf5325ea11b4",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
     "references/auto-remediation.md": "eebfe96fc657b761132fda54a09b7a790e7f9498545b84fd4c5c1b667568adec",
     "references/calibration-model.md": "e3fc8d9fc41285bca19257f0ac796856e025e9992ce6401a5c41437f55830f27",
     "references/config-resolution.md": "3738cc1842bcc1330ff46f8b9582ebd3cbcf2b7eebfcc1b420e8c07849bc1ef7",
     "references/metrics-contract.md": "ed061125fc98c17b6a94215c365e7a18a4ed9e7e5cbe988f86d4ffa0665be572",
-    "references/status-files.md": "10e97d7a4a57fcdd3a4c6169e63c78961a2a51da7312a54bdac780737376cbd8",
-    "scripts/plan-graph.py": "d1c96108428aa916b7fe3f7a61c37731a6d0cf6f01b1798e3dadc19f0880fc88",
+    "references/status-files.md": "72b97378b966ddd3a71e97929912cfa4dbbfda518a16245345084e7f57e6cdc5",
+    "scripts/plan-graph.py": "4285901cc97afff66334b37028984440cce384526460644bdce2a9b6892dc46d",
     "scripts/reorg-derive.py": "cd412e592ad051fcaf860dde0e8de5df1c2902f4979c8b401b1be2f8bbd19862",
     "scripts/reorg-validate.py": "345b96e16244601b3365fd73fb6b7a7d162789c6cb0aa97a2561164024ba4b60",
     "steps/estimate/step-estimate-entries.md": "f996d85b0c8549d68deb29c643a40b7133d5de41b949759e5fa3c443e8ae1f00",
-    "steps/lanes/step-lanes.md": "92b2e4696db054a333a778d0835b71e65d3a5341816a929455fd222e582180ed",
+    "steps/lanes/step-lanes.md": "da962e3695ae4c29fe7fa03604b22584d336466d1e2000ca92cd7fbdb9097599",
     "steps/plan/step-02-readiness-check.md": "0ee4ea3a218d7f71255f0b6c49a346502b02d600131f78d692609195c053d8c6",
     "steps/plan/step-03-story-elaboration.md": "c6bdb9bbdd266740a07bde8aeb039084c4ddea5732adaa140a252ab4781e85ce",
     "steps/plan/step-04-load-state.md": "76def739d47470d342f7fd8acf67a416394d953a3fba61fc9abc90538f7ed26b",
@@ -27,6 +27,7 @@
     "steps/shared/step-00-activate.md": "7c4d7594eb26ba89c9e5e7079d312e3ed5c2f708ccbbc7b8731daf423ea3f331",
     "steps/shared/step-00-digest.md": "27af27894b622e1da2ffade4cd6d292d207bf4d114ef0f1bb5706be86ee0146d",
     "steps/shared/step-01-classify-work.md": "d6b51f011e4281c49600e52f8bd4d39eb54e1f81308081be38e97220c127a51b",
-    "steps/shared/step-estimate.md": "f991f28330f6c88b116f8ed9309441a23cb35c62d9d142cf053c78a00472467d"
+    "steps/shared/step-estimate.md": "f991f28330f6c88b116f8ed9309441a23cb35c62d9d142cf053c78a00472467d",
+    "steps/waves/step-waves.md": "334deac0182bfdcab7c2ac0ead02dd6c72e734baf39fd5ab39ba23e2d7ffa1af"
   }
 }

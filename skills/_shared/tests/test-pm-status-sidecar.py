@@ -632,5 +632,174 @@ class TestEstimateEntries(Project):
         self.assertEqual(git("rev-parse", "HEAD"), head)
 
 
+# --------------------------------------------------------------------------- #
+# Lanes and the v7 report (Task 4.5)
+# --------------------------------------------------------------------------- #
+LANES_RESOLVE_CONFIG = """\
+import json, sys
+values = {"core.output_folder": "{project-root}/_bmad-output",
+          "modules.l3io-pm.lane_count": LANE_COUNT}
+keys = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--key"]
+print(json.dumps({k: values[k] for k in keys if k in values and values[k] is not None}))
+"""
+
+GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+class TestSetLane(Project):
+
+    def config(self, lane_count):
+        write(os.path.join(self.root, "_bmad", "scripts", "resolve_config.py"),
+              LANES_RESOLVE_CONFIG.replace("LANE_COUNT", repr(lane_count)))
+
+    def set_lane(self, lane, epic="epic-cart", check=False):
+        return self.run_cli("set-lane", "--project-root", self.root, "--initiative-dir",
+                            self.initiative, "--epic", epic, "--lane", str(lane), check=check)
+
+    def git(self, *argv):
+        return subprocess.run(["git", "-C", self.root, *argv], check=True,
+                              capture_output=True, text=True, env=GIT_ENV).stdout
+
+    def test_set_lane_refuses_name_and_range(self):
+        self.config(3)
+        before = self.snapshot()
+        side = os.path.join(self.initiative, "tickets", "l3io.toml")
+        for bad in ("sarah", "backend", "2.5", "-1", "0", "4", "1000"):
+            r = self.set_lane(bad)
+            self.assertEqual(r.returncode, 2, f"lane {bad!r} was accepted: {r.stdout}")
+            self.assertFalse(os.path.exists(side), f"lane {bad!r} wrote the sidecar")
+        self.assertIn("never a person", self.set_lane("sarah").stderr)
+        self.assertIn("1..3", self.set_lane("4").stderr)
+        self.set_lane(2, check=True)
+        self.assertEqual(self.load_toml(side), {"epic": {"epic-cart": {"lane": 2}}})
+        self.assertEqual(self.snapshot(), before, "set-lane wrote a v7 file")
+        r = self.set_lane(1, epic="epic-nowhere")
+        self.assertEqual(r.returncode, 3, r.stderr)
+
+    def test_set_lane_refuses_while_lanes_are_off(self):
+        for count in (None, 1):
+            self.config(count)
+            r = self.set_lane(1)
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn("lanes are off", r.stderr)
+
+    def test_set_lane_keeps_the_tree_clean(self):
+        self.config(2)
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "fixture")
+        r = subprocess.run([sys.executable, SCRIPT, "set-lane", "--project-root", self.root,
+                            "--initiative-dir", self.initiative, "--epic", "epic-cart",
+                            "--lane", "2"], capture_output=True, text=True, env=GIT_ENV)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+        self.assertEqual(self.git("log", "-1", "--format=%s"), "chore(l3io): lane epic-cart\n")
+
+
+RECORDED_SHOP = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))),
+                             "tests", "l3io-plan", "fixtures", "v7-status-shop.json")
+
+
+class TestReportV7(Project):
+    """`report` over a v7 initiative: the `tickets.py status` JSON recorded at the pin
+    (tests/l3io-plan/fixtures/record-v7-status.sh) plus our sidecars beside the tree it
+    describes, plus events.jsonl and the build spool."""
+
+    def setUp(self):
+        super().setUp()
+        self.shop = os.path.join(self.out, "shop")
+        write(os.path.join(self.shop, "shop.md"), "---\ntype: initiative\n---\n# Shop\n")
+        write(os.path.join(self.shop, "tickets", "l3io.toml"),
+              "[epic.epic-platform]\nlane = 1\n\n[epic.epic-cart]\nlane = 2\n")
+        tickets = os.path.join(self.shop, "tickets")
+        self.ptd = os.path.join(tickets, "epic-platform", "tickets")
+        for slug in ("epic-platform", "epic-cart", "epic-search", "epic-checkout",
+                     "epic-docs"):
+            write(os.path.join(tickets, slug, f"{slug}.md"), "---\ntype: epic\n---\n")
+            write(os.path.join(tickets, slug, "tickets", "tickets.toml"), "")
+        self.sessions = os.path.join(self.ptd, "story-sessions-plan.md")
+        write(self.sessions, "---\ntitle: 'Sessions'\nticket: '1'\nstatus: 'built'\n---\n")
+        self.basket = os.path.join(tickets, "epic-cart", "tickets", "story-basket-plan.md")
+        write(self.basket, "---\ntitle: 'Basket'\nticket: '1'\nstatus: 'in-progress'\n---\n")
+        write(os.path.join(self.ptd, "l3io.toml"),
+              "[entry.1]\nclass = \"standard\"\n\n[entry.1.estimate]\nelapsed_hours = 1.0\n"
+              "man_hours = 6.0\nhitl_hours = 0.5\ntokens_k = 300\ncost = 4.5\n\n"
+              "[epic.estimate]\nelapsed_hours = 3.0\nman_hours = 14.0\nhitl_hours = 1.0\n"
+              "tokens_k = 700\ncost = 10.0\n")
+        self.run_cli("set-actual", "--project-root", self.root, "--plan-file", self.sessions,
+                     "--node", "story", "--runtime", "claude", "--model", MODEL,
+                     "--elapsed-hours", "1.5", "--man-hours", "4", "--hitl-hours", "0.25",
+                     "--tokens-input", "10", "--tokens-output", "2",
+                     "--tokens-cache-write", "1", "--tokens-cache-read", "50")
+
+    def spool(self, name, minutes_ago, plan):
+        from datetime import UTC, datetime, timedelta
+        opened = datetime.now(UTC) - timedelta(minutes=minutes_ago)
+        write(os.path.join(self.state_root, ".inflight", name),
+              json.dumps({"agent": "bmad-build-auto", "key": name[:-5],
+                          "opened_at": opened.isoformat(),
+                          "plan": os.path.relpath(plan, self.root)}) + "\n")
+
+    def report(self, *extra, check=True):
+        return self.run_cli("report", "--project-root", self.root, "--initiative-dir",
+                            self.shop, "--status-json", RECORDED_SHOP, *extra, check=check)
+
+    def test_report_reads_v7_tree(self):
+        before = self.tree()
+        model = json.loads(self.report("--format", "json").stdout)
+        self.assertEqual(model["source"], "v7")
+        self.assertEqual([e["slug"] for e in model["epics"]],
+                         ["epic-platform", "epic-cart", "epic-search", "epic-checkout",
+                          "epic-docs"])
+        plat, cart = model["epics"][0], model["epics"][1]
+        self.assertEqual((plat["lane"], cart["lane"], model["epics"][2]["lane"]), (1, 2, None))
+        self.assertEqual(plat["estimate"]["man_hours"], 14.0)
+        self.assertEqual(plat["counts"], {"review": 1, "planned": 1})
+        sessions = plat["tickets"][0]
+        self.assertEqual((sessions["ref"], sessions["state"]), ("1.1", "review"))
+        self.assertEqual(sessions["estimate"]["man_hours"], 6.0)
+        self.assertEqual(sessions["actual"]["man_hours"], 4.0)
+        self.assertEqual(sessions["plan"],
+                         os.path.relpath(self.sessions, self.root))
+        self.assertEqual(plat["actual"]["man_hours"], 4.0)
+        self.assertEqual(model["actual_total"]["man_hours"], 4.0)
+        self.assertEqual(cart["tickets"][0]["state"], "in-progress")
+        self.assertEqual(model["totals"]["tickets"]["planned"], 4)
+        tree = self.report().stdout
+        self.assertIn("epic-platform", tree)
+        self.assertIn("lane 1", tree)
+        self.assertEqual(self.tree(), before, "report wrote into the project")
+
+    def test_report_stall_reads_the_open_build_bracket(self):
+        """An open build bracket lives only in the gitignored spool until build-close, so
+        the stall view must read the spool or it cannot see a hung build."""
+        self.spool("hung.json", 40, self.basket)
+        self.spool("fresh.json", 2, self.sessions)
+        self.spool("abandoned-old-20260101T000000.json", 300, self.sessions)
+        before = self.tree()
+        model = json.loads(self.report("--format", "json", "--stall-minutes", "15").stdout)
+        stalled = model["stalled_dispatches"]
+        self.assertEqual(len(stalled), 1, stalled)
+        self.assertEqual(stalled[0]["agent"], "bmad-build-auto")
+        self.assertEqual(stalled[0]["plan"], os.path.relpath(self.basket, self.root))
+        self.assertEqual(stalled[0]["ticket"], "epic-cart/1")
+        self.assertGreaterEqual(stalled[0]["age_minutes"], 39)
+        tree = self.report("--stall-minutes", "15").stdout
+        self.assertIn("STALLED", tree)
+        self.assertIn("story-basket-plan.md", tree)
+        self.assertEqual(self.tree(), before, "report wrote into the project")
+        none = json.loads(self.report("--format", "json", "--stall-minutes", "60").stdout)
+        self.assertEqual(none["stalled_dispatches"], [])
+
+    def test_report_v7_refuses_3x_only_flags(self):
+        for extra in (("--all",), ("--status", "active"), ("--plan", "x.yaml")):
+            r = self.report(*extra, check=False)
+            self.assertEqual(r.returncode, 2, extra)
+        r = self.run_cli("report", "--project-root", self.root, check=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--initiative-dir", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

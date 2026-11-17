@@ -252,3 +252,71 @@ kind = "list"
 path = "agent.persistent_facts"
 requires = "l3io-pm"
 value = "file:{project-root}/_bmad/l3io-pm/scripts/facts/ac-dimensions.md"
+
+# --------------------------------------------------------------------------------------------
+# Waves and lanes on Sofia's board. Her board procedure ends in a single-slot hook
+# (references/board.md:76) that runs after every board operation, `tickets.py move` included
+# (:61). A move renumbers the entry and moves only its leaf and plan, so the hook repoints our
+# sidecars first; then it renders the initiative's waves, and its lanes when an epic carries
+# one. plan-graph.py reads the `tickets.py status` JSON Sofia already produces for the board,
+# is declared by l3io-plan, and writes nothing. The two menu items are prompts, as above.
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-board-waves"
+skill = "bmad-agent-po"
+kind = "scalar"
+path = "workflow.board_after"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) shows the initiative's waves after this board operation, and its lanes when lanes are on. When the operation was a `tickets.py move`, first repoint l3io's files, because `move` renumbers the entry and leaves them behind; skip this for any other operation:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py sidecar-reconcile --project-root {project-root} --initiative-dir <initiative folder> --moved-json '<the move's JSON output>'
+```
+
+- `<initiative folder>`: the initiative holding the moved entry. Run it once per move. It writes and commits only l3io's own files.
+
+Then the waves, the order the initiative's epics (or a parent initiative's initiatives) may run in:
+
+```bash
+<status command> | uv run {project-root}/_bmad/l3io-pm/scripts/plan-graph.py waves --status-json -
+```
+
+- `<status command>`: the `tickets.py status <folder>` command you run for the board, on the initiative or parent initiative this operation touched.
+- Show one line per wave: its number, its members, `parallel` when it has more than one, and for each entry in its `after` the epic it waits on with its `needs` reason. Name every epic in `gates`: a later wave waits for its closure, so an unattended run stops there for the user.
+
+Then the lanes, on an initiative only:
+
+```bash
+<status command> | uv run {project-root}/_bmad/l3io-pm/scripts/plan-graph.py lanes --status-json - --lanes-toml <initiative folder>/tickets/l3io.toml
+```
+
+- When it reports no lanes, say nothing about lanes: they are off for this project.
+- Otherwise one line per lane: its epics, the waves it works and the waves it is idle in, then each crossing, the epic that waits across lanes and on what.
+- Both views only read. If one fails, say so in one line and carry on.
+"""
+
+[[entry]]
+id = "l3io-menu-waves"
+skill = "bmad-agent-po"
+kind = "keyed"
+path = "agent.menu"
+requires = "l3io-pm"
+
+[entry.value]
+code = "l3io-waves"
+description = "l3io waves: the order an initiative's epics may run in, and which closures gate them"
+prompt = "Run the l3io-plan skill in waves mode on the initiative the user names, or the active initiative."
+
+[[entry]]
+id = "l3io-menu-lanes"
+skill = "bmad-agent-po"
+kind = "keyed"
+path = "agent.menu"
+requires = "l3io-pm"
+
+[entry.value]
+code = "l3io-lanes"
+description = "l3io lanes: which developer's lane owns each epic, and every wait across lanes"
+prompt = "Run the l3io-plan skill in lanes mode on the initiative the user names, or the active initiative."

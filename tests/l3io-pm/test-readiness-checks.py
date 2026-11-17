@@ -49,7 +49,12 @@ DIMS = ("Interface contracts", "Error and edge case handling", "Observability re
 
 
 def declared():
-    return tomllib.loads((_EXECUTE / "bmod.toml").read_text(encoding="utf-8"))["skill"]["scripts"]
+    """Every script l3io-pm's skills declare: `bmad setup` installs each skill's list into the
+    one `_bmad/l3io-pm/scripts/`."""
+    out = []
+    for bmod in sorted((_REPO / "skills" / "l3io-pm").glob("*/bmod.toml")):
+        out += tomllib.loads(bmod.read_text(encoding="utf-8")).get("skill", {}).get("scripts", [])
+    return out
 
 
 def leaf(epic_rel, technical=True):
@@ -95,8 +100,8 @@ class TestReadinessEntries(unittest.TestCase):
             for p in paths:
                 self.assertTrue(p.startswith("_bmad/l3io-pm/scripts/"), f"{e['id']}: {p}")
                 rel = "scripts/" + p.removeprefix("_bmad/l3io-pm/scripts/")
-                self.assertIn(rel, decl, f"{e['id']} names {p}, which l3io-execute does not "
-                                         f"declare, so bmad setup never installs it")
+                self.assertIn(rel, decl, f"{e['id']} names {p}, which no l3io-pm skill "
+                                         f"declares, so bmad setup never installs it")
         for e in bh.entries(*READINESS[:2]):
             for cmd in sh.FENCE_RE.findall(e["value"]):
                 self.assertTrue(cmd.startswith("uv run " + INSTALLED), cmd)

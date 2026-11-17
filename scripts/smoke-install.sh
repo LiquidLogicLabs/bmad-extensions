@@ -350,6 +350,38 @@ tstatus > "$work/tickets-after-checks.json"
 check "tickets.py status prints byte-identical JSON after the checks" \
   "cmp -s '$work/tickets-before.json' '$work/tickets-after-checks.json'"
 
+echo "== waves and lanes on Sofia's board, report over v7's tree (Phase 4 Task 4.5) =="
+# The same wire attached a board_after hook and two menu items. l3io-plan declares plan-graph.py,
+# so setup installed it beside pm_status; her rendered board.md must end with our commands, and
+# waves must read the hand-written initiative's live tickets.py status. The views write nothing.
+plan_graph="$proj/_bmad/l3io-pm/scripts/plan-graph.py"
+check "setup installed _bmad/l3io-pm/scripts/plan-graph.py (declared by l3io-plan)" "[ -f '$plan_graph' ]"
+check "board.md ends with the board hook: sidecar-reconcile, then plan-graph.py waves and lanes" \
+  "ends_with board.md 'plan-graph.py waves' && ends_with board.md 'plan-graph.py lanes' \
+     && ends_with board.md 'pm_status/__main__.py sidecar-reconcile'"
+check "Sofia's rendered menu lists l3io-waves and l3io-lanes" \
+  "{ grep -q 'l3io-waves' '$work/render-po.md' || grep -rq 'l3io-waves' '$po_render'; } \
+     && { grep -q 'l3io-lanes' '$work/render-po.md' || grep -rq 'l3io-lanes' '$po_render'; }"
+code=0
+(tstatus | (cd "$proj" && uv run --quiet "$plan_graph" waves --status-json -) > "$work/waves.json") || code=$?
+check "plan-graph.py waves reads the live tickets.py status from the installed path" "[ '$code' = 0 ]"
+check "... one wave holding epic-smoke, with no gate" \
+  "jq -e '.scope == \"initiative\" and (.waves | length) == 1 and .waves[0].epics == [\"epic-smoke\"] and .gates == []' '$work/waves.json' >/dev/null"
+code=0
+(tstatus | (cd "$proj" && uv run --quiet "$plan_graph" lanes --status-json - \
+   --lanes-toml "$init/tickets/l3io.toml") > "$work/lanes.json") || code=$?
+check "plan-graph.py lanes is inert with no lane assigned" \
+  "[ '$code' = 0 ] && jq -e '.lanes == []' '$work/lanes.json' >/dev/null"
+code=0
+(cd "$proj" && uv run --quiet "$pm_main" report --project-root . --initiative-dir "$init" \
+   --format json > "$work/report-v7.json") || code=$?
+check "report over the v7 initiative runs v7's tickets.py and exits 0" "[ '$code' = 0 ]"
+check "... and reads the epic's three tickets with their actuals" \
+  "jq -e '.source == \"v7\" and .epics[0].slug == \"epic-smoke\" and (.epics[0].tickets | length) == 3 and .epics[0].actual.man_hours == 12' '$work/report-v7.json' >/dev/null"
+tstatus > "$work/tickets-after-views.json"
+check "tickets.py status prints byte-identical JSON after the views" \
+  "cmp -s '$work/tickets-before.json' '$work/tickets-after-views.json'"
+
 (cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
 if [ -e "$work/po-before.absent" ]; then
   check "unwire removes the bmad-agent-po team file wire created (R15)" "[ ! -e '$po_team' ]"

@@ -718,7 +718,7 @@ never reads one.
 
 | File | Holds | Written by |
 |---|---|---|
-| `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` (1–999) | lane assignment |
+| `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` (1..`lane_count`) | `set-lane` |
 | `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class`, `fingerprint`, `estimated_at` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `orchestration` | `estimate-entries`; `set-estimate --ticket-dir DIR --entry ID`; epic closure |
 | `<…>/tickets/<stem>-plan.l3io.toml`, beside `<stem>-plan.md` | `actual`, `fix_iterations`, `completion_evidence.test_runs` / `tests_passing`, `dispatch`, `calibration_sampled_at` | `build-close`; `set-actual`, `add-test-run` with `--plan-file PATH` |
 | `{state_root}` = `<main checkout>/<core.output_folder>/l3io/` | `events.jsonl`, `pm-calibration.yaml`, `adr-register.yaml`, `.notices.yaml`, `.inflight/` | every verb with `--project-root P` |
@@ -798,3 +798,25 @@ commits each path it wrote inside the current worktree, and nothing else, as
 `chore(l3io): actuals <ticket>`, so the tree is clean for the next build. A bracket that never
 closed is retired as `abandoned` by the next open under the same key or for the same plan,
 and its events are written at the next close.
+
+**Waves and lanes on Sofia's board.** `/l3io-doctor wire` gives `bmad-agent-po` a `board_after`
+hook and two menu items, `l3io-waves` and `l3io-lanes`. After every board operation the hook
+runs `sidecar-reconcile` when the operation was a `tickets.py move`, then pipes Sofia's own
+`tickets.py status` into `{project-root}/_bmad/l3io-pm/scripts/plan-graph.py` (declared by
+`l3io-plan`): `waves` orders the initiative's epics, or a parent initiative's initiatives,
+over the `[[epic]] after` declarations, the entries' cross-epic `after` and each epic file's
+own `after`, keeping every `needs` reason, and names in `gates` the epics whose **closure** a
+later wave waits on — an `after` that names an epic, or sits in an epic file, waits for
+`done`, where one naming a ticket is met once that ticket is built. `lanes` reads the
+initiative's `l3io.toml` and is empty while no epic carries a lane. Both only read.
+
+**A lane is written by `set-lane`**, `--project-root P --initiative-dir D --epic SLUG --lane N`:
+`N` a number in `1..lane_count`, refused while `modules.l3io-pm.lane_count` is unset or 1, and
+committed as `chore(l3io): lane <SLUG>`. One epic is one lane; a ticket never carries one.
+
+**`report --project-root P --initiative-dir D`** is the progress view over this layout:
+`tickets.py status` (or `--status-json F`) for states, plus each epic's lane, estimates and
+ticket actuals from the sidecars, joined through each plan's `ticket:` frontmatter as
+`tickets.py` joins it. A build bracket still open in `.inflight/` past `--stall-minutes` is
+reported as a stalled build: until `build-close` runs, the spool is the only place it exists.
+It writes nothing unless `--out` is given.

@@ -63,6 +63,36 @@ class SofiaProject(bh.Project):
     def last_subject(self):
         return self.git("log", "-1", "--format=%s").strip()
 
+    def planted_move(self):
+        """Entry 1 of epic-cart estimated, built (its plan sidecar committed), then moved to
+        epic-pricing as entry 4 the way `tickets.py move` leaves the tree, committed as Sofia
+        does. Returns (the estimate, the destination tickets folder, move's JSON)."""
+        (slice_cmd,) = commands_of(bh.entries("l3io-estimate-on-slice")[0],
+                                   {"{project-root}": str(self.root),
+                                    "<epic folder>": str(self.epic)})
+        self.sh(f"{slice_cmd} --class 1=standard")
+        estimate = self.side()["entry"]["1"]
+        # The build's own sidecar beside the plan, committed as build-close commits it.
+        (self.tdir / "story-basket-plan.l3io.toml").write_text(
+            "fix_iterations = 0\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "chore(l3io): actuals 1")
+        pricing = self.initiative / "tickets" / "epic-pricing"
+        self.write(str((pricing / "epic-pricing.md").relative_to(self.root)),
+                   "---\ntype: epic\nafter: []\n---\n# Pricing\n")
+        dest = pricing / "tickets"
+        self.write(str((dest / "tickets.toml").relative_to(self.root)),
+                   'next_id = 5\n\n[[entry]]\nid = 4\ntype = "story"\ntitle = "Basket"\n')
+        self.write(str((self.tdir / "tickets.toml").relative_to(self.root)), "next_id = 2\n")
+        for name in ("story-basket.md", "story-basket-plan.md"):
+            shutil.move(str(self.tdir / name), str(dest / name))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "board: move 1 to epic-pricing")
+        move = {"from": "epic-cart", "to": "epic-pricing", "old_id": 1, "id": 4, "ref": "2.4",
+                "file": "story-basket.md", "plan": "story-basket-plan.md",
+                "next_id": {"epic-pricing": 5}, "rewritten": []}
+        return estimate, dest, move
+
 
 class TestSofiaHooks(SofiaProject):
 
@@ -118,31 +148,8 @@ class TestSofiaHooks(SofiaProject):
         self.assertEqual(self.porcelain(), "")
 
     def test_replan_hook_follows_a_move_on_a_clean_tree(self):
-        (slice_cmd,) = commands_of(bh.entries("l3io-estimate-on-slice")[0],
-                                   {"{project-root}": str(self.root),
-                                    "<epic folder>": str(self.epic)})
-        self.sh(f"{slice_cmd} --class 1=standard")
-        estimate = self.side()["entry"]["1"]
-        # The build's own sidecar beside the plan, committed as build-close commits it.
-        (self.tdir / "story-basket-plan.l3io.toml").write_text(
-            "fix_iterations = 0\n", encoding="utf-8")
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", "chore(l3io): actuals 1")
-        # `tickets.py move 1 epic-pricing`, as it leaves the tree, committed as Sofia does.
-        pricing = self.initiative / "tickets" / "epic-pricing"
-        self.write(str((pricing / "epic-pricing.md").relative_to(self.root)),
-                   "---\ntype: epic\nafter: []\n---\n# Pricing\n")
-        dest = pricing / "tickets"
-        self.write(str((dest / "tickets.toml").relative_to(self.root)),
-                   'next_id = 5\n\n[[entry]]\nid = 4\ntype = "story"\ntitle = "Basket"\n')
-        self.write(str((self.tdir / "tickets.toml").relative_to(self.root)), "next_id = 2\n")
-        for name in ("story-basket.md", "story-basket-plan.md"):
-            shutil.move(str(self.tdir / name), str(dest / name))
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", "board: move 1 to epic-pricing")
-        move = {"from": "epic-cart", "to": "epic-pricing", "old_id": 1, "id": 4, "ref": "2.4",
-                "file": "story-basket.md", "plan": "story-basket-plan.md",
-                "next_id": {"epic-pricing": 5}, "rewritten": []}
+        estimate, dest, move = self.planted_move()
+        pricing = dest.parent
 
         replan = bh.entries("l3io-reestimate-on-replan")[0]
         reconcile, reestimate = commands_of(replan, {

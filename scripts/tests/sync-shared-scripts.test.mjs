@@ -20,6 +20,9 @@ const EXTRAS = {
   "skills/l3io-pm/l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/spec-align.py"],
   "skills/l3io-util/l3io-doctor": [],
 };
+// A skill that ships no pm_status copy and still declares a file a hook names: it declares
+// that file alone, never the package it does not carry.
+const EXTRAS_ONLY = { "skills/l3io-pm/l3io-plan": ["scripts/plan-graph.py"] };
 
 // A runnable copy: sync `git add`s what it writes, so the copy is a work tree of its own.
 function copyRepo(t) {
@@ -83,10 +86,20 @@ test("declared extras are generated: one missing from the payload or the list fa
   assert.equal(again.status, 0, again.stderr);
 });
 
-test("no other skill declares scripts: only a module's pm_status shipper does", () => {
+test("a skill with extras and no pm_status copy declares exactly its extras", () => {
+  for (const [skill, extras] of Object.entries(EXTRAS_ONLY)) {
+    assert.ok(!fs.existsSync(path.join(repo, skill, "scripts", "pm_status")), `${skill} ships pm_status`);
+    for (const extra of extras) {
+      assert.ok(fs.existsSync(path.join(repo, skill, extra)), `${skill}: ${extra} is not in the payload`);
+    }
+    assert.deepEqual(declared(repo, skill), [...extras].sort(), `${skill}/bmod.toml`);
+  }
+});
+
+test("no other skill declares scripts: only a pm_status shipper or a listed extra does", () => {
   const out = spawnSync("git", ["ls-files", "skills/**/bmod.toml"], { cwd: repo, encoding: "utf8" });
   for (const rel of out.stdout.split("\n").filter(Boolean)) {
-    if (DECLARERS.includes(path.dirname(rel))) continue;
+    if (DECLARERS.includes(path.dirname(rel)) || path.dirname(rel) in EXTRAS_ONLY) continue;
     assert.equal(declared(repo, path.dirname(rel)), undefined, `${rel} declares scripts`);
   }
 });

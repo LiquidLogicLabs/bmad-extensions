@@ -112,7 +112,15 @@ def register(sub):
     ia.set_defaults(func=actuals_usage.cmd_import_actual)
 
     rp = sub.add_parser("report", help="plan-aware progress report (read-only unless --out)")
-    rp.add_argument("--state-root", required=True)
+    rp.add_argument("--state-root", default="",
+                    help="a 3.x state tree; or --project-root with --initiative-dir")
+    rp.add_argument("--project-root", dest="project_root", default="",
+                    help="a v7 project: report over --initiative-dir")
+    rp.add_argument("--initiative-dir", dest="initiative_dir", default="",
+                    help="with --project-root: the v7 initiative folder")
+    rp.add_argument("--status-json", dest="status_json", default="",
+                    help="with --project-root: `tickets.py status` JSON (a file, or - for "
+                         "stdin) instead of running v7's tickets.py")
     rp.add_argument("--plan", default="", help="path to plan-output-meta.yaml")
     rp.add_argument("--format", choices=["tree", "json", "md"], default="tree")
     rp.add_argument("--out", default="", help="write to this file instead of stdout")

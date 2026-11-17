@@ -410,9 +410,10 @@ def _main_worktree(project_root: str) -> str:
     return os.path.realpath(os.path.dirname(common))
 
 
-def _resolve_output_folder(project_root: str):
-    """`core.output_folder` through BMad core's own resolver (never a TOML read of ours: the
-    layering is core's). None when the project has no resolver or it names no folder."""
+def resolve_config_key(project_root: str, key: str):
+    """One dotted key through BMad core's own resolver (never a TOML read of ours: the
+    layering is core's). None when the project has no resolver, it fails, or the key is
+    absent."""
     import json
     import shutil
     import subprocess
@@ -422,15 +423,19 @@ def _resolve_output_folder(project_root: str):
         return None
     runner = (["uv", "run", "--quiet", "--no-project"] if shutil.which("uv")
               else [sys.executable])
-    r = subprocess.run([*runner, script, "--project-root", project_root,
-                        "--key", "core.output_folder"], capture_output=True, text=True,
-                       check=False)
+    r = subprocess.run([*runner, script, "--project-root", project_root, "--key", key],
+                       capture_output=True, text=True, check=False)
     if r.returncode != 0:
         return None
     try:
-        value = json.loads(r.stdout).get("core.output_folder")
+        return json.loads(r.stdout).get(key)
     except (ValueError, AttributeError):
         return None
+
+
+def _resolve_output_folder(project_root: str):
+    """`core.output_folder`; None when the project names no folder."""
+    value = resolve_config_key(project_root, "core.output_folder")
     return value if isinstance(value, str) and value.strip() else None
 
 
@@ -466,6 +471,14 @@ def project_state_root(project_root: str) -> str:
         out = os.path.join(main, out)
     _STATE_ROOTS[root] = os.path.join(os.path.normpath(out), "l3io")
     return _STATE_ROOTS[root]
+
+
+TICKETS_PY = ("_bmad", "method", "scripts", "tickets.py")
+
+
+def v7_tickets_py(project_root: str) -> str:
+    """v7's `tickets.py`, where `bmad setup` installs Sofia's declared script."""
+    return os.path.join(project_root, *TICKETS_PY)
 
 
 INFLIGHT_DIR = ".inflight"

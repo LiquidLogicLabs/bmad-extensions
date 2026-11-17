@@ -132,6 +132,12 @@ Subcommands
   show          --state-root S  --epic ID  [--sprint ID]
   report        --state-root S  [--plan P] [--format tree|json|md] [--out F]
                 [--all] [--watch SECS]
+                or, over a v7 initiative: --project-root P  --initiative-dir D
+                [--status-json F] [--format tree|json|md] [--out F] [--watch SECS]
+                (tickets.py status -- from F, else v7's installed tickets.py -- plus each
+                epic's lane, estimates and ticket actuals from our sidecars; a build
+                bracket open in the .inflight spool past --stall-minutes is a stalled
+                build. --all, --status and --plan are 3.x only, exit 2)
   dispatch      --state-root S  --event {open,close}  --agent NAME
                 [--epic ID] [--sprint ID] [--story KEY] [--session-id ID]
                 (appends a dispatch_open/dispatch_close event to events.jsonl;
@@ -332,6 +338,12 @@ Subcommands
                 commit failed. --check is Sofia's validate Set check: it writes nothing,
                 prints one line per entry with no estimate of ours or by hand, and exits
                 1 when there is any; it takes no --entry, --class or --force)
+  set-lane      --project-root P  --initiative-dir D  --epic SLUG  --lane N
+                (writes [epic.<SLUG>].lane in the initiative's l3io.toml and commits it as
+                `chore(l3io): lane <SLUG>`. N is a number in 1..lane_count, never a name;
+                refused while modules.l3io-pm.lane_count is unset or 1 (lanes off). Exit 2
+                on usage, 3 for an epic the initiative does not list, 1 when the commit
+                failed)
   build-open    --project-root P  --agent {bmad-build,bmad-build-auto}  [--plan-file F]
                 [--session-id ID]
                 (v7 build hook, activation_steps_prepend: opens the build's measurement
@@ -460,7 +472,8 @@ if not __package__ and __name__ == "__main__":
 # `__init__` is a low layer -- `verbs` and `metrics` import its CLI helpers -- so it owns no
 # `register` and is bound here as `pm.sidecar` for the suite. Its verbs live one level down
 # in `sidecar.verbs`, which sits above `verbs` and `metrics` and is imported by name: its
-# `register` adds `sidecar-reconcile` and, from `sidecar.estimate`, `estimate-entries`; and
+# `register` adds `sidecar-reconcile` and, from `sidecar.estimate` and `sidecar.lanes`,
+# `estimate-entries` and `set-lane`; and
 # `main` asks its `route` which handler a parsed command line runs.
 #
 # `bracket` is the ninth: `build-open` and `build-close`, the measurement bracket v7's

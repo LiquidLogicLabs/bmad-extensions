@@ -1,6 +1,6 @@
 ---
 name: l3io-plan
-description: Validate readiness, elaborate stories, estimate, build dependency graph, and produce an executable plan. Use when the user wants to plan across epics before execution, to re-estimate existing ones, or to reorganize a plan that is legal but badly shaped. Use /l3io-plan for a full plan, /l3io-plan estimate [E{nnn}|E{nnn}-S{nn}] to re-estimate only (or /l3io-plan estimate <folder> for a BMad v7 initiative or epic), /l3io-plan reorg to propose a better plan shape.
+description: Validate readiness, elaborate stories, estimate, build dependency graph, and produce an executable plan. Use when the user wants to plan across epics before execution, to re-estimate existing ones, or to reorganize a plan that is legal but badly shaped. Use /l3io-plan for a full plan, /l3io-plan estimate [E{nnn}|E{nnn}-S{nn}] to re-estimate only (or /l3io-plan estimate <folder> for a BMad v7 initiative or epic), /l3io-plan reorg to propose a better plan shape, /l3io-plan waves for the order a BMad v7 initiative's epics may run in, /l3io-plan lanes for who owns which epic when several developers share one.
 ---
 
 # l3io-plan
@@ -59,13 +59,14 @@ and carries no procedure.
 | `plan` (or no argument) | the full-plan step list below | default | the default: readiness → elaboration → graph → estimate → snapshot |
 | `estimate` | `steps/shared/step-estimate.md`; for a v7 folder, `steps/estimate/step-estimate-entries.md` | registered | re-estimate only; optional `E{nnn}` or `E{nnn}-S{nn}` scope, or a v7 initiative or epic folder |
 | `reorg` | `steps/reorg/step-reorg.md` | registered | propose, confirm and apply a better plan shape — writes planned work only |
-| `lanes` | `steps/lanes/step-lanes.md` | registered | who owns what when several developers share one plan; inert unless `lane_count` > 1 |
+| `waves` | `steps/waves/step-waves.md` | registered | a v7 initiative's (or parent initiative's) epics in the order they may run, and the closures that gate them; read-only |
+| `lanes` | `steps/lanes/step-lanes.md` | registered | which lane owns each epic of a v7 initiative when several developers share it; inert unless `lane_count` > 1 |
 
 **Undo has no keyword, by design.** A user asks for it in prose — "undo that reorg" — and the
 agent resolves which journal entry they mean. Load `steps/reorg/step-reorg-undo.md` on such a
 request. There is no flag for it and none of this skill's modes parse one.
 
-**Full plan mode** (default — no args, or args that do not start with `estimate` or `reorg`):
+**Full plan mode** (default — no args, or args that do not start with `estimate`, `reorg`, `waves` or `lanes`):
 
 Bind `{scope}` = `all` before loading step-estimate.
 
@@ -138,13 +139,24 @@ Like estimate mode, reorg writes state and **must not touch any plan snapshot** 
 are immutable once written. Tell the user to run `/l3io-plan` for a snapshot that reflects the
 new shape.
 
+**Waves mode** (arg starts with `waves`):
+
+```
+{skill-root}/steps/waves/step-waves.md
+```
+
+Orders a BMad v7 initiative's epics, or a parent initiative's initiatives, into waves from
+v7's own `tickets.py status`, keeping each dependency's `needs` reason, and names the epics
+whose closure gates a later wave. It writes nothing. Sofia's `l3io-waves` menu item sends you
+here, and her board shows the same view after every board operation.
+
 **Lanes mode** (arg starts with `lanes`):
 
 ```
 {skill-root}/steps/lanes/step-lanes.md
 ```
 
-Shows who owns which epics when several developers work one plan, proposes a partition when
-`{lane_count}` is set above 1 and none has been made, and carries the protocol that keeps two
-clones from colliding. **Completely inert when `{lane_count}` is absent or 1** — a
+Shows who owns which epics of a BMad v7 initiative when several developers work it, proposes
+a partition when `{lane_count}` is set above 1 and none has been made, and carries the
+protocol that keeps two clones from colliding. Sofia's `l3io-lanes` menu item sends you here. **Completely inert when `{lane_count}` is absent or 1** — a
 single-developer project must not be able to tell this mode exists.
