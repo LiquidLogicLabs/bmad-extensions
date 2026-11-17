@@ -463,6 +463,18 @@ It writes **no** status. The retrospective writes none either (`retro-document.m
 
 ### Task 4.8: Retire what Sofia does; narrow `pm_status`'s placement half (item 8, first part)
 
+**Done 2026-11-17** (`95d575a8`). `test_cli_surface_after_placement_retired` written first and seen failing (46 registered, 30 expected); the CLI is now 30 verbs. Deleted with their callers: the sixteen listed verbs, `plan/`, `l3io-plan`'s full plan and reorg (steps, `reorg-derive.py`, `reorg-validate.py`, their suites, plan-graph's `analyze`/`phases`/`partition`), the six doctor modes, `step-00-digest`, `step-01-classify-work`, `step-estimate`, `steps/plan/*` and step-00-activate §3–§6/§8. `report` is v7-only; the sprint roll-up, `set-actual --node sprint` and sprint closure/orchestration calibration are gone, and a file carrying sprint samples loads and ignores them (`test_a_file_with_sprint_samples_loads_and_ignores_them`). `git grep` of every deleted verb over `skills/` finds only the surface test's `RETIRED` tuple. check:types: 47 ungated (was 70), both gated classes 0.
+
+- Ruling: `import-node` gains `--goal`, `--superseded-by` and `--depends-on`, so `migrate-engine.py` stops calling `set-field`/`set-depends-on` — why: they were the engine's last callers, and the 4.9 surface keeps neither — cost if wrong: extras land only on a node the import creates (a SKIP writes none), which is the idempotence the verb already promised.
+- Ruling: the 3.x node addressing of `set-estimate`, `set-actual` (story|epic), `add-test-run`, `verify`, `estimate-story` and `estimate-rollup` stays until Phase 6 — why: `migrate-engine.py` writes estimates through `set-estimate`, `import-actual` runs through `set-actual`'s writer, `estimate-story`/`estimate-rollup` have no other address and Task 4.9's surface keeps them, and the calibration tests that reach v7's shared internals go through that arm — cost if wrong: a 3.x arm nothing in `skills/` invokes outside the migration lives one phase longer.
+- Ruling: `estimate-rollup --epic` sums every story under the epic, sprint folders notwithstanding, and the 3.x epic closure sample's children are those stories (ADR-0016) — cost if wrong: none for v7, which uses `estimate-entries`/`epic-close`.
+- Ruling: `nodes/` keeps the 3.x resolver beside the sidecar resolvers (Ruling on `import-node`); check 26 passes unchanged.
+- Ruling: `l3io-plan` with no mode (or an unknown one) explains its three modes and points at Sofia's REFINE, REPLAN and BOARD; it is not a plan any more.
+- Ruling: checks 2 (gating-tables) and 8 (digest-size) retire, numbers not reused; check 13 compares `spec-align.py`'s tuples with `ac-dimensions.md`; the check-4 `--reason` rule re-keys from `set-status` to `import-node`, which enforces it — cost if wrong: none.
+- Ruling: the Remediable table of `auto-remediation.md` is empty (its four sites lived in the deleted activation and plan steps); ADR-0012 gains an amendment. The doctor's `SKILL.md` `pm_status`-not-installed halt is classified in the contract's Scope paragraph as a halt, since check 36 scans shared steps only and a row would be stale.
+- Ruling: `bmad-sprint-planning` becomes optional; its only caller was the retired readiness phase.
+- Ruling: `promote-issue` still honours an existing 3.x `_lock` (Task 4.9 removes it); its refusal now says to delete the `_lock` block, not `clear-lock`.
+
 **Files:**
 - Delete from `l3io-plan`:
   - the full-plan mode and its steps (`steps/plan/*`: readiness, story elaboration, load state, dependency graph, plan output, backlog intake);
@@ -479,11 +491,11 @@ It writes **no** status. The retrospective writes none either (`retro-document.m
   Also delete the sprint terms in `estimate-rollup` and calibration (ADR-0016), the 3.x node addressing of the kept verbs, and `report`'s 3.x source. `nodes/` keeps only the sidecar resolvers. Split any module that the deletions leave incoherent; never raise the cap.
 - Modify: `skills/_shared/status-files.md` (now the sidecar contract only), `metrics-contract.md`, `calibration-model.md` (no sprint), `step-00-digest.md`, `CLAUDE.md` (state files, placement rule, sprints, the reorg journal), `docs/l3io-pm-reference.md` and `docs/l3io-util-reference.md`.
 
-- [ ] **Step 1: Failing test** `test_cli_surface_after_placement_retired`. The argparse subcommand set equals the §4.5 keep set + Task 4.1–4.6 additions + the issues verbs (Task 4.9) + `import-node`/`import-actual` (Ruling) + `notice`, `rates`, `usage`, `dispatch`, `verify`, `sync-agent-instructions`.
-- [ ] **Step 2:** Delete callers before verbs, file by file. After each deletion, check 4 (invocations against argparse) must still pass. Then run `git grep` for each deleted verb over `skills/` and confirm zero.
-- [ ] **Step 3:** `npm run check:types -v`. Record the new finding count, which moves with deletions, and confirm the two gated classes stay at zero.
-- [ ] **Step 4:** Sync, regenerate manifests, then run the gate run.
-- [ ] **Step 5: Commit.** `feat(l3io-pm)!: retire the full plan, reorg and the 3.x placement model`.
+- [x] **Step 1: Failing test** `test_cli_surface_after_placement_retired`. The argparse subcommand set equals the §4.5 keep set + Task 4.1–4.6 additions + the issues verbs (Task 4.9) + `import-node`/`import-actual` (Ruling) + `notice`, `rates`, `usage`, `dispatch`, `verify`, `sync-agent-instructions`.
+- [x] **Step 2:** Delete callers before verbs, file by file. After each deletion, check 4 (invocations against argparse) must still pass. Then run `git grep` for each deleted verb over `skills/` and confirm zero.
+- [x] **Step 3:** `npm run check:types -v`. Record the new finding count, which moves with deletions, and confirm the two gated classes stay at zero.
+- [x] **Step 4:** Sync, regenerate manifests, then run the gate run.
+- [x] **Step 5: Commit.** `feat(l3io-pm)!: retire the full plan, reorg and the 3.x placement model`.
 
 ### Task 4.9: Dissolve `issues.yaml` into v7's `backlog/`; finish §4.5 (item 8, last part)
 
