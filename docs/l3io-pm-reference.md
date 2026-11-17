@@ -222,8 +222,13 @@ epic that a later epic only follows through `[[epic]] after` orders the waves an
 ### Not in this run
 
 The epic architecture gate and the epic-closure spec sync left `l3io-execute` with its 3.x
-phases. Phase 5 of the v7 readiness plan re-homes the gate on `bmad-architecture`'s
-`finalize_reviewers`, and the spec sync beside `bmad-retrospective`'s decision records.
+phases. The gate is now `l3io-arch`'s design review on `bmad-architecture`'s
+`finalize_reviewers`, run whenever an epic's architecture is drawn or validated. The spec sync
+is a `persistent_facts` entry on `bmad-retrospective` (`facts/spec-sync.md`, declared by
+`l3io-execute`): its decision records go to `docs/adr/`, and a departure from an architecture
+spec becomes a spec-reconciliation action item, which the user applies through
+`bmad-architecture`. The retrospective writes nothing but its document and the records the
+user approves, so that last step is manual. Both are added by `/l3io-doctor wire`.
 
 ## Relationship to bmad-loop
 

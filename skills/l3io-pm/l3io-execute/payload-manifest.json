@@ -3,7 +3,7 @@
   "generated_from": "skills/<skill>/",
   "files": {
     "SKILL.md": "415580232fe5ca93bfddf4253745c801e954c5d78464429a3c95aca1ffd5325b",
-    "bmod.toml": "e198e08bcc8c709917b2490cba6ea2713b2262bf03a38ca7e39decc9f67a08a8",
+    "bmod.toml": "739c842949c77726273337dd71fd197e11737efb675c3164959b32f4e4c17383",
     "customize.toml": "4bb9f4b459c6e708004a954a003f0e5341520d143fea8ad733ed9fe09104b7ab",
     "references/auto-remediation.md": "47939d0dd040e275fedce630dacd3aad6b8f2727210ca00b554a44ab05b3a448",
     "references/calibration-model.md": "4bb6eb9f5730ef34002c76747a9d955f5002ec9a2331c4b148391ecbcc3863dd",
@@ -13,6 +13,7 @@
     "scripts/close-commit.py": "272d23d0fdfcc271a643ec2aba648cb2a877a0b08b8a1d9ec0ca26e506d02ddd",
     "scripts/dispatch-plan.py": "b9531ade6641707fcfb4af9ef18ca503a7a9a72b2f80902f443e38efa0dd7224",
     "scripts/facts/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
+    "scripts/facts/spec-sync.md": "0e3d00d9db46ee9203ced7101cb06ca01d3f2261d538c0dea117d4563ae9cbe7",
     "scripts/pm_status/__init__.py": "c1160cd0055d5c468314ca906ce876d219bfbbac05835ed9ec2dba5ccb2c8ac8",
     "scripts/pm_status/__main__.py": "2a1ff62e2fa0d2369a1b8bc373dc59e971aa4ea577900afbbe0795db0687abf0",
     "scripts/pm_status/adr/__init__.py": "2629275f52320ce965b61bee43ed9a1442c946736992eec6f1d6e124b6f70a37",
