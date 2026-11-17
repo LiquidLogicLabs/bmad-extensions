@@ -313,7 +313,22 @@ Subcommands
                 destination's l3io.toml and moves <plan-stem>.l3io.toml beside the moved
                 plan. Without J, sweeps D: a plan sidecar whose plan is gone is moved beside
                 the one same-named plan elsewhere in D; an [entry.<id>] whose id no
-                tickets.toml has is reported. One line per action; exit 0, 2 on usage)
+                tickets.toml has is reported. One line per action; commits what it
+                changed as `chore(l3io): reconcile sidecars`; exit 0, 2 on usage, 1 when
+                the commit failed)
+  estimate-entries  --project-root P  --ticket-dir D  [--entry ID ...]
+                [--class ID=CLASS ...]  [--force]  [--model M]  [--token-rates JSON]
+                (v7 estimation, run by Sofia's slice/refine/replan hooks and `l3io-plan
+                estimate`: writes [entry.<id>] in D's l3io.toml -- class, fingerprint,
+                estimated_at, and the estimate estimate-story would compute -- for each
+                entry that is new, whose description/verify/covers changed, whose --class
+                differs, that --entry names, or every one under --force; never an entry
+                with a hand-set estimate in tickets.toml. Then rolls [epic].estimate up
+                as the entries' sum + the epic closure band + the orchestration band, no
+                sprint term. An entry to write with no class is exit 2, nothing written.
+                One JSON line per entry written and one for the epic; commits l3io.toml as
+                `chore(l3io): estimates <epic>`; exit 3 for an unknown --entry, 1 when the
+                commit failed)
   build-open    --project-root P  --agent {bmad-build,bmad-build-auto}  [--plan-file F]
                 [--session-id ID]
                 (v7 build hook, activation_steps_prepend: opens the build's measurement
@@ -442,8 +457,8 @@ if not __package__ and __name__ == "__main__":
 # `__init__` is a low layer -- `verbs` and `metrics` import its CLI helpers -- so it owns no
 # `register` and is bound here as `pm.sidecar` for the suite. Its verbs live one level down
 # in `sidecar.verbs`, which sits above `verbs` and `metrics` and is imported by name: its
-# `register` adds `sidecar-reconcile`, and `main` asks its `route` which handler a parsed
-# command line runs.
+# `register` adds `sidecar-reconcile` and, from `sidecar.estimate`, `estimate-entries`; and
+# `main` asks its `route` which handler a parsed command line runs.
 #
 # `bracket` is the ninth: `build-open` and `build-close`, the measurement bracket v7's
 # `bmad-build` and `bmad-build-auto` run through their hooks. It sits above `sidecar.verbs`

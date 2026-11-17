@@ -232,6 +232,68 @@ def cmd_estimate_story(args) -> int:
 # Closure overhead as a fraction of children, used when no calibrated ratio is
 # active yet. Deliberately a band, not a point: closure cost is variable.
 COLD_START_CLOSURE_BAND = (0.10, 0.25)
+NO_CHILD_ESTIMATES = "has no child estimates to roll up"
+
+
+def rollup_values(cal, level, children, model, overrides):
+    """The roll-up arithmetic over already-loaded children: (estimate, children counted,
+    metrics whose orchestration band is not yet active). `level` names the calibration
+    components applied (`sprint` or `epic`); each child is a mapping holding `estimate`.
+    Shared by the 3.x node roll-up below and the v7 epic roll-up (`sidecar.estimate`),
+    whose children are the epic's entries with no sprint between them. Raises PMError(2)
+    when no child carries an estimate, or for an unpriceable model."""
+    from ruamel.yaml.comments import CommentedMap
+    est = CommentedMap()
+    applied = CommentedMap()
+    orch_applied = CommentedMap()
+    counted = 0
+    for metric, (lo_key, hi_key) in CLOSURE_RANGE_KEYS.items():
+        total = 0.0
+        seen = 0
+        for cn in children:
+            v = _child_estimate_value(cn, metric)
+            if v is not None:
+                total += v
+                seen += 1
+        if seen == 0:
+            continue
+        counted = max(counted, seen)
+        ratio = active_closure_ratio(cal, level, metric)
+        if ratio is None:
+            ratio = 1.0            # cold start: the closure band applies unscaled
+        applied[metric] = round(ratio, 4)
+
+        frac = active_orchestration_fraction(cal, level, metric)
+        orch_applied[metric] = round(frac, 4) if frac is not None else 0
+        of = frac or 0.0
+        lo = total * (1 + ratio * COLD_START_CLOSURE_BAND[0] + of * ORCH_SPREAD[0])
+        hi = total * (1 + ratio * COLD_START_CLOSURE_BAND[1] + of * ORCH_SPREAD[1])
+        if metric == "tokens_k":
+            est[lo_key], est[hi_key] = round(lo), round(hi)
+        else:
+            est[lo_key], est[hi_key] = round(lo, 2), round(hi, 2)
+
+    if counted == 0:
+        raise PMError(2, NO_CHILD_ESTIMATES)
+
+    est["closure_ratios"] = applied
+    est["orchestration_ratios"] = orch_applied
+    # Every metric whose orchestration band is inactive, named: see the caller's warning.
+    inactive = [m for m, v in orch_applied.items() if not v]
+
+    mix = observed_mix(cal)
+    try:
+        for bound, key in (("tokens_k_min", "cost_low"), ("tokens_k_max", "cost_high")):
+            tv = _num_or_none(est.get(bound))
+            if tv is not None:
+                est[key] = cost_from_tokens(split_tokens(tv, mix), model, overrides)
+    except KeyError as e:
+        # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
+        # which would double-wrap a message that already reads as prose.
+        raise PMError(2, e.args[0])
+    est["model"] = model
+    est["confidence"] = "medium"
+    return est, counted, inactive
 
 
 def rollup_parent_estimate(state_root, epic, sprint, model, overrides):
@@ -298,45 +360,13 @@ def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
         raise PMError(3, f"{level} file is empty")
 
     _, cal = load_calibration(state_root)
-    from ruamel.yaml.comments import CommentedMap
-    est = CommentedMap()
-    applied = CommentedMap()
-    orch_applied = CommentedMap()
-    counted = 0
-    for metric, (lo_key, hi_key) in CLOSURE_RANGE_KEYS.items():
-        total = 0.0
-        seen = 0
-        for cp in child_paths:
-            if cp is None:
-                continue
-            _, cn = load_node(cp)
-            v = _child_estimate_value(cn, metric)
-            if v is not None:
-                total += v
-                seen += 1
-        if seen == 0:
-            continue
-        counted = max(counted, seen)
-        ratio = active_closure_ratio(cal, level, metric)
-        if ratio is None:
-            ratio = 1.0            # cold start: the closure band applies unscaled
-        applied[metric] = round(ratio, 4)
-
-        frac = active_orchestration_fraction(cal, level, metric)
-        orch_applied[metric] = round(frac, 4) if frac is not None else 0
-        of = frac or 0.0
-        lo = total * (1 + ratio * COLD_START_CLOSURE_BAND[0] + of * ORCH_SPREAD[0])
-        hi = total * (1 + ratio * COLD_START_CLOSURE_BAND[1] + of * ORCH_SPREAD[1])
-        if metric == "tokens_k":
-            est[lo_key], est[hi_key] = round(lo), round(hi)
-        else:
-            est[lo_key], est[hi_key] = round(lo, 2), round(hi, 2)
-
-    if counted == 0:
-        raise PMError(2, f"{level} {sprint or epic} has no child estimates to roll up")
-
-    est["closure_ratios"] = applied
-    est["orchestration_ratios"] = orch_applied
+    children = [load_node(cp)[1] for cp in child_paths if cp is not None]
+    try:
+        est, counted, inactive = rollup_values(cal, level, children, model, overrides)
+    except PMError as e:
+        if e.msg == NO_CHILD_ESTIMATES:
+            raise PMError(2, f"{level} {sprint or epic} {NO_CHILD_ESTIMATES}")
+        raise
     # ANY inactive metric warns, not just "every metric inactive" (`not any(...)`
     # would under-fire: orchestration calibrates per metric, and a metric is
     # sampled only when every child carries a numeric actual for it, so under a
@@ -345,26 +375,11 @@ def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
     # exists to flag). Named, not blanket: listing which metrics are still
     # unestimated makes the warning actionable instead of a caveat that is
     # "always true anyway" once any single metric has activated.
-    inactive = [m for m, v in orch_applied.items() if not v]
     if inactive:
         sys.stderr.write(
             "pm-status.py: warning — orchestration is unestimated for "
             f"{', '.join(inactive)} (component has <{MIN_SAMPLES} samples at "
             f"{level} level); this estimate is known-low on those metrics.\n")
-
-    mix = observed_mix(cal)
-    try:
-        for bound, key in (("tokens_k_min", "cost_low"), ("tokens_k_max", "cost_high")):
-            tv = _num_or_none(est.get(bound))
-            if tv is not None:
-                est[key] = cost_from_tokens(split_tokens(tv, mix), model, overrides)
-    except KeyError as e:
-        # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
-        # which would double-wrap a message that already reads as prose.
-        raise PMError(2, e.args[0])
-    est["model"] = model
-
-    est["confidence"] = "medium"
     pnode["estimate"] = est
     pnode["updated_at"] = _now_iso()
     nodes.save_node(y, pnode, ppath)

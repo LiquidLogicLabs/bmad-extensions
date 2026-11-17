@@ -452,5 +452,170 @@ class TestReconcile(Project):
         self.assertEqual(r.returncode, 2)
 
 
+class TestEstimateEntries(Project):
+    """`estimate-entries`: Sofia's slice, refine and replan hooks, and `l3io-plan estimate`,
+    estimate a v7 epic's entries into its `l3io.toml` and roll the epic up from them."""
+
+    CLASSES = ("--class", "1=simple", "--class", "2=standard", "--class", "3=complex")
+
+    def est(self, *extra, tdir=None, check=True):
+        r = self.run_cli("estimate-entries", "--project-root", self.root,
+                         "--ticket-dir", tdir or self.tdir, *extra, check=check)
+        lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+        return r, lines
+
+    def side(self, tdir=None):
+        return self.load_toml(os.path.join(tdir or self.tdir, "l3io.toml"))
+
+    def written(self, lines):
+        return sorted(str(x["entry"]) for x in lines if "entry" in x)
+
+    def test_estimate_entries_writes_only_l3io_toml(self):
+        before, tree = self.snapshot(), self.tree()
+        _, lines = self.est(*self.CLASSES)
+        after = self.snapshot()
+        self.assertEqual(sorted(after), sorted(before), "a v7 file appeared or vanished")
+        for p, data in before.items():
+            self.assertEqual(after[p], data, f"{os.path.relpath(p, self.root)} changed")
+        self.assertEqual(self.tree() - tree,
+                         {os.path.relpath(os.path.join(self.tdir, "l3io.toml"), self.root)})
+        self.assertEqual(self.written(lines), ["1", "2", "3"])
+        entry = self.side()["entry"]
+        self.assertEqual({k: v["class"] for k, v in entry.items()},
+                         {"1": "simple", "2": "standard", "3": "complex"})
+        for v in entry.values():
+            self.assertEqual(list(v["estimate"])[:5], list(pm.METRIC_FIELDS))
+            self.assertGreater(v["estimate"]["cost"], 0)
+            self.assertIn("scope_ratios", v["estimate"])
+
+    def test_changed_entry_is_reestimated_unchanged_is_not(self):
+        self.est(*self.CLASSES)
+        first = self.side()["entry"]
+        _, lines = self.est()
+        self.assertEqual(self.written(lines), [], "an unchanged entry was re-estimated")
+        toml_path = os.path.join(self.tdir, "tickets.toml")
+        with open(toml_path, encoding="utf-8") as fh:
+            text = fh.read()
+        write(toml_path, text.replace('title = "UI shell"\n',
+                                      'title = "UI shell"\ndescription = "Now with a cart"\n'))
+        _, lines = self.est()
+        self.assertEqual(self.written(lines), ["2"])
+        self.assertEqual([x["action"] for x in lines if "entry" in x], ["changed"])
+        second = self.side()["entry"]
+        self.assertEqual(second["1"], first["1"])
+        self.assertEqual(second["3"], first["3"])
+        self.assertNotEqual(second["2"]["fingerprint"], first["2"]["fingerprint"])
+        # Asked for by id, an unchanged entry is re-estimated; --force does all of them.
+        _, lines = self.est("--entry", "1")
+        self.assertEqual(self.written(lines), ["1"])
+        _, lines = self.est("--force")
+        self.assertEqual(self.written(lines), ["1", "2", "3"])
+        # A --class differing from the recorded one is a change; the same class is not.
+        _, lines = self.est("--class", "1=complex", "--class", "2=standard")
+        self.assertEqual(self.written(lines), ["1"])
+        self.assertEqual(self.side()["entry"]["1"]["class"], "complex")
+
+    def test_epic_rollup_has_no_sprint_term(self):
+        _, lines = self.est(*self.CLASSES)
+        data = self.side()
+        epic = data["epic"]["estimate"]
+        total = sum(v["estimate"]["man_hours"] for v in data["entry"].values())
+        # Cold start: Σ entries x (1 + the epic closure band); no orchestration band is
+        # active before three samples, and no sprint level exists to add one of its own.
+        self.assertAlmostEqual(epic["man_hours_low"], round(total * 1.10, 2))
+        self.assertAlmostEqual(epic["man_hours_high"], round(total * 1.25, 2))
+        self.assertEqual(set(epic["closure_ratios"]), {"man_hours", "hitl_hours",
+                                                       "elapsed_hours", "tokens_k"})
+        with open(os.path.join(self.tdir, "l3io.toml"), encoding="utf-8") as fh:
+            self.assertNotIn("sprint", fh.read())
+        self.assertEqual([x.get("epic") for x in lines if "epic" in x], ["epic-cart"])
+        self.assertEqual(lines[-1]["children"], 3)
+
+    def test_reconcile_then_estimate_after_move(self):
+        """A recorded `tickets.py move` of entry 3 to epic-pricing, where it becomes 7."""
+        self.est(*self.CLASSES)
+        before = self.side()["entry"]["3"]
+        pricing = os.path.join(self.initiative, "tickets", "epic-pricing")
+        write(os.path.join(pricing, "epic-pricing.md"), "---\ntype: epic\nafter: []\n---\n")
+        dest = os.path.join(pricing, "tickets")
+        write(os.path.join(dest, "tickets.toml"),
+              'next_id = 8\n\n[[entry]]\nid = 7\ntype = "story"\ntitle = "Tracer"\n')
+        write(os.path.join(self.tdir, "tickets.toml"),
+              '[[entry]]\nid = 1\ntype = "story"\ntitle = "Scaffold"\n\n'
+              '[[entry]]\nid = 2\ntype = "story"\ntitle = "UI shell"\nafter = [1]\n')
+        for name in ("story-tracer.md", "story-tracer-plan.md"):
+            shutil.move(os.path.join(self.tdir, name), os.path.join(dest, name))
+        move = {"from": "epic-cart", "to": "epic-pricing", "old_id": 3, "id": 7, "ref": "2.7",
+                "file": "story-tracer.md", "plan": "story-tracer-plan.md",
+                "next_id": {"epic-pricing": 8}, "rewritten": []}
+        self.run_cli("sidecar-reconcile", "--project-root", self.root,
+                     "--initiative-dir", self.initiative, "--moved-json", json.dumps(move))
+        _, lines = self.est(tdir=dest)
+        self.assertEqual(self.written(lines), [], "the moved entry was re-estimated")
+        self.assertEqual(self.side(dest)["entry"]["7"], before)
+        _, lines = self.est()
+        src = self.side()
+        self.assertNotIn("3", src["entry"])
+        self.assertEqual(lines[-1]["children"], 2, "the source epic still rolls up entry 3")
+        self.assertEqual(self.side(dest)["epic"]["estimate"]["man_hours_low"],
+                         round(before["estimate"]["man_hours"] * 1.10, 2))
+
+    def test_hand_set_estimate_is_skipped_and_hand_set_class_is_used(self):
+        toml_path = os.path.join(self.tdir, "tickets.toml")
+        with open(toml_path, encoding="utf-8") as fh:
+            text = fh.read()
+        text = text.replace('title = "UI shell"\n', 'title = "UI shell"\nestimate = "3d"\n')
+        text = text.replace('title = "Tracer"\n', 'title = "Tracer"\nl3io_class = "complex"\n')
+        write(toml_path, text)
+        r, lines = self.est("--class", "1=simple", "--class", "2=standard", "--force")
+        self.assertEqual(self.written(lines), ["1", "3"])
+        self.assertIn("entry 2", r.stderr)
+        self.assertIn("hand-set", r.stderr)
+        self.assertEqual(self.side()["entry"]["3"]["class"], "complex")
+        self.assertNotIn("2", self.side()["entry"])
+
+    def test_missing_class_is_refused_and_writes_nothing(self):
+        r, _ = self.est("--class", "1=simple", check=False)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("--class", r.stderr)
+        self.assertIn("2", r.stderr)
+        self.assertIn("3", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tdir, "l3io.toml")))
+        r, _ = self.est("--class", "1=huge", "--class", "2=simple", "--class", "3=simple",
+                        check=False)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        r, _ = self.est("--entry", "9", *self.CLASSES, check=False)
+        self.assertEqual(r.returncode, 3, r.stderr)
+
+    def test_estimate_entries_commits_exactly_what_it_wrote(self):
+        """Sofia's hooks run between her commits and the next `bmad-build-auto`, which
+        refuses a dirty tree; the verb commits its sidecar and nothing else."""
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*argv):
+            return subprocess.run(["git", "-C", self.root, *argv], check=True,
+                                  capture_output=True, text=True, env=env).stdout
+        git("init", "-q")
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        write(os.path.join(self.root, "notes.txt"), "the user's own work in progress\n")
+        r = subprocess.run([sys.executable, SCRIPT, "estimate-entries", "--project-root",
+                            self.root, "--ticket-dir", self.tdir, *self.CLASSES],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(git("status", "--porcelain", "--untracked-files=all"),
+                         "?? notes.txt\n")
+        self.assertEqual(git("log", "-1", "--format=%s"), "chore(l3io): estimates epic-cart\n")
+        self.assertEqual(git("show", "--name-only", "--format=", "HEAD").split(),
+                         [os.path.relpath(os.path.join(self.tdir, "l3io.toml"), self.root)])
+        # A run that writes nothing makes no commit.
+        head = git("rev-parse", "HEAD")
+        subprocess.run([sys.executable, SCRIPT, "estimate-entries", "--project-root",
+                        self.root, "--ticket-dir", self.tdir], check=True,
+                       capture_output=True, env=env)
+        self.assertEqual(git("rev-parse", "HEAD"), head)
+
+
 if __name__ == "__main__":
     unittest.main()

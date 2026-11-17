@@ -15,7 +15,12 @@ Given the move's own JSON (`--moved-json`), this repoints `[entry.<old_id>]` to
 plan. Without it, it sweeps the initiative: a plan sidecar whose plan is gone is moved
 beside the one same-named plan elsewhere in the initiative, and an `[entry.<id>]` whose id
 is not in that folder's `tickets.toml` is REPORTED -- it cannot be followed without the move
-that orphaned it. One line per action or finding, exit 0; 2 on usage. Never writes a v7 file.
+that orphaned it. One line per action or finding, exit 0; 2 on usage; 1 when the commit
+failed. Never writes a v7 file.
+
+What it changed is committed, and nothing else, as `chore(l3io): reconcile sidecars`
+(`sidecar.commit`): Sofia's replan and board hooks run it, and the next `bmad-build-auto`
+refuses a dirty tree.
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ import sys
 
 from .. import nodes, sidecar
 from ..core import _die_usage
+from . import commit
 
 
 def _read_moved(raw: str) -> dict:
@@ -56,7 +62,7 @@ def _folder(initiative: str, name: str) -> str:
     return nodes.v7_tickets_folder(f)
 
 
-def _move_file(src: str, dst: str, out: list) -> None:
+def _move_file(src: str, dst: str, out: list, touched: list) -> None:
     rel = os.path.basename(src)
     if not os.path.exists(src):
         return
@@ -64,10 +70,11 @@ def _move_file(src: str, dst: str, out: list) -> None:
         out.append(f"conflict {rel}: {dst} exists already; both left as they are")
         return
     os.replace(src, dst)
+    touched += [src, dst]
     out.append(f"move {src} -> {dst}")
 
 
-def _follow_move(initiative: str, moved: dict, out: list) -> None:
+def _follow_move(initiative: str, moved: dict, out: list, touched: list) -> None:
     src_dir = _folder(initiative, str(moved["from"]))
     dst_dir = _folder(initiative, str(moved["to"]))
     old_id, new_id = str(moved["old_id"]), str(moved["id"])
@@ -84,14 +91,15 @@ def _follow_move(initiative: str, moved: dict, out: list) -> None:
                 del src_doc["entry"][old_id]
                 sidecar.save(dst_side, dst_doc)
                 sidecar.save(src_side, src_doc)
+                touched += [src_side, dst_side]
                 out.append(f"repoint entry {moved['from']} {old_id} -> {moved['to']} {new_id}")
         plan = moved.get("plan")
         if plan:
             src = nodes.ticket_sidecar(os.path.join(src_dir, plan))
-            _move_file(src, nodes.ticket_sidecar(os.path.join(dst_dir, plan)), out)
+            _move_file(src, nodes.ticket_sidecar(os.path.join(dst_dir, plan)), out, touched)
 
 
-def _sweep(initiative: str, out: list) -> None:
+def _sweep(initiative: str, out: list, touched: list) -> None:
     folders = nodes.v7_ticket_folders(initiative)
     plans: dict[str, list] = {}
     for d in folders:
@@ -112,7 +120,8 @@ def _sweep(initiative: str, out: list) -> None:
             homes = plans.get(plan, [])
             if len(homes) == 1:
                 with sidecar.locked(d, homes[0]):
-                    _move_file(side, nodes.ticket_sidecar(os.path.join(homes[0], plan)), out)
+                    _move_file(side, nodes.ticket_sidecar(os.path.join(homes[0], plan)), out,
+                               touched)
             else:
                 why = "no plan of that name" if not homes else f"{len(homes)} plans of that name"
                 out.append(f"orphan {side}: {why} in the initiative")
@@ -129,9 +138,15 @@ def cmd_sidecar_reconcile(args) -> int:
     if not os.path.isdir(initiative):
         _die_usage(f"--initiative-dir {initiative} is not a directory")
     out: list = []
+    touched: list = []
     if args.moved_json:
-        _follow_move(initiative, _read_moved(args.moved_json), out)
+        _follow_move(initiative, _read_moved(args.moved_json), out, touched)
     else:
-        _sweep(initiative, out)
+        _sweep(initiative, out, touched)
     sys.stdout.write("".join(f"{line}\n" for line in out) or "ok nothing to reconcile\n")
+    err = commit.commit_paths(args.project_root, touched, "chore(l3io): reconcile sidecars")
+    if err:
+        sys.stderr.write(f"pm-status.py: reconciled, but the commit failed, so the tree is "
+                         f"dirty: {err}\n")
+        return 1
     return 0

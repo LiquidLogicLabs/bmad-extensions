@@ -1,6 +1,6 @@
 ---
 name: l3io-plan
-description: Validate readiness, elaborate stories, estimate, build dependency graph, and produce an executable plan. Use when the user wants to plan across epics before execution, to re-estimate existing ones, or to reorganize a plan that is legal but badly shaped. Use /l3io-plan for a full plan, /l3io-plan estimate [E{nnn}|E{nnn}-S{nn}] to re-estimate only, /l3io-plan reorg to propose a better plan shape.
+description: Validate readiness, elaborate stories, estimate, build dependency graph, and produce an executable plan. Use when the user wants to plan across epics before execution, to re-estimate existing ones, or to reorganize a plan that is legal but badly shaped. Use /l3io-plan for a full plan, /l3io-plan estimate [E{nnn}|E{nnn}-S{nn}] to re-estimate only (or /l3io-plan estimate <folder> for a BMad v7 initiative or epic), /l3io-plan reorg to propose a better plan shape.
 ---
 
 # l3io-plan
@@ -57,7 +57,7 @@ and carries no procedure.
 | Keyword | Load | Menu | Notes |
 |---|---|---|---|
 | `plan` (or no argument) | the full-plan step list below | default | the default: readiness → elaboration → graph → estimate → snapshot |
-| `estimate` | `steps/shared/step-estimate.md` | registered | re-estimate only; optional `E{nnn}` or `E{nnn}-S{nn}` scope |
+| `estimate` | `steps/shared/step-estimate.md`; for a v7 folder, `steps/estimate/step-estimate-entries.md` | registered | re-estimate only; optional `E{nnn}` or `E{nnn}-S{nn}` scope, or a v7 initiative or epic folder |
 | `reorg` | `steps/reorg/step-reorg.md` | registered | propose, confirm and apply a better plan shape — writes planned work only |
 | `lanes` | `steps/lanes/step-lanes.md` | registered | who owns what when several developers share one plan; inert unless `lane_count` > 1 |
 
@@ -80,6 +80,15 @@ Bind `{scope}` = `all` before loading step-estimate.
 ```
 
 **Estimate mode** (args start with `estimate`):
+
+When the argument after `estimate` is a folder — a BMad v7 initiative or epic, or none at all
+when Sofia's `l3io-estimate` menu item sent you — load only this and stop when it is done:
+```
+{skill-root}/steps/estimate/step-estimate-entries.md
+```
+It writes only l3io's `l3io.toml` sidecars, and none of what follows applies to it.
+
+Otherwise (the 3.x state tree):
 
 Parse scope from arg: `estimate` → `{scope}=all`; `estimate E{nnn}` → `{scope}=E{nnn}`; `estimate E{nnn}-S{nn}` → `{scope}=E{nnn}-S{nn}`. Then load:
 ```

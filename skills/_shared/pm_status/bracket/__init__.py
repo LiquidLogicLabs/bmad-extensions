@@ -43,7 +43,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import UTC, datetime
 
@@ -59,6 +58,7 @@ from ..core import (
 from ..metrics import actuals_usage
 from ..metrics.calibration import record_story_sample
 from ..metrics.rates import TOKEN_CLASSES, resolve_rates
+from ..sidecar import commit
 from ..sidecar import verbs as sidecar_verbs
 
 AGENTS = ("bmad-build", "bmad-build-auto")
@@ -75,25 +75,11 @@ def _iso(when: datetime) -> str:
     return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _git(cwd: str, *argv) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", cwd, *argv], capture_output=True, text=True,
-                          check=False)
-
-
-def _toplevel(path: str):
-    """The worktree `path` is in, or None outside git."""
-    try:
-        r = _git(path, "rev-parse", "--show-toplevel")
-    except OSError:
-        return None
-    return os.path.realpath(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
-
-
 def _bracket_key(args) -> str:
     sid = args.session_id or os.environ.get(actuals_usage.CLAUDE_SESSION_ENV, "")
     if sid:
         return _SAFE_RE.sub("_", sid)
-    where = _toplevel(args.project_root) or os.path.realpath(args.project_root)
+    where = commit.toplevel(args.project_root) or os.path.realpath(args.project_root)
     return f"{args.agent}-{hashlib.sha1(where.encode()).hexdigest()[:12]}"
 
 
@@ -348,28 +334,6 @@ def _sample(state_root: str, plan: str, ticket: str, sidecar_path: str) -> str:
     return ""
 
 
-def _commit(project_root: str, paths: list, message: str) -> str:
-    """Commit each of `paths` that lies inside the current worktree and is not ignored, and
-    nothing else. Returns an error message, or "" (including when there was nothing)."""
-    top = _toplevel(project_root)
-    if top is None:
-        return ""
-    inside = []
-    for p in dict.fromkeys(paths):
-        real = os.path.realpath(p)
-        if not os.path.exists(real) or not real.startswith(top + os.sep):
-            continue
-        if _git(top, "check-ignore", "-q", "--", real).returncode == 0:
-            continue
-        inside.append(os.path.relpath(real, top))
-    if not inside:
-        return ""
-    r = _git(top, "add", "--", *inside)
-    if r.returncode == 0 and _git(top, "status", "--porcelain", "--", *inside).stdout.strip():
-        r = _git(top, "commit", "-q", "-m", message, "--", *inside)
-    return "" if r.returncode == 0 else (r.stderr.strip() or r.stdout.strip())
-
-
 def cmd_build_close(args) -> int:
     runs = _parse_test_runs(args.test_run)
     typed = _typed_tokens(args)
@@ -477,7 +441,7 @@ def cmd_build_close(args) -> int:
     for n in notes:
         sys.stderr.write(f"pm-status.py: {n}\n")
     subject = f"actuals {ticket}" if plan else f"build bracket {args.agent}"
-    err = _commit(args.project_root, written, f"chore(l3io): {subject}")
+    err = commit.commit_paths(args.project_root, written, f"chore(l3io): {subject}")
     if err:
         sys.stderr.write(f"pm-status.py: recorded, but the commit failed, so the tree is "
                          f"dirty: {err}\n")
@@ -517,10 +481,11 @@ def register(sub):
     bc.add_argument("--test-run", dest="test_run", action="append", default=[],
                     metavar="CMD=EXIT", help="one executed verification command and its "
                                              "exit code; repeatable")
-    for c in TYPED_TOKENS["codex"]:
-        bc.add_argument("--tokens-" + c.replace("_", "-"), dest=f"tokens_{c}", type=float,
-                        default=None, help="thousands of tokens over this build; codex and "
-                                           "copilot only (metrics-contract.md §3)")
+    typed = "thousands of tokens over this build; codex and copilot only (metrics-contract.md §3)"
+    bc.add_argument("--tokens-input", dest="tokens_input", type=float, default=None, help=typed)
+    bc.add_argument("--tokens-output", dest="tokens_output", type=float, default=None, help=typed)
+    bc.add_argument("--tokens-cache-read", dest="tokens_cache_read", type=float, default=None,
+                    help=typed + "; codex only")
     bc.add_argument("--token-rates", dest="token_rates", default="",
                     help="JSON object of per-model rate overrides")
     bc.add_argument("--session-id", dest="session_id", default=None,

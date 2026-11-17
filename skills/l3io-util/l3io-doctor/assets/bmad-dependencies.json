@@ -28,6 +28,8 @@
       "reason": "BMad's official implementation path since 6.12.0. Not dispatched yet; declared so check 16 resolves the token and so Phase 3's overlay has a declared target" },
     { "name": "bmad-build-auto", "status": "optional", "module": "bmm",
       "reason": "unattended variant of bmad-build; declared for the same reason" },
+    { "name": "bmad-agent-po", "status": "optional", "module": "bmm",
+      "reason": "BMad v7's product owner, Sofia. /l3io-doctor wire attaches l3io's estimation hooks and menu item to her team customization file; without her they have nothing to attach to" },
 
     { "name": "bmad-loop", "status": "related", "module": "bmad-loop",
       "note": "unattended per-story orchestrator around bmad-build-auto; l3io-execute is our own epic-level orchestrator — the two overlap. See docs/l3io-pm-reference.md §Relationship to bmad-loop.",

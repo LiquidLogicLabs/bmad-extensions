@@ -30,7 +30,7 @@ import sys
 
 from .. import metrics, nodes, sidecar, verbs
 from ..core import _die_notfound, _die_usage, _now_iso, append_event
-from . import reconcile
+from . import estimate, reconcile
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---(?:\n|\Z)", re.DOTALL)
 
@@ -218,3 +218,4 @@ def register(sub):
                     help="tickets.py move's stdout: the JSON itself, a file holding it, or - "
                          "for stdin; omit to sweep for orphans")
     rc.set_defaults(func=reconcile.cmd_sidecar_reconcile)
+    estimate.register(sub)

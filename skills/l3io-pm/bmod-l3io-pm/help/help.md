@@ -14,13 +14,14 @@ l3io-pm plans and runs delivery work across epics with numbers attached: every s
 
 | Skill | For | When to recommend |
 |---|---|---|
-| `l3io-plan` | Validates readiness, elaborates stories, computes estimates, builds the dependency graph and writes a phased, parallel-optimized execution plan. Three further modes: `estimate` re-estimates unstarted work from current calibration, optionally scoped to one epic or sprint; `reorg` proposes one better plan shape with its evidence and applies it only on acceptance, journaled so it can be undone; `lanes` partitions planned epics across developers who each work their own clone, and is inert unless `lane_count` is above 1. | The user wants a plan across epics, wants to know what the work will cost, has estimates gone stale after scope changed, has a plan that is legal but badly shaped, or has several developers sharing one plan. |
+| `l3io-plan` | Validates readiness, elaborates stories, computes estimates, builds the dependency graph and writes a phased, parallel-optimized execution plan. Three further modes: `estimate` re-estimates unstarted work from current calibration, optionally scoped to one epic or sprint, and on BMad v7 estimates an initiative's or an epic's entries beside Sofia's `tickets.toml` (Sofia's slice, refine and replan run it for you once `l3io-doctor wire` has run); `reorg` proposes one better plan shape with its evidence and applies it only on acceptance, journaled so it can be undone; `lanes` partitions planned epics across developers who each work their own clone, and is inert unless `lane_count` is above 1. | The user wants a plan across epics, wants to know what the work will cost, has estimates gone stale after scope changed, has a plan that is legal but badly shaped, or has several developers sharing one plan. |
 | `l3io-execute` | Runs the plan: the whole plan, one epic, or one sprint. Dispatches each phase to a fresh subagent with its context injected, runs elaboration, development, code review, QA and the fix loop, then sprint and epic closure reviews, and writes actuals to state as it goes. | The user has a plan and wants the work done, or wants to resume a run that stopped. |
 
 ## Start here
 
 - "Plan these epics", "what order should we build this in", "how long will this take" → `l3io-plan`.
 - "Re-estimate", "the scope changed" → `l3io-plan estimate`, scoped as `E{nnn}` or `E{nnn}-S{nn}` when only part of the plan moved.
+- "Estimate this initiative", "what will this epic cost" on BMad v7 → `l3io-plan estimate` with the initiative or epic folder, or Sofia's `l3io-estimate` menu item.
 - "This plan is a mess", "rebalance the sprints" → `l3io-plan reorg`.
 - "Two of us are working this plan" → `l3io-plan lanes`; if `lane_count` is still 1, offer `bmad setup l3io-pm` first.
 - "Run the plan", "build epic 3", "carry on" → `l3io-execute`.

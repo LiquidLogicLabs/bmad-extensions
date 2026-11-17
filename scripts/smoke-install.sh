@@ -272,6 +272,46 @@ check "unwire after the refusal leaves the planted team file as the team wrote i
   "cmp -s '$work/planted.toml' '$custom/bmad-build.toml'"
 rm -rf "$custom" && cp -a "$work/custom-before-plant" "$custom"
 
+echo "== estimation on Sofia (Phase 4 Task 4.3) =="
+# wire attaches three single-slot hooks and a menu item to bmad-agent-po's team file. Sofia must
+# still render, with our commands at the end of slice.md, ticket.md and replan.md and the menu
+# item listed; estimate-entries on the hand-written epic must leave tickets.py's view of the
+# tree byte-identical; unwire must restore the team file byte for byte (R15).
+po_team="$custom/bmad-agent-po.toml"
+if [ -f "$po_team" ]; then cp "$po_team" "$work/po-before.toml"; else : > "$work/po-before.absent"; fi
+check "wire applies the Sofia entries (exit 0)" \
+  "(cd '$proj' && uv run --quiet '$wire_py' wire --project-root . > '$work/wire-po.txt')"
+check "wire wrote the estimation hooks and the l3io-estimate menu item into bmad-agent-po.toml" \
+  "grep -q 'estimate-entries' '$po_team' && grep -q 'sidecar-reconcile' '$po_team' \
+     && grep -q 'code = \"l3io-estimate\"' '$po_team'"
+check "bmad-agent-po renders after wire (exit 0)" "render bmad-agent-po > '$work/render-po.md'"
+po_render="$proj/_bmad/render/bmad-agent-po"
+ends_with() { # <rendered file name> <text>: the text is in the file's last 40 lines
+  f="$(find "$po_render" -name "$1" -type f | head -n 1)"
+  [ -n "$f" ] && tail -n 40 "$f" | grep -q "$2"
+}
+check "slice.md ends with the estimate-entries hook" "ends_with slice.md 'pm_status/__main__.py estimate-entries'"
+check "ticket.md ends with the estimate-entries hook" "ends_with ticket.md 'pm_status/__main__.py estimate-entries'"
+check "replan.md ends with sidecar-reconcile, then estimate-entries" \
+  "ends_with replan.md 'pm_status/__main__.py sidecar-reconcile' && ends_with replan.md 'estimate-entries'"
+check "Sofia's rendered menu lists l3io-estimate" \
+  "grep -q 'l3io-estimate' '$work/render-po.md' || grep -rq 'l3io-estimate' '$po_render'"
+code=0
+(cd "$proj" && uv run --quiet "$pm_main" estimate-entries --project-root . --ticket-dir "$epic_t" \
+   --class 1=simple --class 2=standard --class 3=complex > "$work/estimate-entries.jsonl") || code=$?
+check "estimate-entries on the hand-written epic exits 0 from the installed copy" "[ '$code' = 0 ]"
+check "it estimated all three entries and rolled the epic up" \
+  "[ \"\$(grep -c '\"entry\"' '$work/estimate-entries.jsonl')\" -eq 3 ] && grep -q '^\\[epic.estimate\\]' '$epic_t/l3io.toml'"
+tstatus > "$work/tickets-after-estimate.json"
+check "tickets.py status prints byte-identical JSON after estimate-entries" \
+  "cmp -s '$work/tickets-before.json' '$work/tickets-after-estimate.json'"
+(cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
+if [ -e "$work/po-before.absent" ]; then
+  check "unwire removes the bmad-agent-po team file wire created (R15)" "[ ! -e '$po_team' ]"
+else
+  check "unwire puts bmad-agent-po.toml back byte for byte (R15)" "cmp -s '$work/po-before.toml' '$po_team'"
+fi
+
 echo "== only l3io-pm (Review Focus 3) =="
 add_module "$pm_only" "$pkg/skills/l3io-pm" -s '*'
 status="$work/pm-only-status.json"

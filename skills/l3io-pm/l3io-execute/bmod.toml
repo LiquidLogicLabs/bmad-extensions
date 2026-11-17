@@ -23,6 +23,8 @@ scripts = [
   "scripts/pm_status/nodes/__init__.py",
   "scripts/pm_status/plan/__init__.py",
   "scripts/pm_status/sidecar/__init__.py",
+  "scripts/pm_status/sidecar/commit.py",
+  "scripts/pm_status/sidecar/estimate.py",
   "scripts/pm_status/sidecar/reconcile.py",
   "scripts/pm_status/sidecar/verbs.py",
   "scripts/pm_status/verbs/__init__.py",

@@ -719,7 +719,7 @@ never reads one.
 | File | Holds | Written by |
 |---|---|---|
 | `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` (1–999) | lane assignment |
-| `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `orchestration` | `set-estimate --ticket-dir DIR --entry ID`, estimation, epic closure |
+| `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class`, `fingerprint`, `estimated_at` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `orchestration` | `estimate-entries`; `set-estimate --ticket-dir DIR --entry ID`; epic closure |
 | `<…>/tickets/<stem>-plan.l3io.toml`, beside `<stem>-plan.md` | `actual`, `fix_iterations`, `completion_evidence.test_runs` / `tests_passing`, `dispatch`, `calibration_sampled_at` | `build-close`; `set-actual`, `add-test-run` with `--plan-file PATH` |
 | `{state_root}` = `<main checkout>/<core.output_folder>/l3io/` | `events.jsonl`, `pm-calibration.yaml`, `adr-register.yaml`, `.notices.yaml`, `.inflight/` | every verb with `--project-root P` |
 
@@ -752,6 +752,24 @@ repoints `[entry.<old_id>]` to `[entry.<id>]` in the destination's `l3io.toml` a
 plan's sidecar beside the moved plan. Without `--moved-json` it sweeps `D`: a plan sidecar
 whose plan is gone is moved beside the one same-named plan elsewhere, and an `[entry.<id>]`
 no `tickets.toml` holds is reported, since it cannot be followed without the move.
+
+**Estimates come from Sofia's own procedures.** `/l3io-doctor wire` gives `bmad-agent-po` a
+`tickets_after`, a `refine_after` and a `replan_after` hook and an `l3io-estimate` menu item.
+Each hook runs `estimate-entries --project-root P --ticket-dir D`, which estimates every entry
+of the epic that is new, whose `description`, `verify` or `covers` changed (the recorded
+`fingerprint`), whose class changed, or that `--entry` names, exactly as `estimate-story` does
+a 3.x story; then it recomputes `[epic].estimate` as the entries' sum plus the epic closure
+and orchestration bands, with no sprint term. The class is the agent's judgement, passed as
+`--class ID=CLASS`; an entry to write without one is refused with nothing written. An entry
+with a hand-set estimate in `tickets.toml` is never written. The replan hook runs
+`sidecar-reconcile` first, so a moved entry's estimate follows it before anything is
+re-estimated.
+
+**The hooks leave the tree clean.** `estimate-entries` and `sidecar-reconcile` commit exactly
+the files they changed (`chore(l3io): estimates <epic>`, `chore(l3io): reconcile sidecars`),
+because they run after Sofia's own commit and before the next `bmad-build-auto`, which
+refuses a dirty tree. `set-estimate`, `set-actual` and `add-test-run` are not hooks and
+commit nothing.
 
 **Every build is measured through its own hooks.** `/l3io-doctor wire` gives `bmad-build` and
 `bmad-build-auto` a prepend that runs `build-open` and an On Complete that runs `build-close`.

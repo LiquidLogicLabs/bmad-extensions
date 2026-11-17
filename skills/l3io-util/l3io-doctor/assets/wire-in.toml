@@ -117,3 +117,87 @@ uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-close --
 - With no plan file, drop `--plan-file {plan_file}`.
 
 The command records the ticket's actuals and commits only l3io's own files, so the tree stays clean for the next build. Never run v7's `mark` verb for it: the HALT above has already written the status. If the command fails, report its message in one line and stop."""
+
+# --------------------------------------------------------------------------------------------
+# Estimation on Sofia (bmad-agent-po). Her slice, refine and replan procedures end in a
+# single-slot hook (references/slice.md:112, ticket.md:49, replan.md:15); each runs
+# estimate-entries, which writes only l3io.toml beside tickets.toml and commits it, so the
+# next bmad-build-auto still starts on a clean tree. The replan hook repoints our sidecars
+# after any `tickets.py move` first: move renumbers the entry and knows nothing of ours.
+# The menu item is a `prompt`, never a `skill`: for a missing skill Sofia offers an install
+# from her own bmod.toml source, which is BMAD-METHOD (workflow.md:41).
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-estimate-on-slice"
+skill = "bmad-agent-po"
+kind = "scalar"
+path = "workflow.tickets_after"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) estimates the entries this slice planned. For each epic whose entries you planned or re-sliced, run:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py estimate-entries --project-root {project-root} --ticket-dir <epic folder>
+```
+
+- `<epic folder>`: the epic's folder, `<initiative>/tickets/epic-<slug>`.
+- If it exits 2 naming entries that need a class, judge each from its title, description and verification as `simple`, `standard` or `complex`, then run it again with one `--class <id>=<class>` per entry it named. The class is your only judgement; the command does the arithmetic. Never write an estimate into a ticket.
+- It writes only l3io's own `l3io.toml` beside `tickets.toml`, and commits that one file. It changes no ticket, so it needs no `write`, `mark` or publish.
+- Report one short line per JSON line it prints. If it fails for another reason, say so in one line and carry on.
+"""
+
+[[entry]]
+id = "l3io-estimate-on-refine"
+skill = "bmad-agent-po"
+kind = "scalar"
+path = "workflow.refine_after"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) re-estimates the ticket just saved when it is an entry in an epic's `tickets.toml`. A backlog ticket or a container has no l3io estimate: skip this for them. Otherwise run:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py estimate-entries --project-root {project-root} --ticket-dir <epic folder> --entry <id>
+```
+
+- `<epic folder>`: the folder holding the entry's `tickets.toml`; `<id>`: the entry's id.
+- If it exits 2 asking for a class, judge the ticket as `simple`, `standard` or `complex` from what it now requires and run it again with `--class <id>=<class>`. Add `--class` too when the refine changed the ticket's size enough to change its class.
+- It writes and commits only l3io's own `l3io.toml`. Report its result in one line; if it fails, say so in one line and carry on.
+"""
+
+[[entry]]
+id = "l3io-reestimate-on-replan"
+skill = "bmad-agent-po"
+kind = "scalar"
+path = "workflow.replan_after"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) keeps its estimates with the tickets this replan changed. First repoint its files, because `tickets.py move` renumbers a moved entry and leaves l3io's files behind:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py sidecar-reconcile --project-root {project-root} --initiative-dir <initiative folder>
+```
+
+- Run it once per `tickets.py move` this replan made, adding `--moved-json '<the move's JSON output>'` each time. With no move, run it once as written: it then sweeps for orphaned l3io files.
+
+Then re-estimate every epic the replan re-sliced, moved an entry into or out of, or dropped an entry from:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py estimate-entries --project-root {project-root} --ticket-dir <epic folder>
+```
+
+- If it exits 2 naming entries that need a class, judge each as `simple`, `standard` or `complex` and run it again with one `--class <id>=<class>` per entry it named.
+- Both commands write and commit only l3io's own files; neither changes a ticket. Report one short line per action. If one fails, say so in one line and carry on.
+"""
+
+[[entry]]
+id = "l3io-menu-estimate"
+skill = "bmad-agent-po"
+kind = "keyed"
+path = "agent.menu"
+requires = "l3io-pm"
+
+[entry.value]
+code = "l3io-estimate"
+description = "l3io estimates for an initiative's or an epic's entries, and the epic roll-up"
+prompt = "Run the l3io-plan skill in estimate mode on the folder the user names, or the active initiative."

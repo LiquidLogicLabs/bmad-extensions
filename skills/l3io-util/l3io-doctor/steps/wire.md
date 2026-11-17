@@ -23,10 +23,16 @@ What it adds (`assets/wire-in.toml`):
 | `l3io-build-close` | `bmad-build.toml` | `workflow.on_complete` | closes it: the ticket's actuals, events, calibration sample, and a commit of them (`build-close`) |
 | `l3io-build-auto-open` | `bmad-build-auto.toml` | `workflow.activation_steps_prepend` | as `l3io-build-open` |
 | `l3io-build-auto-close` | `bmad-build-auto.toml` | `workflow.on_complete` | as `l3io-build-close`, with `hitl_hours` 0 |
+| `l3io-estimate-on-slice` | `bmad-agent-po.toml` | `workflow.tickets_after` | estimates the entries a slice planned, and rolls up their epic (`estimate-entries`) |
+| `l3io-estimate-on-refine` | `bmad-agent-po.toml` | `workflow.refine_after` | re-estimates the entry just refined |
+| `l3io-reestimate-on-replan` | `bmad-agent-po.toml` | `workflow.replan_after` | repoints l3io's files after a move (`sidecar-reconcile`), then re-estimates each epic the replan touched |
+| `l3io-menu-estimate` | `bmad-agent-po.toml` | `agent.menu` (code `l3io-estimate`) | a Sofia menu item running `l3io-plan` in estimate mode |
 
-Each of these calls `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py`, which
+Each hook calls `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py`, which
 `bmad setup l3io-pm` installs, and carries `requires = "l3io-pm"`: while that file is
-absent the entry is `skipped` and nothing is written for it.
+absent the entry is `skipped` and nothing is written for it. The menu item needs
+`l3io-pm` the same way. Every hook commits the l3io files it writes and nothing else, so the
+next `bmad-build-auto` still starts on a clean tree.
 
 ## 2. Report
 
