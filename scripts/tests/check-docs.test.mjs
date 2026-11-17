@@ -3352,8 +3352,8 @@ test("check 25: prose after a bare command invocation is not a keyword claim", a
 // load a file that is not there is worse than a stale keyword.
 test("check 25: a step file pointing at a mode file the doctor does not carry is caught", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util/l3io-doctor/steps/redrive.md",
-    read(root, "skills/l3io-util/l3io-doctor/steps/redrive.md") +
+  write(root, "skills/l3io-util/l3io-doctor/steps/clean-legacy.md",
+    read(root, "skills/l3io-util/l3io-doctor/steps/clean-legacy.md") +
     "\nApply the fix with `steps/rename-epic-dirs.md` (Rename Epic Dirs Mode).\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -3365,8 +3365,8 @@ test("check 25: a step file pointing at a mode file the doctor does not carry is
 // written this way.
 test("check 25: a cross-skill qualified mode-file pointer is not a doctor pointer", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util/l3io-doctor/steps/redrive.md",
-    read(root, "skills/l3io-util/l3io-doctor/steps/redrive.md") +
+  write(root, "skills/l3io-util/l3io-doctor/steps/clean-legacy.md",
+    read(root, "skills/l3io-util/l3io-doctor/steps/clean-legacy.md") +
     "\nThe run's builds are dispatched in `l3io-execute/steps/execute/step-04-dispatch.md`.\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
