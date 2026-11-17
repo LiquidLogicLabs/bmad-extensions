@@ -1,13 +1,170 @@
 # Upgrading
 
-Version-to-version upgrade notes for `bmad-l3io-extensions`, plus the one command that
-handles data migration.
+Version-to-version upgrade notes for `bmad-l3io-extensions`.
+
+**Two lines are maintained.** l3io **4.x runs on BMad v7 only**; l3io **3.x stays the line for
+BMad 6.x**. A 4.x skill on a 6.x project stops at activation and says to install 3.x; a 3.x skill
+on a v7 project stops and says to install 4.x. Moving a project from 3.x to 4.0.0 means moving it
+to BMad v7 at the same time — read [3.x → 4.0.0](#3x--400-moving-to-bmad-v7) below.
+
+## The short version (4.x, BMad v7)
+
+```bash
+# 1. Refresh the skills: one `skills add` per module folder of a checkout of this release
+for m in l3io-pm l3io-util l3io-sec l3io-arch; do
+  npx --yes skills add /path/to/bmad-extensions/skills/$m -s '*' -a claude-code -y --copy
+done
+```
+
+```
+# 2. In your agent: install each module's declared scripts and settings
+bmad setup l3io-pm
+bmad setup l3io-util
+bmad setup l3io-arch    # if installed
+bmad setup l3io-sec     # if installed
+
+# 3. Attach l3io's hooks to BMad's skills (re-run when the release notes say the set changed)
+/l3io-doctor wire
+
+# 4. Health check — reports anything left to do, including a pending `bmad migrate`
+/l3io-doctor
+```
+
+`npx skills add` installs skills but none of the scripts they declare; `bmad setup` installs
+those under `_bmad/<module>/scripts/`, so a skill run before it stops and names the `bmad setup`
+command. Your `_bmad/custom/` files survive all four steps; `wire` only adds entries and never
+overwrites a team's own value.
+
+## 3.x → 4.0.0: moving to BMad v7
+
+l3io 4.0.0 is the BMad v7 line. Upgrade to it only together with moving the project to BMad v7;
+a project that stays on BMad 6.x stays on l3io 3.x, which keeps receiving 3.x releases. The
+version note [→ 4.0.0](#-400) has the detail behind every row below.
+
+### The procedure
+
+1. **Finish or stop every l3io run in flight** and commit the project, including
+   `{implementation_artifacts}/state/`. The migration reads the committed 3.x data, and
+   `bmad migrate` takes its own backup before it writes.
+2. **Install BMad v7** — its `core-tools` and `method` modules, set up in the repository.
+   `l3io-pm` dispatches to three `method` skills, which are now required: `bmad-agent-po`
+   (Sofia), `bmad-build-auto` and `bmad-retrospective`.
+3. **Add the l3io 4.x modules**, one `npx skills add` per module folder (`skills/l3io-pm`,
+   `skills/l3io-util`, and optionally `skills/l3io-arch`, `skills/l3io-sec`), then **set each
+   up** in your agent with `bmad setup <code>`. Setup installs the scripts each module declares
+   under `_bmad/<code>/scripts/`, offers to delete the l3io skills 4.x no longer ships, and
+   removes the copy of `pm-status` that 3.x installed into `_bmad/scripts/`. The README's
+   [Quick Start](../README.md#quick-start) has the exact commands.
+4. **Run `bmad migrate`.** BMad's own migration goes first: method's `migration-1` (6 → 7)
+   moves your epics and stories into an initiative's ticket tree and writes every status.
+   l3io-pm's `migration-1` (3 → 4) applies only once that tree exists, and carries what l3io
+   recorded: estimates and classes, actuals and completion evidence, lanes, the calibration
+   file, the event log, the ADR register and the reorg log. **Expect ours to appear on the next
+   pass, not the same one** — after a migration runs, `bmad migrate` re-checks only that
+   module's later migrations, so run `bmad migrate` (or `bmad setup`) again. `/l3io-doctor`'s
+   Check 20 says which of the two migrations is pending. Ours stops before writing anything when
+   a 3.x story maps to no v7 ticket or to two, when v7-era work already set a value, or when a
+   story has actuals and no plan; its plan names the fix (`--map`, or v7's `tickets.py mark`).
+   The 3.x source is renamed aside as `.legacy` only after every datum verifies.
+5. **Run `/l3io-doctor wire`**, which attaches l3io's hooks to Sofia, `bmad-build`,
+   `bmad-build-auto`, `bmad-retrospective`, `bmad-review`, `bmad-code-review` and
+   `bmad-architecture`. **If you set up `l3io-arch` or `l3io-sec` after wiring, run
+   `/l3io-doctor wire` again**: their lenses and the design review are added only for modules
+   set up at the time.
+6. **Run `/l3io-doctor`.** The health check reports what is left. Then:
+   - file what is still open in the 3.x `issues.yaml` as backlog tickets through Sofia —
+     nothing migrates or reads it;
+   - remove the settings 4.x no longer reads from your team files (listed below), and repoint a
+     file that names `l3io-arch-review`'s `references/standards-*.md` to `scripts/standards/`;
+   - once you have checked the result, remove the `.legacy` copies with
+     `/l3io-doctor clean-legacy`.
+
+### What replaced what
+
+| Removed in 4.0.0 | Replaced by |
+|---|---|
+| Installing with `npx bmad-method install` (module discovery through `module.yaml`) | replaced by `npx skills add` per module folder, then `bmad setup <code>` |
+| `/l3io-setup` | replaced by `bmad setup l3io-pm` (and `bmad setup <code>` for the other modules) |
+| `/l3io-help`, `/l3io-pm-help` | replaced by v7's `bmad` skill, which reads each module's `help/help.md`; `/l3io-doctor stats` for progress |
+| `/l3io-sync`, `/l3io-pm-sync` (GitHub Issues sync) | replaced by v7's own ticket stores; l3io keeps no tracker sync and `/l3io-doctor` does not replace it |
+| `/l3io-pm-execute`, `/l3io-pm-plan` (forwarders) | replaced by `/l3io-execute`, `/l3io-plan` — `bmad setup` moves their `_bmad/custom/` files to the new names |
+| pm-status self-install into `_bmad/scripts/`, the `self-install` verb | replaced by `bmad setup`, which installs `pm_status` at `_bmad/l3io-pm/scripts/` and `_bmad/l3io-util/scripts/` |
+| The doctor mode `check-pm-status` | replaced by `/l3io-doctor version` (both copies; Check 25 reports skew) |
+| `/l3io-plan` with no argument (readiness, elaboration, graph, snapshot, backlog intake) | replaced by Sofia's REFINE; her validate runs l3io's readiness checks once wired; `/l3io-plan waves` for the order |
+| `/l3io-plan reorg`, undoing a reorg | replaced by Sofia's REPLAN; her BOARD `move` for one ticket |
+| `/l3io-plan estimate E001` | replaced by `/l3io-plan estimate <folder>`; Sofia's wired hooks estimate new and changed tickets |
+| `/l3io-execute E001` / `E001-S01` | replaced by `/l3io-execute <initiative or epic folder>` |
+| `l3io-execute`'s story prep and dev agent | replaced by one `bmad-build-auto` run per ticket |
+| `l3io-execute`'s code review and fix loop (`max_fix_iterations`) | replaced by `bmad-build-auto` invoked `thorough`, with l3io's eleven lenses once wired |
+| Sprint closure | replaced by nothing — v7 has no sprints |
+| Epic architecture gate in the run | replaced by `l3io-arch`'s design review at `bmad-architecture`'s Reviewer Gate (`finalize_reviewers`) |
+| Epic-closure spec sync (`spec-align.py` `sync-plan`, `propose`, `commit`, `reject`, `check-stale`) | replaced by the `l3io-fact-spec-sync` fact on `bmad-retrospective`: an advisory reconciliation item you apply through `bmad-architecture` |
+| Epic closure and acceptance | replaced by `bmad-retrospective -H`; its verdict decides, and wire's `epic-close` hook records the actuals |
+| Epic locks (`set-lock`, `clear-lock`, `check-lock`, `epic_lock_ttl_minutes`) | replaced by the epic's `l3io/<slug>` branch and worktree |
+| The doctor modes `migrate-state` and `redrive` | replaced by `bmad migrate` (Check 20 reports it pending); there is no `redrive` on v7 |
+| The doctor modes `bootstrap-state`, `split-status`, `sort-status`, `reconcile-status`, `migrate-schema`, `clean-layout` / `layout-cleanup` | replaced by nothing — the 3.x state tree is gone, and `bmad migrate` reads any 3.x layout as it is |
+| `/l3io-doctor triage` over `issues.yaml` | replaced by `/l3io-doctor triage` over v7's tree, proposing each repair to Sofia |
+| `issues.yaml`, `issues-resolved.yaml`; `append-issue`, `update-issue`, `promote-issue`, `schedule-issue`, `resolve-issue`, `list-issues`, `audit-issues`, `repair-issue` | replaced by v7's `backlog/` through Sofia (TICKETS, REFINE, BOARD); see the table in → 4.0.0 |
+| `set-status`, `move-epic`, `reparent-story`, `retire-epic`, `reorg-log`, `reorg-undo`, `dump-plan` | replaced by Sofia and `bmad-build-auto` — status and placement are v7's |
+| `list-epics`, `list-stories`, `show` | replaced by `pm-status.py report --project-root P --initiative-dir D`, or `/l3io-doctor stats` |
+| `set-depends-on`, `story-doc-init`, `set-field` | replaced by v7's `after`; Sofia's TICKETS; `set-lane` for a lane |
+| `import-node`, `import-actual` | replaced by the migration engine `bmad migrate` runs |
+| `estimate-story`, `estimate-rollup` | replaced by `estimate-entries` |
+| `calibration redrive`, `sync-story-doc`, `archive-epic` | replaced by nothing |
+| `--state-root` with `--epic` / `--sprint` / `--story` on `set-estimate`, `set-actual`, `add-test-run`, `verify` | replaced by `--project-root` with `--ticket-dir DIR --entry ID` or `--plan-file PATH` |
+| `{implementation_artifacts}/state/` (calibration, events, ADR register, reorg log) | replaced by `{output_folder}/l3io/` in the main checkout, plus TOML sidecars beside v7's tickets and plans |
+| `bmad-customize` overlays from `l3io-arch-review`'s `customize-architect.md`; `references/standards-*.md` | replaced by `/l3io-doctor wire`; `scripts/standards/standards-*.md` |
+| `l3io-sec-redteam`'s lens checks inline in `threat-analysis.md` | replaced by `scripts/lenses/`, run as lenses in `bmad-review` and every thorough review once wired; the agent stays for sessions |
+
+**Settings that now set nothing.** `l3io-execute`: `max_fix_iterations`, `max_turns_per_story`,
+`epic_lock_ttl_minutes`, `spec_alignment`, `spec_paths`. `l3io-plan`: `auto_elaborate`,
+`include_estimates`, `plan_output`, `max_turns_per_story`. The skills also stop reading
+`core.user_name`, `core.communication_language` and `core.document_output_language`.
+
+### What behaves differently
+
+- **An unattended run pauses at epic gates.** `/l3io-execute` stops before a wave that waits on
+  an earlier epic's closure (an `after` naming the epic, or one in an epic file) and asks you to
+  close that epic in Sofia; `done` is your call on the retrospective's verdict. A dependency
+  declared only in `[[epic]] after` orders the waves and pauses nothing. A `rejected` verdict
+  halts that epic and leaves its tickets at `built`.
+- **Epics build in parallel only when the project commits `_bmad/`.** Each epic gets its own
+  `l3io/<slug>` branch; it also gets its own git worktree only if git tracks `_bmad/`, since a
+  worktree without it cannot run a v7 skill. Otherwise the run builds one epic at a time in
+  the main checkout, and says so when it starts. Tickets inside an epic are always sequential.
+- **The spec sync is advisory.** The retrospective records a departure from an architecture spec
+  as a reconciliation action item; nothing edits the spec until you apply it through
+  `bmad-architecture`. Decision records it writes use v7's `adr-<slug>.md` naming, not
+  `adr-reserve` numbers.
+- **The epic design review runs at `bmad-architecture`'s Reviewer Gate**, when an epic's
+  architecture is drawn or validated there. Nothing forces that per epic, and no design gate
+  runs inside `/l3io-execute`.
+- **The orchestration estimate band stays on its cold-start default.** Its only actuals writer
+  was 3.x's `set-actual --block orchestration`; nothing on v7 records an orchestration
+  observation, so that term of an epic's estimate never calibrates.
+- **Calibration learns only from successful, estimated builds.** Wire brackets every
+  `bmad-build` and `bmad-build-auto` run, but a sample needs an estimate recorded before the
+  build and a plan reading `built` afterwards. A ticket built without an estimate gets actuals
+  and teaches the estimator nothing — estimate through Sofia (or `/l3io-plan estimate`) first.
+- **There are no sprints.** An epic's estimate is its tickets plus the epic-closure and
+  orchestration bands. A 3.x project's sprint numbers survive only as history in the epic's
+  `l3io.toml`.
+- **3.x calibration samples are carried as they are**, including any a 3.x `redrive` would have
+  rebuilt; on v7 they age out under the decay weighting as new samples accumulate.
+- **`{output_folder}/l3io/` must be committed.** Every worktree shares it; the health check's
+  Check 16 reports it when git ignores it.
+
+## On l3io 3.x (BMad 6.x)
+
+*Everything from here to [Version notes](#version-notes) applies to the 3.x line only. On 4.x the
+installer is `npx skills add` + `bmad setup`, the data migration is `bmad migrate`, and the
+doctor modes named below are removed (see → 4.0.0).*
 
 **The installer refreshes skills. It does not migrate your data.** Those are separate steps,
 and skipping the second is the single most common way to end up with a project the skills
 cannot read.
 
-## The short version
+### The short version (3.x)
 
 ```bash
 # 1. Refresh the skills
@@ -23,15 +180,13 @@ the installer never writes those layers.
 **Step 2 is required after every skill update, not optional and not one-time.** Step 1
 refreshes the skill payloads under `skills/`, but your project's on-disk data is untouched by
 a skill refresh, and `/l3io-doctor` is the one command that inspects it and applies every
-migration you need, in dependency order, behind one confirmation. On BMad v7 the
-`pm_status` helper every skill runs is installed by `bmad setup`, one copy per module, and
-the health check reports the two copies drifting apart (see → 4.0.0). Skipping
+migration you need, in dependency order, behind one confirmation. Skipping
 `/l3io-doctor` after an update leaves any migration your project needs undone: a
 subcommand the new payloads assume (a newly optional flag, a newly added subcommand) then
 fails with a plain argparse error that gives no hint the real cause is a missed migration, or
 the run proceeds against a layout the current skills cannot correctly read.
 
-## Why step 2 matters
+### Why step 2 matters
 
 `/l3io-doctor` with no argument inspects the project, reports what it finds, and proposes
 every applicable migration **in dependency order** behind a single confirmation. It runs only
@@ -56,7 +211,7 @@ result.
 The skill is the authority on this sequence. If this document and
 `/l3io-doctor` ever disagree, the skill is correct and this file is stale.
 
-## Upgrade between runs
+### Upgrade between runs
 
 An upgrade replaces `pm-status.py` for processes that start **after** it lands. A
 `pm-status.py` invocation already in flight keeps running the copy it loaded — it does not pick
@@ -77,7 +232,7 @@ exited, every subsequent invocation loads the same, current copy and locks the s
 is not a reason to avoid running `/l3io-doctor` between runs — it is a reason not to run
 it, or any manual `pm-status.py` write, against an epic another session is actively executing.
 
-## Lock files leave git
+### Lock files leave git
 
 `pm-status.py`'s lock files are empty flock targets: `epic-NNN.lock`, `issues.yaml.lock`,
 `pm-calibration.yaml.lock`, `adr-register.yaml.lock` and `.notices.yaml.lock` in
@@ -100,8 +255,8 @@ nor `.notices.yaml` matches the directory itself.
 
 ## Version notes
 
-Find your starting version and read forward. `npx bmad-method install` upgrades across any
-number of these at once, but the migrations must still run.
+Find your starting version and read forward. One install upgrades across any number of these
+at once, but the migrations must still run — `/l3io-doctor` on 3.x, `bmad migrate` on 4.x.
 
 ### → 4.0.0
 
@@ -1034,17 +1189,30 @@ Also observed on a real v7 install at `e435a22`:
 
 ## Verifying the upgrade
 
+On 4.x:
+
+```
+/l3io-doctor check     # read-only: confirms nothing is left flagged, including a pending bmad migrate
+/l3io-doctor version   # the installed l3io version per skill and module; both pm_status copies agree
+```
+
+On 3.x:
+
 ```
 /l3io-doctor check     # read-only: confirms nothing is left flagged
 /l3io-help               # confirms state resolves and recommends the next action
 ```
 
-`/l3io-help` also warns if `state/` is gitignored — worth checking after a migration, since
+`/l3io-help` (3.x only) also warns if `state/` is gitignored — worth checking after a migration, since
 state that is not committed defeats the layout.
 
 ## Backups and rollback
 
-Every one-time migration preserves what it replaced:
+On 4.x, `bmad migrate` takes a full backup before it writes, and l3io-pm's `migration-1` renames
+the 3.x source it read aside as `.legacy` (the sharded tree as `state.legacy/`) only after every
+datum verifies. A failed verification keeps the source in place.
+
+On 3.x, every one-time migration preserves what it replaced:
 
 | Backup | Left by |
 |---|---|
@@ -1054,7 +1222,7 @@ Every one-time migration preserves what it replaced:
 | `{implementation_artifacts}/state/pm-calibration.yaml.v1` | first calibration write after a v1 → v2 schema migration (written beside the live calibration file, not under `_bmad/`) |
 | `_bmad/migration-backup/` | pre-2.5 `migrate-state` (Stage F's "move" option). The current engine renames sources to `*.yaml.legacy` in place, not to a backup directory — you will only see this if your project was migrated under an older release. |
 
-Nothing deletes these automatically. Once you have verified the result, remove them with:
+Nothing deletes these automatically, on either line. Once you have verified the result, remove them with:
 
 ```
 /l3io-doctor clean-legacy
@@ -1067,4 +1235,5 @@ It dry-runs first and confirms before deleting.
 | Deprecated | Since | Replacement | Removal |
 |---|---|---|---|
 | `/l3io-util-cleanup` | 2.1.0 | `/l3io-doctor` | removed in 3.0.0 |
-| `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; no longer reachable once `migrate-state` has run | when 1.x migration support is dropped |
+| `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; `bmad migrate` reads every 3.x layout directly | removed in 4.0.0 |
+| `/l3io-pm-execute`, `/l3io-pm-plan`, `/l3io-pm-help`, `/l3io-pm-sync` | 3.1.3 | `/l3io-execute`, `/l3io-plan`; see [What replaced what](#what-replaced-what) | removed in 4.0.0 |
