@@ -50,7 +50,9 @@ builds one with `tests/fixtures/v7/make-fixture.sh` at the same pin, copies it u
 `setup.py` headlessly, answering each question with its default. It asserts: every skill lands
 in both tool roots; setup lists `lane_count`; no `problems`, no unmet requirement, every record
 found and registered at the package version; a `lane_count` in `_bmad/custom/config.toml`
-resolves; with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
+resolves; each module's declared `pm_status` (`l3io-pm`, `l3io-util`) is installed under
+`_bmad/<module-code>/scripts/`, every file its `bmod.toml` lists, and `uv run` of its `__main__.py
+--help` exits 0; with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
 it with `--skill`, and following that hint against this checkout satisfies it. Setup's update
 check (`--source-record`, which reads `bmod.toml` from `main` on GitHub) is reported, not judged:
 it says `could-not-check` while `main` ships 3.x. It needs GitHub and npm, takes about 30 s, and
@@ -270,6 +272,13 @@ in CI and in `prerelease`, and `postbump` regenerates after the payload re-sync 
 version strings inside payload files, so every hash moves).
 
 ## Sync and verify
+
+`sync-shared-scripts.mjs` also **writes `[skill] scripts`** into the `bmod.toml` of every skill a
+`pm_status` file is delivered to (`l3io-execute`, `l3io-doctor`): every `.py` of the package,
+POSIX paths relative to the skill, sorted. v7's setup installs exactly that list into
+`_bmad/<module-code>/scripts/`, so a module missing from it is not installed and its first
+import fails on the user's machine. `--check` fails with an `UNDECLARED:` line naming the
+`bmod.toml` and the script for each difference. Never hand-edit the list.
 
 ```bash
 npm run sync:scripts    # regenerate payload copies from skills/_shared/ source

@@ -1172,6 +1172,6 @@ def node_args(sp):
 def register(sub):
     """`self-install` -- core's only verb (it owns `package_root` and the content guard)."""
     si = sub.add_parser("self-install", help="install this package as pm-status/ beside --dest, content-guarded")
-    si.add_argument("--dest", required=True, help="target path, e.g. {project-root}/_bmad/scripts/pm-status.py")
+    si.add_argument("--dest", required=True, help="target path; the package is installed as pm-status/ beside it")
     si.add_argument("--force", action="store_true", help="overwrite even if dest is same/newer")
     si.set_defaults(func=cmd_self_install)

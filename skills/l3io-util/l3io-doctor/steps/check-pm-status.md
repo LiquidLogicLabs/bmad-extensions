@@ -1,7 +1,8 @@
 # check-pm-status — verify the installed pm-status.py is current
 
-Invoked with `check-pm-status`. **Read-only.** Compares the installed
-`{project-root}/_bmad/scripts/pm-status/__main__.py` against this doctor's module version (`[bmod] version` in its `bmod.toml`) and reports
+Invoked with `check-pm-status`. **Read-only.** Compares the copy of `pm-status.py` that
+activation self-installs (the 6.x-layout copy; every mode runs `{pm_status}`, the copy
+`bmad setup l3io-util` installs, instead) against this doctor's module version (`[bmod] version` in its `bmod.toml`) and reports
 whether it is current, stale, or absent.
 
 Why this lives here: only module records carry a version. This mode lets any consumer
@@ -21,9 +22,8 @@ Print the output as-is. Then:
 - Exit 0 → `DONE — pm-status.py is current.`
 - Exit 3 → `STALE — installed pm-status.py is behind the shipped version. Run any l3io-pm or
   l3io-doctor skill; the activation self-install refreshes the copy.`
-- Exit 4 → `ABSENT — no pm-status.py has been self-installed at
-  {project-root}/_bmad/scripts/pm-status/__main__.py yet. Run any l3io-pm or l3io-doctor skill to
-  self-install it.`
+- Exit 4 → `ABSENT — no pm-status.py has been self-installed yet. Run any l3io-pm or
+  l3io-doctor skill to self-install it.`
 - Exit 2 → `FAILED: <the script's stderr>`
 
 Change nothing. This mode never writes.

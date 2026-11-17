@@ -135,8 +135,12 @@
 //                    `{output_folder}` to anything but `core.output_folder`, or asks the
 //                    resolver for a bare `--key output_folder`. BMad v7's resolver returns
 //                    only core.project_name and core.output_folder, so each of those reads
-//                    resolves to nothing there, with no error. See the block above
-//                    v7ConfigKeys() for the KNOWN GAP.
+//                    resolves to nothing there, with no error. Nor does it name the 6.x
+//                    runtime path `_bmad/scripts/pm-status`: on v7 each module's declared
+//                    copy is at `_bmad/<module-code>/scripts/pm_status/`. A line that must
+//                    name the old path (code that removes it) says so inline with
+//                    `check-39: legacy-path -- <reason>`. See the block above v7ConfigKeys()
+//                    for the KNOWN GAP.
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -4732,6 +4736,15 @@ export function probeToolRootParity(opts = {}) {
 // resolver call with `--key output_folder`. A USE of the placeholder (`{output_folder}/l3io/`)
 // is not a read and is not judged.
 //
+// The third arm is the 6.x runtime path `_bmad/scripts/pm-status` (the package directory and
+// the pre-package `pm-status.py` alike). v7 installs each module's declared copy at
+// `_bmad/<module-code>/scripts/pm_status/` and rebuilds `_bmad/scripts/` to its own set on every
+// setup, so a call through the old path finds nothing once setup has run. Code that exists to
+// find or remove the old copy has to name it; such a line carries
+// `check-39: legacy-path -- <reason>`, the same inline-and-reasoned shape as a `# noqa`, so every
+// exemption is visible where it is taken and none is granted file-wide. A marker with no reason
+// exempts nothing.
+//
 // Scope is derived: every file under every skillDirs() directory, which is what an install
 // copies -- the per-skill copies sync-shared-scripts.mjs writes included, so a canonical source
 // in skills/_shared/ is judged through the copies it ships as. Excluded exactly as the payload
@@ -4739,12 +4752,15 @@ export function probeToolRootParity(opts = {}) {
 //
 // KNOWN GAP: a placeholder binding written in some other shape -- prose such as "set
 // {output_folder} from output_folder" -- is not recognised as a binding. Neither is a script
-// reading the key under a computed name.
+// reading the key under a computed name, nor one assembling the old path from parts
+// (`Path("_bmad") / "scripts" / "pm-status"`).
 const V7_ABSENT_CORE_KEYS = ["user_name", "communication_language", "document_output_language"];
 const V7_ABSENT_KEY_RE = new RegExp(`\\b(${V7_ABSENT_CORE_KEYS.join("|")})\\b`, "g");
 // `- `{output_folder}` — …`, `| `{output_folder}` | … |`, `{output_folder}: …`, `{output_folder} = …`
 const OUTPUT_FOLDER_BINDING_RE = /^\s*(?:[-*]\s+|\|\s*)?`?\{output_folder\}`?\s*(?:—|–|-|:|=|\||->|←)\s*\S/;
 const BARE_OUTPUT_FOLDER_KEY_RE = /--key[ =]["']?output_folder\b/;
+const OLD_PM_STATUS_PATH = "_bmad/scripts/pm-status";
+const LEGACY_PATH_MARKER_RE = /check-39: legacy-path -- \S/;
 
 function shippedSkillFiles() {
   const out = [];
@@ -4779,6 +4795,11 @@ export function v7ConfigKeys() {
       if (BARE_OUTPUT_FOLDER_KEY_RE.test(line)) {
         violations.push(`${at}: \`--key output_folder\` — the resolver key is ` +
                         `\`core.output_folder\`; the bare key resolves to nothing`);
+      }
+      if (line.includes(OLD_PM_STATUS_PATH) && !LEGACY_PATH_MARKER_RE.test(line)) {
+        violations.push(`${at}: \`${OLD_PM_STATUS_PATH}\` — the 6.x runtime path; v7 installs ` +
+                        `each module's declared copy at \`_bmad/<module-code>/scripts/pm_status/\` ` +
+                        `(mark a line that must name the old path \`check-39: legacy-path -- <reason>\`)`);
       }
     });
   }

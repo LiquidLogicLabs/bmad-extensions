@@ -35,17 +35,18 @@ over months and merely READ by our skills. It appears in no payload manifest, so
 scope already excludes it; the exclusion is restated here because it is the one mistake that
 would matter, and a reader should not have to infer it.
 
-`_bmad/scripts/pm-status/` (the self-installed package) IS removed file by file, each file only
+The self-installed package (`_SELF_INSTALLED_DIR`) IS removed file by file, each file only
 when it matches a manifest hash for the same path under `scripts/pm_status/`: it is our payload,
 and reinstalled automatically at the next skill activation. The pre-package single file
-`_bmad/scripts/pm-status.py` is treated the same way when it is still present.
+(`_SELF_INSTALLED`) is treated the same way when it is still present. The copies v7 installs
+under `_bmad/<module-code>/scripts/` are not touched: `bmad setup` owns that tree.
 
 Bytecode and the directories our files emptied
 ----------------------------------------------
 File-by-file removal is not what the operator sees. Measured on a real uninstall: all 91
 payload files removed, success reported, and 8 `__pycache__` directories holding 20 `.pyc`
 files left behind -- which also kept every package directory above them non-empty, so the
-whole `_bmad/scripts/pm-status/` tree and the skill's own directories survived an uninstall
+whole self-installed package tree and the skill's own directories survived an uninstall
 that said it was done. Before the package split there was one file and nothing to leave.
 
 A `.pyc` is not in any manifest, and it never can be: the interpreter writes it when it
@@ -84,8 +85,8 @@ _SKILL_ROOT_GLOB = ".*/skills"
 # restored backup, or a project upgraded by hand can leave one old manifest beside a new
 # script. Accepting both costs one tuple and removes the whole class.
 _GENERATED_FROM = ("skills/<skill>/", "skills/_shared/")
-_SELF_INSTALLED = ("_bmad/scripts/pm-status.py",)      # the pre-package single file
-_SELF_INSTALLED_DIR = "_bmad/scripts/pm-status"       # the package directory
+_SELF_INSTALLED = ("_bmad/scripts/pm-status.py",)  # check-39: legacy-path -- the pre-package single file
+_SELF_INSTALLED_DIR = "_bmad/scripts/pm-status"  # check-39: legacy-path -- the package directory
 _PACKAGE_PAYLOAD = "scripts/pm_status/"               # where a manifest keys the package's files
 _BYTECODE_DIR = "__pycache__"
 _BYTECODE_SUFFIXES = (".pyc", ".pyo")

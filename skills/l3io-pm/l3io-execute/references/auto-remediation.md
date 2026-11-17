@@ -149,6 +149,7 @@ convert them, whatever remedy appears to exist.
 | `step-04-arch-gate: arch gate — {N} blocking findings` | Requires design decisions | `halt` |
 | `step-02-story-prep: story {story_key} still missing required acceptance` | Content authoring | `halt` |
 | `step-00-activate: l3io-execute/scripts/pm_status/__main__.py is missing beside this skill.` | The install itself is broken | `halt` |
+| `step-00-activate: _bmad/l3io-pm/scripts/pm_status is not installed — run` | Setup has not run since the skills were added. The remedy is `bmad setup l3io-pm`, which asks the module's config questions, and those answers are the user's to give | `halt` |
 | `step-00-activate: BMad v7 detected ({evidence_path}). This is` | Wrong product line, not a defect: l3io 3.x supports BMad 6.x only, and the remedy is installing l3io 4.x, which no step can do | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
 | `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |

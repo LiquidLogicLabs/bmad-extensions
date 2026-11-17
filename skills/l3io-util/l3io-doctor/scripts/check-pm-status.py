@@ -38,7 +38,7 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 _BMOD_TOML = _HERE.parent / "bmod.toml"
-_INSTALLED_PATH = "_bmad/scripts/pm-status/__main__.py"
+_INSTALLED_PATH = "_bmad/scripts/pm-status/__main__.py"  # check-39: legacy-path -- the self-installed copy
 
 
 _VERSION_TOKEN_RE = re.compile(r"\b(\d+(?:\.\d+)+)\b")

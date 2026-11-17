@@ -12,3 +12,25 @@ Run /l3io-doctor once after installing or upgrading, before any epic run: it det
 Requires uv on PATH: the Python helpers run via `uv run`."""
 
 [skill]
+scripts = [
+  "scripts/pm_status/__init__.py",
+  "scripts/pm_status/__main__.py",
+  "scripts/pm_status/core/__init__.py",
+  "scripts/pm_status/instructions/__init__.py",
+  "scripts/pm_status/issues/__init__.py",
+  "scripts/pm_status/issues/adr.py",
+  "scripts/pm_status/issues/audit.py",
+  "scripts/pm_status/issues/promote.py",
+  "scripts/pm_status/issues/store.py",
+  "scripts/pm_status/metrics/__init__.py",
+  "scripts/pm_status/metrics/actuals_usage.py",
+  "scripts/pm_status/metrics/calibration.py",
+  "scripts/pm_status/metrics/estimates.py",
+  "scripts/pm_status/metrics/events.py",
+  "scripts/pm_status/metrics/rates.py",
+  "scripts/pm_status/metrics/report.py",
+  "scripts/pm_status/metrics/spend.py",
+  "scripts/pm_status/nodes/__init__.py",
+  "scripts/pm_status/plan/__init__.py",
+  "scripts/pm_status/verbs/__init__.py",
+]

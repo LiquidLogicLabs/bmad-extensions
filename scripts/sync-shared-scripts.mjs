@@ -6,14 +6,13 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm_status/ → scripts/ in exactly ONE skill per module, which self-installs it to
-//   {project-root}/_bmad/scripts/pm-status/__main__.py: `l3io-execute` for the l3io-pm module,
-//   and `l3io-doctor` for the (standalone) l3io-util module. `l3io-plan` reads
-//   `{skill-root}/../l3io-execute/scripts/pm_status/__main__.py` at activation
-//   (`steps/shared/step-00-activate.md` §2) rather than carrying its own copy, because the
-//   l3io-pm module installs its skills together, so `l3io-execute` lands beside it.
-//   check:module (`checkPmStatusSingleton`) guards against a second copy reappearing inside
-//   one module.
+//   pm_status/ → scripts/ in exactly ONE skill per module: `l3io-execute` for the l3io-pm
+//   module and `l3io-doctor` for the (standalone) l3io-util module. Each of those two skills
+//   DECLARES the package in its bmod.toml (`[skill] scripts`, written by this script -- see
+//   declaredScripts() below), and BMad v7's setup installs the declared files at
+//   {project-root}/_bmad/<module-code>/scripts/pm_status/, which every skill of that module
+//   calls. check:module (`checkPmStatusSingleton`) guards against a second copy reappearing
+//   inside one module.
 //   spec-align.py → scripts/ in l3io-execute (arch gate, story prep, closures) and
 //   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
@@ -43,6 +42,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { parse as parseToml } from "smol-toml";
 import { writeAllSync } from "./write-all-sync.mjs";
 import { skillDirs, skillDirByName, strayFiles } from "./lib/skill-dirs.mjs";
 
@@ -86,7 +86,7 @@ function pmStatusTreeFiles() {
 // source -> relative destination under each skill dir (pmScriptDirs) or all PM skill dirs (allPmDirs)
 const pmScriptFiles = pmStatusTreeFiles();
 
-// pm-status.py only (no test suite) for a skill that invokes {pm_status} and self-installs it
+// pm-status.py only (no test suite) for a skill that invokes {pm_status} and declares it
 // but is not one of the PM execution skills above. A test suite in a consumer skill's payload
 // is dead weight — the same kind this package removed when it stopped vendoring BMad core
 // scripts — so this group deliberately carries only the runtime script.
@@ -157,8 +157,8 @@ const pmRefFiles = [
 
 // The rule for who SHIPS a pm_status payload copy: exactly one skill per module, which is
 // co-installed with every other skill in that module. A skill that merely INVOKES {pm_status}
-// does not need its own copy; it reads that sibling's copy instead (l3io-plan reads
-// l3io-execute's). l3io-doctor is its own, standalone module, so it ships one too -- see
+// does not need its own copy; it calls the copy v7 installs for its module from the one that
+// does (l3io-plan calls the one l3io-execute declares). l3io-doctor is its own, standalone module, so it ships one too -- see
 // newUtilDoctorDirs below.
 // Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs groups below.
 const pmScriptDirs = [];
@@ -175,13 +175,13 @@ const newPmExecuteDirs = [
   skillDir("l3io-execute"),
 ];
 
-// The ONE l3io-pm skill that carries the pm_status package; l3io-plan reads it as a sibling.
+// The ONE l3io-pm skill that carries and declares the pm_status package for its module.
 const pmStatusShipperDirs = newPmExecuteDirs;
 
 // Skills that invoke {pm_status} but are not part of the l3io-pm module: they need
-// pm-status.py to self-install/heal from, but not its test suite. Currently: l3io-doctor,
-// the documented post-upgrade entry point (see docs/upgrading.md), a different, standalone
-// module with no l3io-pm sibling to read from.
+// pm-status.py to declare for their own module, but not its test suite. Currently:
+// l3io-doctor, the documented post-upgrade entry point (see docs/upgrading.md), a different,
+// standalone module that cannot rely on l3io-pm being installed.
 const newUtilDoctorDirs = [
   skillDir("l3io-doctor"),
 ];
@@ -253,14 +253,13 @@ const syncGroups = [
   { files: sharedStepFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   { files: planStepFiles, dirs: newPmPlanDirs, skipMissing: true },
   { files: executeStepFiles, dirs: newPmExecuteDirs, skipMissing: true },
-  // the pm_status package into ONE l3io-pm skill -- l3io-plan reads it from there at
-  // activation (`{skill-root}/../l3io-execute/scripts/pm_status/__main__.py`,
-  // step-00-activate.md §2) instead of carrying its own copy.
+  // the pm_status package into ONE l3io-pm skill, which declares it; v7 installs it at
+  // _bmad/l3io-pm/scripts/pm_status/, where l3io-plan calls it too.
   { files: pmScriptFiles, dirs: pmStatusShipperDirs, skipMissing: true },
   // status-files.md into new PM skills (plan + execute)
   { files: pmRefFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  // pm-status.py (no tests) into l3io-doctor — it invokes {pm_status} and self-installs
-  // it at activation but is not a PM execution skill; see pmStatusOnlyFiles above.
+  // pm-status.py (no tests) into l3io-doctor — it invokes {pm_status} from the copy it
+  // declares for l3io-util but is not a PM execution skill; see pmStatusOnlyFiles above.
   { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
   // status-files.md (state layout only, no metrics/calibration) into l3io-doctor --
   // see stateContractOnly above for why it ships rather than being repointed.
@@ -351,6 +350,70 @@ function findStalePackageFiles() {
   return stale.sort();
 }
 
+// The `[skill] scripts` list in each pm_status shipper's bmod.toml. BMad v7's setup installs
+// exactly the declared files into `_bmad/<module-code>/scripts/` (the leading `scripts/` dropped,
+// nested paths kept) and rebuilds that tree on every setup, so a module present in the payload
+// but absent from the list is simply not installed, and the first import of it fails on the
+// user's machine. The list is therefore GENERATED from the same source walk that delivers the
+// payload: every .py of the package, POSIX paths relative to the skill root, sorted.
+//
+// The declarers are derived from syncGroups -- every skill a pm_status file is delivered to --
+// so a module that gains a shipper declares there without an edit here.
+function pmStatusDeclarers() {
+  const pkgPrefix = path.join("scripts", PM_STATUS_PKG) + path.sep;
+  const dirs = new Set();
+  for (const { files, dirs: targets, skipMissing } of syncGroups) {
+    if (!files.some(({ rel }) => rel.startsWith(pkgPrefix))) continue;
+    for (const dir of targets) if (!(skipMissing && !fs.existsSync(dir))) dirs.add(dir);
+  }
+  return [...dirs].sort();
+}
+
+function declaredScripts() {
+  return walkPy(path.join(sharedDir, PM_STATUS_PKG))
+    .map((relPy) => ["scripts", PM_STATUS_PKG, ...relPy.split(path.sep)].join("/"))
+    .sort();
+}
+
+// The generated form, one entry per line so a new module is a one-line diff. Written as the last
+// key of the `[skill]` table; every other byte of the file is left as it was.
+const SCRIPTS_LINE_RE = /^scripts = \[[^\]]*\]\n/m;
+function withDeclaredScripts(text, list) {
+  const block = `scripts = [\n${list.map((s) => `  ${JSON.stringify(s)},`).join("\n")}\n]\n`;
+  const header = /^\[skill\][ \t]*\n/m.exec(text);
+  if (!header) return `${text.replace(/\n*$/, "\n")}\n[skill]\n${block}`;
+  const start = header.index + header[0].length;
+  const next = /^\[/m.exec(text.slice(start));
+  const end = next ? start + next.index : text.length;
+  const table = text.slice(start, end).replace(SCRIPTS_LINE_RE, "");
+  const keys = table.replace(/\s*$/, "");
+  const gap = table.slice(keys.length + 1);   // blank lines kept before a following table
+  return text.slice(0, start) + (keys ? `${keys}\n` : "") + block + gap + text.slice(end);
+}
+
+// One finding per difference, each naming the bmod.toml and the script.
+function declarationFindings(dir, list) {
+  const file = path.join(dir, "bmod.toml");
+  const rel = path.relative(repoRoot, file).split(path.sep).join("/");
+  const text = fs.readFileSync(file, "utf8");
+  let got;
+  try {
+    got = parseToml(text).skill?.scripts;
+  } catch (e) {
+    return [`UNDECLARED: ${rel} does not parse as TOML: ${e.message}`];
+  }
+  if (!Array.isArray(got)) return [`UNDECLARED: ${rel} has no [skill] scripts list`];
+  const findings = [
+    ...list.filter((s) => !got.includes(s)).map((s) => `UNDECLARED: ${rel} [skill] scripts lacks ${s}`),
+    ...got.filter((s) => !list.includes(s))
+      .map((s) => `UNDECLARED: ${rel} [skill] scripts declares ${s}, which pm_status/ does not contain`),
+  ];
+  if (findings.length === 0 && text !== withDeclaredScripts(text, list)) {
+    findings.push(`UNDECLARED: ${rel} [skill] scripts is not in its generated form (order or layout)`);
+  }
+  return findings;
+}
+
 // Guard: importing this module (e.g. from write-payload-manifest.mjs) must not perform a
 // sync. The body below only runs when this file is executed directly as the entry point.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -434,6 +497,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
 
+  const declared = declaredScripts();
+  let undeclared = 0;
+  for (const dir of pmStatusDeclarers()) {
+    if (check) {
+      const findings = declarationFindings(dir, declared);
+      undeclared += findings.length;
+      report.push(...findings);
+      continue;
+    }
+    const file = path.join(dir, "bmod.toml");
+    const text = fs.readFileSync(file, "utf8");
+    const next = withDeclaredScripts(text, declared);
+    if (next === text) continue;
+    fs.writeFileSync(file, next);
+    execFileSync("git", ["add", file], { cwd: repoRoot, stdio: "ignore" });
+    written += 1;
+    writeAllSync(1, `Declared ${declared.length} pm_status script(s) in ${path.relative(repoRoot, file)}\n`);
+  }
+
   const orphans = [...findOrphans(), ...findStalePackageFiles()];
   for (const orphan of orphans) {
     report.push(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
@@ -446,9 +528,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
 
   if (check) {
-    if (drift > 0 || orphans.length > 0 || strays.length > 0) {
+    if (drift > 0 || undeclared > 0 || orphans.length > 0 || strays.length > 0) {
       if (drift > 0) {
         report.push(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+      }
+      if (undeclared > 0) {
+        report.push(`\n${undeclared} difference(s) between pm_status/ and a bmod.toml's [skill] ` +
+          `scripts — v7 installs only what is declared; run: npm run sync:scripts`);
       }
       if (orphans.length > 0) {
         report.push(`\n${orphans.length} orphaned shared-script copy/copies found — delete them ` +

@@ -892,6 +892,39 @@ test("check 39: a binding to core.output_folder, and a use of the placeholder, p
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
+// The third arm: the 6.x runtime path. On v7 each module's declared copy lives at
+// `_bmad/<module-code>/scripts/pm_status/`; `_bmad/scripts/` is BMad's and rebuilt by setup.
+test("check 39: the old _bmad/scripts/pm-status path fails, in a step file and in a script", async (t) => {
+  const root = fixture(t);
+  write(root, V7_STEP, "Bind:\n- `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py`\n");
+  write(root, "skills/l3io-util/l3io-doctor/scripts/x_old.py", 'OLD = "_bmad/scripts/pm-status.py"\n');
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /\[check 39\] skills\/l3io-pm\/l3io-execute\/steps\/x-config\.md:2: `_bmad\/scripts\/pm-status`/);
+  assert.match(r.stderr, /\[check 39\] skills\/l3io-util\/l3io-doctor\/scripts\/x_old\.py:1: `_bmad\/scripts\/pm-status`/);
+});
+
+test("check 39: a line marked as naming the legacy path on purpose passes; a bare marker does not", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util/l3io-doctor/scripts/x_old.py",
+        'OLD = "_bmad/scripts/pm-status"  # check-39: legacy-path -- removed on uninstall\n' +
+        'BARE = "_bmad/scripts/pm-status"  # check-39: legacy-path\n');
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.doesNotMatch(r.stderr, /x_old\.py:1:/);
+  assert.match(r.stderr, /\[check 39\] .*x_old\.py:2: `_bmad\/scripts\/pm-status`/);
+});
+
+test("check 39: the declared copies' paths pass", async (t) => {
+  const root = fixture(t);
+  write(root, V7_STEP,
+        "- `{pm_status}` = `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py`\n" +
+        "- `{pm_status}` = `{project-root}/_bmad/l3io-util/scripts/pm_status/__main__.py`\n");
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
 test("check 39: skills/_shared/tests/ and a skill's tests/ are not shipped, so not judged", async (t) => {
   const root = fixture(t);
   write(root, "skills/_shared/tests/x-cfg.md", "`{user_name}`\n");

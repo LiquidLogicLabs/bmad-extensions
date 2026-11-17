@@ -123,7 +123,10 @@ selected values, when conditional), followed by `module_greeting`.
 
 ## 6. Write the agent instruction block
 
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py` and `{runtime}` = exactly one
+`{pm_status}` is the copy the calling skill bound at activation, which is its own module's
+declared copy. A skill that ships none binds it to whichever declared copy exists, `l3io-pm`'s
+before `l3io-util`'s: `{project-root}/_bmad/<module-code>/scripts/pm_status/__main__.py`.
+Bind `{runtime}` = exactly one
 of `claude`, `codex`, `copilot` or `other` (`pm-status.py` rejects anything else with exit 2).
 Choose it by the detection procedure in `l3io-execute/steps/shared/step-00-activate.md` — the
 criterion is a capability, not a brand check. If `{pm_status}` is not installed

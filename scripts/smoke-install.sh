@@ -120,6 +120,27 @@ for m in $modules; do
     "jq -e --arg m '$m' --arg v '$version' 'any(.modules[]; .module == \$m and .version == \$v)' '$report' >/dev/null"
 done
 
+# Phase 3 Task 3.2: each module's declared pm_status, installed by setup where its skills call it.
+# The expected file set is the bmod.toml's own list, so a module missing from the declaration
+# shows up as a missing file here and as an import failure in --help.
+for decl in "l3io-pm:l3io-pm/l3io-execute" "l3io-util:l3io-util/l3io-doctor"; do
+  code="${decl%%:*}"; skill_rel="${decl#*:}"
+  copy="$proj/_bmad/$code/scripts/pm_status"
+  declared="$(uv run --quiet --no-project python -c \
+    'import sys, tomllib; print("\n".join(tomllib.load(open(sys.argv[1], "rb"))["skill"]["scripts"]))' \
+    "$pkg/skills/$skill_rel/bmod.toml")"
+  check "$code: the bmod.toml declares pm_status/__main__.py" \
+    "printf '%s\n' '$declared' | grep -qx 'scripts/pm_status/__main__.py'"
+  missing=""
+  while IFS= read -r rel; do
+    [ -f "$proj/_bmad/$code/${rel}" ] || missing="$missing ${rel}"
+  done <<< "$declared"
+  check "$code: setup installed every declared script under _bmad/$code/scripts/${missing:+ (missing:$missing)}" \
+    "[ -z '$missing' ]"
+  check "$code: uv run _bmad/$code/scripts/pm_status/__main__.py --help exits 0" \
+    "(cd '$proj' && uv run --quiet '$copy/__main__.py' --help >/dev/null)"
+done
+
 # Review Focus 4, the half that holds: a 3.x answer in _bmad/custom/config.toml still resolves.
 # (Setup asks again regardless -- plan Task 2.3's note; the migration copies the answer across.)
 printf '\n[modules.l3io-pm]\nlane_count = "3"\n' >> "$proj/_bmad/custom/config.toml"

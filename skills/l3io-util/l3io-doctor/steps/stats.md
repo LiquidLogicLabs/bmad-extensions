@@ -71,7 +71,7 @@ Do not walk the tree by hand. `pm-status.py` is the only component that resolves
 a path, and a second walk here would drift from it the next time the layout changes. Run:
 
 ```bash
-uv run {project-root}/_bmad/scripts/pm-status/__main__.py report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format json
@@ -83,14 +83,13 @@ From the JSON take `totals` (epics/sprints/stories by status), `phases` (`phase`
 `epic_total`), and `flags` — `placement` entries are the placement anomalies this mode already
 reported, while `stuck` and `stale-lock` are new and worth surfacing here too.
 
-This skill self-installs `{pm_status}` at activation, before any mode file is loaded, so it
-should already be present here. If `{project-root}/_bmad/scripts/pm-status/__main__.py` still does not
-exist, self-install itself failed — print this and use Step ST2b:
+This skill confirms `{pm_status}` exists at activation, before any mode file is loaded, so it
+should already be present here. If `{pm_status}` still does not exist, it was removed after
+activation — print this and use Step ST2b:
 
 ```
 pm-status.py is not installed — showing counts only, without the plan-aware hierarchy.
-Self-install at activation should have installed it; re-run /l3io-doctor stats, and if
-this persists, check that {project-root}/_bmad/scripts/ is writable.
+Run bmad setup l3io-util to reinstall it, then re-run /l3io-doctor stats.
 ```
 
 `report` does not cover the backlog, the calibration file, or the last-closed markers. Read
@@ -128,7 +127,7 @@ Print the hierarchy first. Re-run `report` in `tree` form rather than re-renderi
 hand — hand-rendering it would drift from the tool's own view:
 
 ```bash
-uv run {project-root}/_bmad/scripts/pm-status/__main__.py report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree

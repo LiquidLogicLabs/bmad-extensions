@@ -111,10 +111,37 @@ Extract and bind from the resolved JSON:
 - Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - Set `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
 
-## 2. Install pm-status.py
+## 2. Locate pm-status.py
 
-`pm-status.py` ships once per module, not once per skill. For `l3io-pm` it lives at
-`l3io-execute/scripts/pm_status/__main__.py`. Every skill reads it through the sibling path
+`pm-status.py` is the package `pm_status/`, shipped once per module and **declared** in that
+module's `bmod.toml` (`[skill] scripts`). For `l3io-pm` the declaring skill is `l3io-execute`,
+and BMad v7's `bmad setup l3io-pm` installs the declared files at
+`{project-root}/_bmad/l3io-pm/scripts/pm_status/`, rebuilding that tree on every setup. Every
+`l3io-pm` skill calls that one copy.
+
+`npx skills add` puts the skills on disk but installs no declared script; only setup does. So a
+skill run between the two finds no copy, and a `uv run` of the missing file would fail with a
+Python traceback that names nothing the user can act on. Check first:
+
+```bash
+test -f {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py
+```
+
+If absent, halt:
+```
+BLOCKED: _bmad/l3io-pm/scripts/pm_status is not installed — run bmad setup l3io-pm
+```
+
+Bind `{pm_status}` = `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py` for use in all
+subsequent steps.
+
+### 2a. Self-install the pre-v7 copy
+
+Self-install still writes the copy the 6.x layout used, from `l3io-execute`'s payload. Nothing
+in this module calls that copy any more; `{pm_status}` above is the one every step runs.
+
+The payload ships once per module, not once per skill. For `l3io-pm` it lives at
+`l3io-execute/scripts/pm_status/__main__.py`. Every skill self-installs through the sibling path
 `{skill-root}/../l3io-execute/…` — which is `l3io-execute`'s own copy when this skill *is*
 `l3io-execute` — so this one shared file names one path for all of them. The `l3io-pm` module
 installs its skills together, as siblings in one skills folder, so `l3io-execute` lands
@@ -153,17 +180,12 @@ difference, so a project pinned to a stale copy heals itself on the next run. It
 byte-identical copy, and refuses to overwrite a strictly newer one. Pass `--force` to
 reinstall regardless.
 
-Self-install runs here — **before** layout detection — deliberately. Self-install is
-layout-independent (it copies a file and needs no state), so nothing in detection depends on
-it, and running it first guarantees a current script whichever branch detection takes below.
-This also keeps an upgrading user from getting stuck on a stale installed copy: a legacy
-layout blocks in section 3 and sends the user to `/l3io-doctor migrate-state`, and that
-command needs a current `{pm_status}` to succeed — which this section guarantees regardless of
-which layout branch section 3 takes.
+Self-install is layout-independent (it copies a file and needs no state), so nothing in
+detection below depends on it.
 
 ```bash
 uv run {skill-root}/../l3io-execute/scripts/pm_status/__main__.py self-install \
-  --dest {project-root}/_bmad/scripts/pm-status.py
+  --dest {project-root}/_bmad/scripts/pm-status.py  # check-39: legacy-path -- self-install's destination
 ```
 
 `--dest` still names the pre-package file `pm-status.py` on purpose: self-install installs the
@@ -174,8 +196,7 @@ installed inside itself.
 If `uv` is unavailable, use `python3` instead. A "skipped — already up to date"
 message is normal. Failure here is BLOCKED.
 
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py` for use in all
-subsequent steps.
+### 2b. Bind the runtime
 
 Bind `{runtime}` — passed as `--runtime` to every `set-actual` and `verify` call
 (`references/metrics-contract.md` §3). The value must be **exactly** one of `claude`,

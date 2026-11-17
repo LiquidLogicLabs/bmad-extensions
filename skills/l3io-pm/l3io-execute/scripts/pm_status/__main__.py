@@ -334,7 +334,7 @@ import sys
 # --------------------------------------------------------------------------- #
 # SCRIPT-PATH BOOTSTRAP. Nothing relative may appear above this block.
 #
-# The shipped binding runs this file as a SCRIPT (`uv run .../pm-status/__main__.py`),
+# The shipped binding runs this file as a SCRIPT (`uv run .../pm_status/__main__.py`),
 # where `__package__` is empty and every relative import below raises "attempted
 # relative import with no known parent package". Under `import pm_status` -- which is
 # how the suite reaches it -- there IS a package and they resolve, so the suite cannot
@@ -345,9 +345,9 @@ import sys
 # It loads THIS directory as a package named `pm_status` BY PATH and re-enters through
 # it, so the relative imports below and the `sys.modules[__name__] = _main` facade in
 # __init__.py behave exactly as they do under `import pm_status`. By path, never by
-# name: the installed directory is `pm-status`, with a hyphen, which is not an
-# importable identifier -- a bootstrap that imported the name passed on a toy fixture
-# and failed on the real install.
+# name: an installed directory need not be named `pm_status` -- self-install's is
+# `pm-status`, with a hyphen, which is not an importable identifier -- and a bootstrap
+# that imported the name passed on a toy fixture and failed on the real install.
 #
 # The exit value is read back out of sys.modules rather than off the module object this
 # block created: executing __init__.py REPLACES sys.modules["pm_status"] with the
