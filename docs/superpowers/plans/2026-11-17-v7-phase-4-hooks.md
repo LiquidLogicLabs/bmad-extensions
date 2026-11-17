@@ -354,6 +354,18 @@ Rules the hooks live under:
 
 ### Task 4.6: Closure on `bmad-retrospective` (item 7)
 
+**Done 2026-11-17** (`3899271d`). New verb `epic-close` in `pm_status/sidecar/closure.py`, registered by `build_parser` (it reuses `bracket`'s token and summing helpers, now public, so `sidecar.verbs` cannot register it without a cycle); `calibration.closure_ratio` and `append_closure_ratios` extracted from the 3.x closure sample, unchanged for that path; `actuals_usage.first_tool_use_naming`; one entry in `assets/wire-in.toml`. Tests: seven in `test-pm-status-sidecar.py` (the four named, plus rejected verdict, the `--since` refusal and the second-run window), `tests/l3io-pm/test-retro-hooks.py` (3, run from the shipped hook value, `git status --porcelain` empty after it), the registration test at 48. `smoke:install` renders `bmad-retrospective` after wire with our command in `retro-document.md`'s On Complete, unwire removes the team file, a planted team `on_complete` makes wire exit 3 naming both values, and `epic-close` from the installed copy leaves `tickets.py status` byte-identical. CLI is 48 subcommands.
+
+- Ruling: the retrospective's window is `--since`, else the first turn of this Claude session whose tool call names the document's file, clamped to start no earlier than the end of this epic's previous closure run or the last build of one of its tickets closed in the same session — why: the plan wires one entry, so there is no prepend to open a bracket, and the whole session would count every build before the retrospective; the document is created as a skeleton when the run starts (`retro-document.md:7`) — cost if wrong: a run that never touched the file by a tool call, or runs under another runtime, must pass `--since` (exit 2 names it); parallel epics in one session (Task 4.7) can still mix spend into one window.
+- Ruling: `--man-hours`/`--hitl-hours` are the retrospective's own, and `[epic].actual` is Σ ticket sidecars + Σ closure runs per metric, `man_hours` included — why: metrics-contract §6 makes a parent's actual children plus its closure-phase spend, and the closure residual is measured from exactly that — cost if wrong: an epic's `man_hours` is a sum, not an independent counterfactual re-assessment of the whole epic.
+- Ruling: closure is a list, `[[epic.closure_runs]]`, summed into `[epic.closure]` — why: a rejected retrospective is re-run after fixes, and both runs are closure spend, as `build-close` sums a ticket's brackets — cost if wrong: none.
+- Ruling: the closure sample needs an accepted verdict (`accepted` or `accepted-with-open-items`) as well as an `[epic].estimate`, and is taken once (`[epic].calibration_sampled_at`) — why: after `rejected` the epic goes back to its tickets and its closure is not over, the same reason `build-close` samples only a built ticket — cost if wrong: an epic only ever rejected never calibrates the closure band.
+- Ruling: the sample's numerator is the measured closure actual and its denominator is `closure_ratio` over the entries the epic estimate rolled up — why: on v7 the residual the 3.x sample derives is measured directly, and the denominator must be the quantity the ratio is applied to — cost if wrong: none beyond the 3.x model's own.
+- Ruling: one part with no token count (an `N/A` ticket or closure, an unmatched bracket) makes the summed tokens `N/A` — why: a partial sum reads as the whole and would understate the epic — cost if wrong: a single unmeasured part hides the rest of the epic's tokens.
+- Ruling: the verb commits only what it wrote and leaves the retrospective document as v7 left it — why: the retrospective commits nothing of its own (`retro-document.md:39`; committing is the user's, `acceptance-verdict.md:23`) — cost if wrong: an uncommitted retrospective still dirties the tree, so Task 4.7's `step-05-close` must commit it before the next `bmad-build-auto`.
+- Ruling: a missing or unknown `verdict`, or a frontmatter `epic` naming another epic, is exit 2 with nothing written — cost if wrong: the agent re-runs after the retrospective fixes its frontmatter.
+- `done` is not written here, as the plan states; Task 4.7's `step-05-close` writes it on an accepted verdict through the store.
+
 **Files:**
 - Create: `pm_status` verb `epic-close --project-root P --epic-dir D --retro-file F --runtime R [--model M] --man-hours H --hitl-hours H`, in `sidecar/closure.py`.
 - Modify: `assets/wire-in.toml` (one entry).
@@ -375,15 +387,15 @@ Rules the hooks live under:
 
 It writes **no** status. The retrospective writes none either (`retro-document.md:39`).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `test_epic_close_rolls_up_sidecars`;
   - `test_closure_sample_only_with_estimate`;
   - `test_epic_close_writes_no_status_and_no_tree_file` (byte check);
   - `test_verdict_read_from_frontmatter`.
-- [ ] **Step 2:** Implement and wire.
-- [ ] **Step 3: On the fixture:** render `bmad-retrospective` after wire; `retro-document.md`'s On Complete holds our command. Unwire leaves it byte-identical.
-- [ ] **Step 4:** Sync, regenerate manifests, then run the gate run.
-- [ ] **Step 5: Commit.** `feat(l3io-pm): epic actuals and closure calibration on bmad-retrospective`.
+- [x] **Step 2:** Implement and wire.
+- [x] **Step 3: On the fixture:** render `bmad-retrospective` after wire; `retro-document.md`'s On Complete holds our command. Unwire leaves it byte-identical.
+- [x] **Step 4:** Sync, regenerate manifests, then run the gate run.
+- [x] **Step 5: Commit.** `feat(l3io-pm): epic actuals and closure calibration on bmad-retrospective`.
 
 ### Task 4.7: `l3io-execute` becomes the unattended run (item 6, the dev-agent half of item 8)
 
