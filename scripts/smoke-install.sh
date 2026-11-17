@@ -239,9 +239,10 @@ same_as() { # <snapshot dir>
     else cmp -s "$1/$f.toml" "$custom/$f.toml" || return 1; fi
   done
 }
-render() { # <skill>
+render() { # <skill> [render_skill.py args]
+  local skill="$1"; shift
   (cd "$proj" && uv run --quiet --no-project _bmad/scripts/render_skill.py --project-root . \
-    --skill ".claude/skills/$1")
+    --skill ".claude/skills/$skill" "$@")
 }
 snap "$work/team-before"
 check "wire applies the build hooks (exit 0)" \
@@ -438,7 +439,7 @@ resolve() { # <skill>: its merged [workflow], as the skill itself resolves it
 }
 rm -rf "$work/custom-before-lenses" && cp -a "$custom" "$work/custom-before-lenses"
 check "every lens file the wired entries load is installed by setup" \
-  "(for c in $lens_codes; do ls '$proj'/_bmad/l3io-arch/scripts/lenses/\$c.md '$proj'/_bmad/l3io-sec/scripts/lenses/\$c.md 2>/dev/null | grep -q . || exit 1; done) \
+  "(for c in $lens_codes; do [ -f '$proj'/_bmad/l3io-arch/scripts/lenses/\$c.md ] || [ -f '$proj'/_bmad/l3io-sec/scripts/lenses/\$c.md ] || exit 1; done) \
      && test -f '$proj/_bmad/l3io-arch/scripts/reviewers/epic-design-review.md' \
      && test -f '$proj/_bmad/l3io-arch/scripts/standards/standards-core.md' \
      && test -f '$proj/_bmad/l3io-pm/scripts/facts/spec-sync.md'"
@@ -451,9 +452,14 @@ check "bmad-review's merged lenses list all eleven l3io codes, BMad's own kept (
      && jq -e 'any(.workflow.lenses[]; .code == \"adversarial\")' '$work/resolved-review.json' >/dev/null"
 check "... with l3io-ai-poisoning after l3io-threat-external" \
   "jq -e '.workflow.lenses[] | select(.code == \"l3io-ai-poisoning\") | .after == \"l3io-threat-external\"' '$work/resolved-review.json' >/dev/null"
+# bmad-build and bmad-build-auto render only the review selection in force (default `quick`),
+# so they are rendered as l3io-execute invokes them: `thorough` (bmad-build-auto SKILL.md:16).
+render_thorough() { # <skill>
+  if [ "$1" = bmad-code-review ]; then render "$1"; else render "$1" --set workflow.review=thorough; fi
+}
 for host in bmad-code-review bmad-build bmad-build-auto; do
   check "$host renders after wire (exit 0), its thorough review listing all eleven l3io lenses (R6)" \
-    "render $host > '$work/render-$host.md' \
+    "render_thorough $host > '$work/render-$host.md' \
        && (for c in $lens_codes; do grep -rqF \"(\\\`\$c\\\`)\" '$proj/_bmad/render/$host' || exit 1; done)"
 done
 resolve bmad-architecture > "$work/resolved-arch.json" || true
