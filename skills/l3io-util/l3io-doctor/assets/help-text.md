@@ -9,15 +9,14 @@ Diagnostic (read-only)
   backlog / issues   Aliases for stats; always print the per-item backlog table
   check-deps         Verify BMad skill dependencies resolve in this project
   version            Which l3io-extensions version this project is running
-  upgrade            Update this extension (BMad quick-update; never deletes modules)
+  upgrade            Update this extension (npx skills add, then bmad setup and wire)
   uninstall          Remove this extension's payload only — dry run until confirmed
 
 One-time migrations
-  migrate-state      Migrate a legacy flat or per-epic layout to the 3.x sharded tree
   migrate-adrs       Move ADRs from epic-*/arch/ to docs/adr/, the one ADR home
+  (3.x -> 4.x is `bmad migrate`: l3io-pm's migration-1, after method's own)
 
 Ongoing maintenance (safe to repeat)
-  redrive            Rebuild calibration scope/fix samples from the story nodes on disk
   triage             Audit v7's backlog; propose to Sofia what to close or move
 
 Source & external sync

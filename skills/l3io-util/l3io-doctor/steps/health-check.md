@@ -5,24 +5,23 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 On BMad v7 the work-item tree is v7's: Sofia (`bmad-agent-po`) owns initiatives, epics and
 tickets, and l3io keeps only its sidecars beside them and its project-wide files under
 `{l3io_state_root}`. Progress and stalls are read through `report` (Check 19), and the
-backlog — v7's `{output_folder}/backlog/` — through `scripts/audit-tree.py` (Check 8). The 3.x
-state tree under `{pm_state_root}` is read only by `migrate-state`; **Checks 2, 6, 7 and the
-3.x half of 16 are the migration path**: they fire only on a project that still carries a
-pre-v7 layout, and retire with `migrate-state` in Phase 6.
+backlog — v7's `{output_folder}/backlog/` — through `scripts/audit-tree.py` (Check 8). A
+project still carrying l3io 3.x data is told so by Check 20; the migration itself is
+`bmad migrate` (l3io-pm's `migration-1`), not a mode of this skill.
 
 ### Step HC1 — Load config
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (18 checks, read-only; Check 13 is retired)
+### Step HC2 — Scan (16 checks, read-only; Checks 2, 6, 7 and 13 are retired)
 
 Run all checks. They change no project files. Checks 10–14 run `{spec_align}` in its
 read-only modes, which write nothing.
 
 **Check 1 — Status file naming**
 Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
-- Yes → flag `rename-active` · Priority: Critical (must run before `migrate-state`, whose
-  readers look for `sprint-status.yaml`)
+- Yes → flag `rename-active` · Priority: Critical (must run before `bmad migrate`, whose
+  migrations look for `sprint-status.yaml`)
 - No → ✓
 
 `rename-active` is an **inline action with no mode file** — Step HC6 performs it. It is a
@@ -30,41 +29,9 @@ single rename of a legacy flat file, so it can only fire on a project that still
 `sprint-status-active.yaml`; there is nothing for it to do on a migrated one, and it had no
 caller outside this check.
 
-**Check 2 — 3.x state layout**
-Count which of the three pre-v7 state layouts are present: the 3.x sharded tree
-(`{pm_state_root}`, i.e. `{implementation_artifacts}/state/`, exists), legacy per-epic
-(`{project-root}/_bmad/state/` exists), legacy flat (`sprint-status*.yaml` exists in
-`{implementation_artifacts}/`, the three-file split included).
-
-The flat-plus-sharded pair specifically — `bmad-build` writes the flat file only when it
-already exists (bmm's `step-03-implement.md:27`), while the 3.x tree sits under the same
-artifact root — is a deterministic, unit-tested predicate rather than a judgment call, so check
-it with the script first, before falling back to the general count below:
-
-```bash
-uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts}
-```
-
-- Exit 1 (prints `layout-collision: both <flat> and <sharded>/ exist`) → flag `migrate-state` ·
-  Priority: **Critical** — do not run any other action until this is resolved · remedy:
-  > Both layouts are present. `bmad-build` writes `sprint-status.yaml` only when it already
-  > exists (`step-03-implement.md:27`), so deleting or migrating the flat file stops the second
-  > writer. Run `migrate-state` — it preserves the original as `sprint-status.yaml.legacy`,
-  > which is not matched by that existence gate.
-  Stop here — this pair alone already puts the check at its ceiling severity.
-- Exit 0 → continue to the general count:
-  - None present → ✓
-  - Exactly one legacy layout present (flat or per-epic), sharded absent → flag
-    `migrate-state` · Priority: High
-  - More than one layout present (legacy per-epic alongside the sharded tree, or alongside the
-    flat file) → flag `migrate-state` · Priority: Critical — an interrupted migration left
-    state in two places; do not run any other action until this is resolved
-  - Only the 3.x sharded tree present → flag `migrate-state` · Priority: Low · say:
-    `A 3.x state tree is present at {pm_state_root}. No 4.x skill reads or writes it — the
-    work-item tree on BMad v7 is Sofia's; it is read only by migrate-state.`
-
-This check is the entry to the migration path, and the one pre-v7 check with a meaning on
-v7: it is how a project upgrading to 4.x learns it has a layout to migrate.
+**Check 2 — retired (4.x)**
+It counted the pre-v7 state layouts to propose `migrate-state`. The 3.x → 4.x migration is
+`bmad migrate` now, and Check 20 reports when it is pending; the number is not reused.
 
 **Check 3 — Deferred code markers**
 Run the `bmad-defer:` grep from Harvest Debt Mode (Step H2 grep command). Dedupe against the leaves of v7's backlog (Step H3 logic). Count new (unharvested) markers.
@@ -77,65 +44,20 @@ Run the scan from Update AI Rules Mode Step AR1 across all well-known instructio
 - All current or absent → ✓
 
 **Check 5 — Migration backup files**
-Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-status.yaml.legacy`); `{pm_state_root}/` for `*.yaml.v1` calibration backups — that is `{pm_calibration_file}.v1`, the path `pm-status.py`'s calibration v1 → v2 migration derives as `calibration_path(state_root) + ".v1"`, so it is beside the calibration file it came from, **not** under `{project-root}/_bmad/`; `{project-root}/_bmad/` for `pm-calibration.yaml.legacy`; and `{project-root}/_bmad/` for the `state.legacy/` and `migration-backup/` backup directories left by `migrate-state` (see Clean Legacy Mode's Step CL1 for exactly what each holds and which scan root each lives in).
+Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-status.yaml.legacy`); `{pm_state_root}/` for `*.yaml.v1` calibration backups — that is `{pm_calibration_file}.v1`, the path `pm-status.py`'s calibration v1 → v2 migration derives as `calibration_path(state_root) + ".v1"`, so it is beside the calibration file it came from, **not** under `{project-root}/_bmad/`; `{project-root}/_bmad/` for `pm-calibration.yaml.legacy`; `{project-root}/_bmad/` for the `state.legacy/` and `migration-backup/` backup directories; and `{implementation_artifacts}/state.legacy/`, the 3.x tree the 3.x → 4.x migration set aside (see Clean Legacy Mode's Step CL1 for exactly what each holds and which scan root each lives in).
 - Any found → flag `clean-legacy` · Priority: Low · note count (files and directories separately)
 - None → ✓
 
-**Check 6 — Epic directory padding (legacy two-digit form)**
-Run only when Check 2 flagged `migrate-state` — this prepares a migration, and on a v7 tree an
-`epic-<slug>` folder is v7's and never this shape's concern. Scan the top level of
-`{implementation_artifacts}/` for directories matching `epic-[0-9][0-9]` (exactly two digits).
-- Any found → flag `rename-epic-dirs` · Priority: **High** · list directories — the 3.x
-  artifact tree mirrors `state/{status}/epic-{nnn}/` with three digits, and `migrate-state`
-  pairs the two by that suffix; a two-digit `epic-{nn}/` never matches its counterpart.
-- None → ✓
+**Check 6 — retired (4.x)**
+It padded two-digit `epic-{nn}/` artifact folders so `migrate-state` could pair them with
+their state. The 3.x → 4.x migration maps a 3.x key to its v7 ticket, not by folder name; the
+number is not reused.
 
-`rename-epic-dirs` is an **inline action with no mode file** — Step HC6 performs it.
-
-**Check 7 — Poisoned calibration provenance**
-A fixed defect: an older `pm-status.py` stored `completion_evidence.fix_iterations` as a
-**string**, and `derive_story_sample` (the function behind `set-actual`'s live sampling and
-Redrive Mode's rebuild) reads that field to decide a sample's provenance. A story that needed
-no rework compared its string `'0'` against the int `0` and derived as `backout` instead of
-`exact`, silently corrupting its `scope` ratio. `pm-calibration.yaml` cannot be read to detect
-this — it stores bare rounded ratios with no provenance recorded — so this check reads the 3.x
-story nodes themselves, which still hold the original field. `NUMERIC_NODE_FIELDS` now coerces
-this field on every write, so a string can only have been written by a version that predates
-that fix; its presence means this project generated samples under the defect.
-
-Migration path: v7's calibration file under `{l3io_state_root}` is written only by
-`build-close` and `epic-close`, which store `fix_iterations` as an integer, so the defect can
-only be in a 3.x tree. If `{pm_state_root}` exists, scan every story node file under
-`{pm_state_root}/{active,planned,archived}/epic-*/sprint-*/E*.yaml` and check whether
-`completion_evidence.fix_iterations` is a string (as opposed to absent, or an integer):
-
-```bash
-uv run --with ruamel.yaml python3 - "{pm_state_root}" <<'PY'
-import sys
-from pathlib import Path
-from ruamel.yaml import YAML
-
-yaml = YAML(typ="safe")
-state_root = Path(sys.argv[1])
-hits = []
-for status in ("active", "planned", "archived"):
-    base = state_root / status
-    if not base.is_dir():
-        continue
-    for story_file in sorted(base.glob("epic-*/sprint-*/E*.yaml")):
-        node = yaml.load(story_file.read_text()) or {}
-        val = (node.get("completion_evidence") or {}).get("fix_iterations")
-        if isinstance(val, str):
-            hits.append(str(story_file))
-for h in hits:
-    print(h)
-print(f"TOTAL {len(hits)}")
-PY
-```
-- Any story with a string `fix_iterations` found → flag `redrive` · Priority: **Medium** ·
-  note count — silent corruption of trusted state that never blocks execution, but poisons
-  downstream `estimate-story`/`estimate-rollup` output for as long as it goes unrepaired.
-- No `{pm_state_root}` yet, or none found → ✓
+**Check 7 — retired (4.x)**
+It found 3.x story nodes whose `fix_iterations` was a string and proposed `redrive`. Both
+served the 3.x tree only: v7's samples are written by `build-close` and `epic-close`, which
+store the field typed, and the 3.x → 4.x migration carries the calibration file as it is. The
+number is not reused.
 
 **Check 8 — Backlog integrity and audit**
 Run only if `{output_folder}` holds a `backlog/` directory or any `*/tickets/tickets.toml` —
@@ -271,27 +193,7 @@ git -C {project-root} check-ignore -q {l3io_state_root}/events.jsonl; echo "exit
   edit, and which rule is catching it matters
 - exit 1, or not a git work tree → ✓
 
-**The 3.x half** is the migration path. Two states that look identical to a check that only
-looks at the configured path, and that turn "no findings" into a wrong answer rather than a
-refusal. The 3.x tree `migrate-state` reads lives here.
-
-```bash
-uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts} \
-  --project-root {project-root} --reachability --format json; echo "exit=$?"
-```
-
-- `orphaned` non-empty → flag · Priority: **Critical** · print each path. A state tree exists
-  outside `{implementation_artifacts}`, which means `implementation_artifacts` was repointed
-  and the history lives at the old path. **Report only — never move it**: which tree is
-  current is a human decision, and the wrong choice loses the project's history
-- `untracked` true → flag · Priority: **High** · `{implementation_artifacts}/state` is on disk
-  but git ignores it. It is one `git clean` from gone and invisible to every other clone.
-  Report only: the fix is a `.gitignore` edit, and which rule is catching it matters
-- neither → ✓
-
-> The probe is in `detect-layout.py`, not inline here, deliberately: one tested
-> implementation, and `tests/l3io-doctor/test-detect-layout.py`
-> covers the orphan, the gitignore, the clean tree and the not-a-git-repo cases.
+The 3.x half, which probed the 3.x tree `migrate-state` read, is retired with that mode.
 
 **Check 17 — Agent instruction block**
 Bind `{runtime}` by the detection procedure in `l3io-execute/steps/shared/step-00-activate.md`
@@ -375,6 +277,24 @@ build spool; it writes nothing without `--out`.
   continue
 - no initiative found, `{tickets_py}` absent, or every initiative clean → ✓
 
+**Check 20 — l3io 3.x data awaiting migration**
+Run only if `{project-root}/_bmad/l3io-util/scripts/migrate-engine.py` exists (`bmad setup
+l3io-util` installs it). It reads only:
+
+```bash
+uv run {project-root}/_bmad/l3io-util/scripts/migrate-engine.py --project-root {project-root} \
+  --artifacts {implementation_artifacts} --detect
+```
+
+- `layouts` empty → ✓ (no 3.x data, or it was migrated and set aside)
+- exit 0 → flag · Priority: **High** · say: `l3io 3.x data is waiting: run bmad migrate and
+  choose l3io-pm's migration-1 (3 → 4). Until it runs, no estimate, actual or calibration
+  sample from 3.x reaches v7.` Report only — the migration is `bmad migrate`'s, with its own
+  plan, approval and verification
+- exit 1 with `layouts` non-empty → flag · Priority: **High** · print `reason`. When it says
+  method's migration has not run: `run bmad migrate and choose method's migration-1 first;
+  l3io-pm's applies once the v7 initiative exists.` Report only
+
 ### Step HC3 — Report findings
 
 
@@ -386,12 +306,9 @@ PROJECT HEALTH CHECK — {project-root}
 Check                           Status                         Action
 ----------------------------------------------------------------
 Status file naming              ⚠ sprint-status-active.yaml    rename-active
-3.x state layout                ⚠ 3.x tree present             migrate-state
 Deferred code markers           ⚠ 2 new marker(s)              harvest-debt
 AI instruction references       ✓ Current                      —
 Migration backup files          ⚠ 1 .legacy file found         clean-legacy
-Epic directory padding          ⚠ 1 legacy epic-{nn}/ dir      rename-epic-dirs
-Calibration provenance          ⚠ 4 poisoned sample(s)         redrive
 Backlog integrity & audit       ⚠ 1 integrity, 4 candidate(s)  triage
 Tracked lock files              ⚠ 3 *.lock tracked in git      untrack-locks
 ADR home & register             ⚠ 2 ADR(s) in epic-*/arch/     migrate-adrs
@@ -399,16 +316,17 @@ Spec pointers                   ⚠ 1 broken pointer             — (report onl
 ADR links                       ⚠ 1 unlinked departure         — (report only)
 Spec index freshness            ✓ Fresh                        —
 BMad dependencies               ✓ all resolve                  —
-3.x state reachable & tracked   ✓ configured tree only         —
+l3io state tracked              ✓ committed                    —
 Agent instruction block         ⚠ absent in CLAUDE.md          — (on request)
 pm_status version skew          ✓ both copies 4.0.0            —
 Initiative progress (v7)        ⚠ 1 stalled build              — (report only)
+3.x data awaiting migration     ⚠ 3.x tree present             — (bmad migrate)
 ================================================================
 ```
 
 If flagged items exist, append the recommended execution sequence (only flagged actions shown, in priority order):
 ```
-Recommended actions (in order): rename-active → rename-epic-dirs → migrate-state → harvest-debt
+Recommended actions (in order): rename-active → harvest-debt → triage
 ```
 
 If `untrack-locks` is flagged, print Check 9's `ls-files` list under the table — every path
@@ -442,20 +360,12 @@ If `n`: print "Exiting — no changes made." and exit.
 Run each approved action in this fixed priority sequence (skip any that were not flagged):
 
 1. `rename-active` (inline — see below)
-2. `rename-epic-dirs` (inline — see below)
-3. `migrate-state`
-4. `harvest-debt`
-5. `migrate-adrs`
-6. `triage`
-7. `update-ai-rules`
-8. `redrive`
-9. `untrack-locks`
-10. `clean-legacy`
-
-`redrive` must run after `migrate-state` — it walks the 3.x sharded tree, which a legacy
-project does not have before that step — so it rebuilds calibration samples from the most
-complete tree available. It runs before `clean-legacy` only because that step is the fixed
-final tidy-up; nothing about `redrive` depends on backup files still being present.
+2. `harvest-debt`
+3. `migrate-adrs`
+4. `triage`
+5. `update-ai-rules`
+6. `untrack-locks`
+7. `clean-legacy`
 
 `migrate-adrs` runs before `triage` so that ADR paths a backlog ticket cites are already the new
 ones when triage reads them. It keeps its own plan and confirmation (Step MA2), like `triage`
@@ -490,20 +400,6 @@ Otherwise print the one-line dry run
 then re-parse `sprint-status.yaml` as YAML. If it does not parse, rename it back to
 `sprint-status-active.yaml` and report
 `FAILED — sprint-status.yaml is not valid YAML after rename. Restored. Parse error: {error}`.
-
-**`rename-epic-dirs` (Check 6) has no mode file — run it here, inline.** It renames legacy
-two-digit `epic-{nn}/` **artifact** directories to the three-digit `epic-{nnn}/` form, so each
-matches its epic key `E{nnn}` and its `state/{status}/epic-{nnn}/` counterpart. Contents are
-never touched.
-
-Re-scan the top level of `{implementation_artifacts}/` for `epic-[0-9][0-9]` directories. For
-each, compute the three-digit destination by zero-padding the epic number; if that destination
-already exists, record a **conflict** and skip it — never overwrite, never merge. Print the
-rename map and the conflict count as this action's dry run, then rename each non-conflicting
-directory and re-scan to confirm no two-digit directory remains except the recorded conflicts.
-
-Report renamed and conflict counts. A remaining conflict needs manual resolution (merge or
-remove one side) before `migrate-state` can pair that epic's artifacts with its state.
 
 **`untrack-locks` (Check 9) has no mode file — run it here, inline.** For each root Check 9
 listed a path under (`{pm_state_root}`, `{l3io_state_root}`), first make sure its

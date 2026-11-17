@@ -92,7 +92,8 @@ and any `Problems (tickets.py)` or `STALLED BUILD` block.
 - **Calibration** — if `{l3io_state_root}/pm-calibration.yaml` exists:
   `uv run {pm_status} calibration show --state-root {l3io_state_root} --format json`; note its
   version and the number of samples per component.
-- **3.x state tree** — whether `{pm_state_root}` exists. It is read only by `migrate-state`.
+- **3.x state tree** — whether `{pm_state_root}` exists. It is read only by the 3.x → 4.x
+  migration (`bmad migrate`).
 
 Append:
 
@@ -102,7 +103,7 @@ Backlog ({output_folder}/backlog)
   bug: {n}  story: {n}  spike: {n}  total: {n}
   backlog: {n}  in-progress: {n}  review: {n}  done: {n}  dropped: {n}
 Calibration file:    {version}, {n} samples  (or "not found")
-3.x state tree:      present at {pm_state_root}, read only by migrate-state  (or "none")
+3.x state tree:      present at {pm_state_root} — run bmad migrate  (or "none")
 ================================================================
 ```
 
