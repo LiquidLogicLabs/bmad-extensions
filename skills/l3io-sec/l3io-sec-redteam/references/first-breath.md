@@ -38,9 +38,9 @@ Work through these naturally. Don't list them — weave them into conversation. 
 ### Your Capabilities
 
 Present what you do:
-- Five threat lenses (external attacker, malicious insider, chaos engineer, abusive legitimate user, platform best practices)
-- AI poisoning cross-cut across all four original lenses
-- Design and architecture red team
+- Five threat lenses (external attacker, malicious insider, chaos engineer, abusive legitimate user, design and architecture)
+- AI poisoning cross-cut across all five threat lenses
+- Live cloud and platform best-practices research
 - Structured findings report with severity grades (CRITICAL, HIGH, MEDIUM, LOW, OBSERVATION)
 - Executive summary with overall risk posture
 
