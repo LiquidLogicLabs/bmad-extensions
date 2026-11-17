@@ -37,6 +37,10 @@ export const KNOWN_TOOLS = {
     [`${SCRIPTS}/setup.py`]: "8607707c686978bd24bf509d9e0eb9534fb5bb58c6df6a1a4929e9878321d13f",
     [`${SCRIPTS}/knowledge.py`]: "89b8d223dfdd1ef1e99e1b4367a58d31bf0c43bebcc738c8bc7455249bf55caa",
     [`${SCRIPTS}/list_templates.py`]: "71da9423c2977fd803d5bda91b415f265c7d96f980ef73ffc50eb8dbbdba320b",
+    // v7's own customization merge and render-time type check, which the lens suite
+    // (tests/l3io-doctor/test-lenses.py) runs over a wired project to prove R6.
+    [`${SCRIPTS}/config_utils.py`]: "a4bba671cb3aedbf80fa4309d9c96afe6674f8de656a44a7fe67324815de437d",
+    [`${SCRIPTS}/render_skill.py`]: "b9206d0454ce8287c5ca2abdaa4dadf50fcacefbad46d0a1c5656e6968b3bf35",
     // The host skills' shipped customization defaults, which check:bmod judges every
     // wire-in entry against (a key a host does not declare halts its every render).
     "skills/method/bmad-agent-po/customize.toml": "7331dd40e9f0efbdb8dbb986ba5554a41be7f64331dfed5d0e1050e4dcef103a",
@@ -45,6 +49,7 @@ export const KNOWN_TOOLS = {
     "skills/method/bmad-retrospective/customize.toml": "4e954664043e193f874f3e8bd090afd65a2d221668c827efbbb9acaab4683f92",
     "skills/core-tools/bmad-review/customize.toml": "36666ad3517e89177bdafbca7c50b3acf9e6e6d720885e3309e605e7c7b9a21b",
     "skills/method/bmad-code-review/customize.toml": "f8b2b8c65f643008935c63d819e025468635a4ad89650bd699d4b0fb657f8a3c",
+    "skills/method/bmad-architecture/customize.toml": "8fef03e796a10921f8bf755080c6e377ce9df1b8a63a0e53a7510181eb2d0fcb",
   },
 };
 

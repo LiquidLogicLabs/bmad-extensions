@@ -77,8 +77,13 @@ OUR_PREFIX = "l3io-"
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 PATH_RE = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$")
 LEDGER_VERSION = 1
-# What `requires` may name, and the installed file whose presence satisfies it.
-REQUIRES = {"l3io-pm": "_bmad/l3io-pm/scripts/pm_status/__main__.py"}
+# What `requires` may name, and the installed file whose presence satisfies it: a file each
+# module declares under `[skill] scripts`, so `bmad setup <module>` is what installs it.
+REQUIRES = {
+    "l3io-pm": "_bmad/l3io-pm/scripts/pm_status/__main__.py",
+    "l3io-arch": "_bmad/l3io-arch/scripts/standards/standards-core.md",
+    "l3io-sec": "_bmad/l3io-sec/scripts/lenses/l3io-threat-external.md",
+}
 DEFAULT_ENTRIES = Path(__file__).resolve().parent.parent / "assets" / "wire-in.toml"
 
 

@@ -5,14 +5,14 @@
     "SKILL.md": "5c73ba12638362f776ae5cb580eba86b90eb17721a479221ae10c37d6aaa67f9",
     "assets/agent-instructions.md": "c0196415c68262db57bee374c88c38276244cc584dee7b4e496e2e2da41d1fb6",
     "assets/bmad-baseline.json": "2375d48fc02040a966e257e286d63c5999a08b9536a859710a572c672dc46c5d",
-    "assets/bmad-dependencies.json": "e598bf9e56cfc44c05483e89096328f4f68953d243d0efb94744eb0966693ee5",
+    "assets/bmad-dependencies.json": "db5dc76b2749a71a3a91268d8c4300ee66db1643d589260ba9cce8f5fdfe7bca",
     "assets/bmad-install-targets.json": "ceacaac276fe368a2b8e140b8d21751283008f84d1f4c121431e71998fe72c64",
     "assets/help-text.md": "3c31b3975f8dfa55cd6e320527f0196305b417f36f2cd2f990630ca9a1ab9f29",
     "assets/migrate-state.md": "7d2f1a699421d35820aad1a5f13f9c1858a89bab36bdf827fb59784326343eb0",
     "assets/module-setup.md": "9f0a20f835db08423b905d84d8d6518fdc74a84cd1926265bab1900add4455bd",
     "assets/overlays/README.md": "78bbc8925b1378c4fa7e286978fc5c6b16eac085d4a14bae9fd34d4140067d69",
     "assets/overlays/overlay-mode.md": "c09397a0c915f86e7560b9343ab15a9f63cc636bc04b0a61f8b877e88e3fb00d",
-    "assets/wire-in.toml": "ebf16ed8f68894b772be917911f046c3f96b432c150ebb69222a8ba96db00fcf",
+    "assets/wire-in.toml": "03a564729883fed8072c52522c1033c224303e06222859de16bca46d67fcef0d",
     "bmod.toml": "1fff5c0e69749e4094681b1128fb6ebdcffabb152f2ff139cd9cf3330cbfd929",
     "customize.toml": "60d30a8af1e956c7a3f9644413710d20f2f3dded2aad6c5145a05d832a866c03",
     "help/help.md": "e05784e15969b0aa1686edb2a6ec2ed72270f78985f44a21ebd59a2f6e09c690",
@@ -54,11 +54,11 @@
     "scripts/report-version.py": "e19dd64c70b831c6d0a6a7dc21209afc41316607caa0ae9161915c0e03ab8b64",
     "scripts/spec-align.py": "e2db889fb847f1647d374866f55a5c2636ea3c180bcc34d2df39b2605a4fa0c1",
     "scripts/state-record.py": "8dca7a7a3c14bb26c6398fa8d2ddb06d0194fe925faba0a848b13ef6ee4d7e35",
-    "scripts/wire-in.py": "95e78e4f31678b97f4eca4f393789aa598915f558e79b875d1c21871692ed1d0",
+    "scripts/wire-in.py": "d9906f61123a578d3735a5488b1347b5abb71b88ee8d6d5720f9c8f4ca88b9f2",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
     "steps/check-deps.md": "194b3ee5c5beac11bd0e1998ac3c1ef647431eb66c6dc5a8571b8dd41700567a",
     "steps/clean-legacy.md": "7c9c09b7d36581f5e3f185560e81c9de07c0cac00a10dc758e391f78b477d60a",
-    "steps/harvest-debt.md": "01060d3c5c417bcb2ff25353135ae316f272fba834a4ddfd1b800c7d42bcab9b",
+    "steps/harvest-debt.md": "1be1be27841d6112005a10cf5dc36a66a1d54e9c102ee1e262c10526241f10fd",
     "steps/health-check.md": "0ccb0f7ae7411a74b2107232230db0da68f42ae302ae95b8ba26aa344674b65a",
     "steps/install.md": "8ca98f51c80822b202f9c26703b082c1a0e01dbcb23967f8ad4baac6689c919e",
     "steps/migrate-adrs.md": "7a1ae49d2e063c9f3f641ddeed4376d6fe08343d7ebb67822966da2fe72f5748",
@@ -69,6 +69,6 @@
     "steps/unwire.md": "48072c2f6728e40afc26ebfbb2564242e67d7e9cd69c4dba4d96d319fef452cc",
     "steps/update-ai-rules.md": "b72f6f3b0790c839b4a0e0238348a2788d839f8591f1b93b96c44f5d98b0f922",
     "steps/version.md": "5d119c3cad638e7c8003dd82c1e5410a8c7d777870fb52409e89e7a1b4c68900",
-    "steps/wire.md": "694d6b7ece1ad9f657644567b2a9ce6b3bfdc6f45a663b7e59dafb33e3044466"
+    "steps/wire.md": "199094d933f14ffa419476d68ba1ea2f6a99a13c38f457737ffc025c6d6e3fa1"
   }
 }

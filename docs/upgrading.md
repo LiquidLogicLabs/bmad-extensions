@@ -130,8 +130,10 @@ initiative or epic folder (or the active initiative) instead of `E001` / `E001-S
 `bmad-build-auto` per ticket invoked `thorough`, closes each epic with `bmad-retrospective -H`,
 marks its tickets `done` on an accepted verdict and merges it. Its own story prep, dev agent,
 code review, fix loop, sprint closure, epic architecture gate and epic-closure spec sync are
-gone: review and fixing are `bmad-build-auto`'s, and the gate and the spec sync move to
-`bmad-architecture` and `bmad-retrospective` in a later release. `bmad-build-auto`,
+gone: review and fixing are `bmad-build-auto`'s (with l3io's eleven lenses in its thorough
+review once wired), the gate is `l3io-arch`'s design review on `bmad-architecture`'s
+`finalize_reviewers`, and the spec sync is a fact on `bmad-retrospective` that turns a departure
+from an architecture spec into a reconciliation item you apply through `bmad-architecture`. `bmad-build-auto`,
 `bmad-retrospective` and `bmad-agent-po` are now required. In `l3io-execute`'s
 `customize.toml`, `max_fix_iterations`, `max_turns_per_story`, `epic_lock_ttl_minutes`,
 `spec_alignment` and `spec_paths` are removed; a team file still setting them sets nothing.
@@ -183,12 +185,24 @@ Removed: `append-issue`, `update-issue`, `promote-issue`, `schedule-issue`, `res
 | `resolve-issue` | Sofia's BOARD `mark <ticket> done` or `dropped` |
 | `list-issues` | `tickets.py status {output_folder}/backlog`, which `/l3io-doctor stats` (`backlog`, `issues`) prints |
 | `audit-issues`, `repair-issue` | `/l3io-doctor triage`, which runs the read-only `scripts/audit-tree.py` (findings 1a–1l over v7's tree) and hands Sofia its repairs |
-| `spec-align.py` `sync-plan`, `propose`, `commit`, `reject`, `check-stale` | nothing yet — the epic-closure spec sync filed its items in the ledger; a later release re-homes it beside `bmad-retrospective` |
+| `spec-align.py` `sync-plan`, `propose`, `commit`, `reject`, `check-stale` | the `l3io-fact-spec-sync` fact on `bmad-retrospective`: a departure from an architecture spec is a spec-reconciliation action item in the retrospective document, applied by you through `bmad-architecture` |
 
 `/l3io-doctor triage` and `harvest-debt` write no ticket: closing, moving and filing are
 Sofia's. The health check's Check 13 (unconfirmed spec changes) is retired, and its Check 16
 also reports a `{output_folder}/l3io/` that git ignores. A 3.x project's `issues.yaml` is left
 where it is; nothing reads it. File what is still open as backlog tickets through Sofia.
+
+**The arch and sec viewpoints are lenses, attached by `wire`.** Run `bmad setup l3io-arch` and
+`bmad setup l3io-sec`, then `/l3io-doctor wire`: it adds eleven lenses (`l3io-design-integrity`,
+`l3io-testability`, `l3io-dependency-policy`, `l3io-observability`, `l3io-stack-rules`, and
+`l3io-threat-external`, `-insider`, `-chaos`, `-abuse`, `-design`, `l3io-ai-poisoning`) to
+`bmad-review` and to the thorough review of `bmad-code-review`, `bmad-build` and
+`bmad-build-auto`, and l3io's design review, standards and documentation standard to
+`bmad-architecture`. The `bmad-customize` overlays `l3io-arch-review/assets/customize-architect.md`
+described are gone; remove any you authored by hand from it, since wire now adds the same
+guidance. The standards moved from the skill's `references/standards-*.md` to
+`scripts/standards/standards-*.md`, so `bmad setup` can install them where a wired entry can
+load them: repoint a team file of your own that named the old path.
 
 ### → 3.7.2
 
@@ -715,8 +729,8 @@ to remember which module a skill lives in.
 | `/l3io-pm-setup` | `/l3io-setup` — forwarder shipped in 3.1.3–3.1.7, **withdrawn in 3.1.8**; see below |
 | `/l3io-util-doctor` | `/l3io-doctor` — **clean rename, no forwarder** |
 | `/l3io-util-doctor`'s `layout-cleanup` mode | `/l3io-doctor`'s `clean-layout` mode — verb-first, mirrors `clean-legacy`; `layout-cleanup` kept as an alias in 3.1.3+; both removed in 4.0.0 |
-| `/l3io-sec-redteam` | unchanged |
-| `/l3io-arch-review` | unchanged |
+| `/l3io-sec-redteam` | unchanged name; its threat viewpoints are also lenses in BMad's review once wired |
+| `/l3io-arch-review` | unchanged name; `design` routes to `bmad-architecture` and `review` runs `bmad-review` with its lenses |
 
 **Why the sec and arch personas kept their names:** `/l3io-sec-redteam` and `/l3io-arch-review`
 carry named personas that are part of the value; a shorter code alone would erase the identity.

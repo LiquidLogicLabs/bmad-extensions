@@ -34,14 +34,23 @@ What it adds (`assets/wire-in.toml`):
 | `l3io-menu-waves` | `bmad-agent-po.toml` | `agent.menu` (code `l3io-waves`) | a Sofia menu item running `l3io-plan` in waves mode |
 | `l3io-menu-lanes` | `bmad-agent-po.toml` | `agent.menu` (code `l3io-lanes`) | a Sofia menu item running `l3io-plan` in lanes mode |
 | `l3io-epic-close` | `bmad-retrospective.toml` | `workflow.on_complete` | after the retrospective is saved: the epic's actuals, the retrospective's own spend as the closure actual, its verdict, one closure calibration sample, and a commit of them (`epic-close`); writes no status |
+| `l3io-fact-spec-sync` | `bmad-retrospective.toml` | `workflow.persistent_facts` | the epic-closure spec sync: decision records go to `docs/adr/`, and a decision that departs from an architecture spec becomes a spec-reconciliation action item, applied by the user through `bmad-architecture` (`facts/spec-sync.md`) |
+| `l3io-lens-<viewpoint>-review` (11) | `bmad-review.toml` | `workflow.lenses` (codes `l3io-…`) | the eleven review lenses: `l3io-design-integrity`, `l3io-testability`, `l3io-dependency-policy`, `l3io-observability`, `l3io-stack-rules` (`l3io-arch`) and `l3io-threat-external`, `l3io-threat-insider`, `l3io-threat-chaos`, `l3io-threat-abuse`, `l3io-threat-design`, `l3io-ai-poisoning` (`l3io-sec`), the last chained `after` the external attacker |
+| `l3io-lens-<viewpoint>-code-review`, `-build`, `-build-auto` (11 each) | `bmad-code-review.toml`, `bmad-build.toml`, `bmad-build-auto.toml` | `workflow.thorough_lenses` (ids `l3io-…`) | the same eleven, in every `thorough` review; the quick review stays BMad's |
+| `l3io-arch-design-review` | `bmad-architecture.toml` | `workflow.finalize_reviewers` | l3io's design review against the engineering standards, at every Reviewer Gate (the epic architecture gate) |
+| `l3io-arch-standards-source` | `bmad-architecture.toml` | `workflow.external_sources` | consult the standards before a stack, dependency, logging or deployment call |
+| `l3io-arch-doc-standard` | `bmad-architecture.toml` | `workflow.doc_standards` | the documentation standard (§10) on fuller prose documents |
 
-Each hook calls a script under `{project-root}/_bmad/l3io-pm/scripts/` (`pm_status/__main__.py`,
-`spec-align.py`, `plan-graph.py`, or the fact file `facts/ac-dimensions.md`), which `bmad setup l3io-pm`
-installs, and carries `requires = "l3io-pm"`: while `pm_status/__main__.py` is absent the
-entry is `skipped` and nothing is written for it. The menu items need `l3io-pm` the same way.
+Each entry names a file under `{project-root}/_bmad/<module>/scripts/`, which `bmad setup
+<module>` installs from the files that module declares, and carries `requires = "<module>"`:
+while that module's file is absent the entry is `skipped` and nothing is written for it.
+The `l3io-pm` hooks call `pm_status/__main__.py`, `spec-align.py` or `plan-graph.py`, or name a fact
+file under `facts/`; the menu items need `l3io-pm` the same way. The engineering lenses, the
+standards and the design review need `l3io-arch` (`lenses/`, `standards/`, `reviewers/`); the
+threat lenses need `l3io-sec` (`lenses/`).
 Every hook that writes commits the l3io files it wrote and nothing else, so the next
-`bmad-build-auto` still starts on a clean tree; the two checks and the waves and lanes views
-only read.
+`bmad-build-auto` still starts on a clean tree; the two checks, the waves and lanes views, the
+lenses and the architecture entries only read.
 
 ## 2. Report
 

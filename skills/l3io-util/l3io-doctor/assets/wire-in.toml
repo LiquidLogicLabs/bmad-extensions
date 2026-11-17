@@ -349,3 +349,863 @@ uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py epic-close --p
 - `<hitl_hours>`: the human attention this retrospective actually took; 0 in a headless (`-H`) run.
 
 The command rolls the tickets' actuals up into the epic's, records this retrospective's spend as the closure actual and the verdict from the document's frontmatter, and commits only l3io's own files; it leaves your document as it is. It writes no status: never run v7's `mark` verb or set the epic `done` for it, which stays the owner's call on the verdict. If the command fails, report its message in one line and exit as you would have."""
+
+# --------------------------------------------------------------------------------------------
+# Review lenses (spec §5.2, ADR-0017): five engineering viewpoints from l3io-arch and six threat
+# viewpoints from l3io-sec, each run inside BMad's own review. Each lens is added four times:
+# to bmad-review's `workflow.lenses` (keyed by `code`; customize.toml:107-141 ships BMad's own,
+# and `after` chains one lens behind another, :92-93), and to the `workflow.thorough_lenses` of
+# bmad-code-review (customize.toml:88), bmad-build (:121) and bmad-build-auto (:92), keyed by
+# `id`, which every `thorough` build runs. The quick review is left as BMad's. A thorough layer
+# keeps only id, name, when and instruction (render_skill.py:157-178), so AI poisoning cannot
+# chain `after` there and runs on its own. Every instruction loads the lens file its module
+# declares, which `bmad setup` installs under `_bmad/<module>/scripts/lenses/`; while that
+# module is not set up its entries are skipped.
+# --------------------------------------------------------------------------------------------
+[[entry]]
+id = "l3io-lens-design-integrity-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-arch"
+
+[entry.value]
+code = "l3io-design-integrity"
+name = "l3io Design Integrity"
+applies_to = "any"
+when = "Code, or a design, plan or spec that draws module boundaries or defines interfaces."
+instruction = "Load `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-design-integrity.md` and follow it."
+[[entry]]
+id = "l3io-lens-design-integrity-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-design-integrity"
+name = "l3io Design Integrity"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-design-integrity.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-design-integrity-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-design-integrity"
+name = "l3io Design Integrity"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-design-integrity.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-design-integrity-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-design-integrity"
+name = "l3io Design Integrity"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-design-integrity.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-testability-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-arch"
+
+[entry.value]
+code = "l3io-testability"
+name = "l3io Testability"
+applies_to = "any"
+when = "Code, or a design or plan that defines components with behaviour."
+instruction = "Load `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-testability.md` and follow it."
+[[entry]]
+id = "l3io-lens-testability-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-testability"
+name = "l3io Testability"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-testability.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-testability-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-testability"
+name = "l3io Testability"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-testability.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-testability-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-testability"
+name = "l3io Testability"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-testability.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-dependency-policy-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-arch"
+
+[entry.value]
+code = "l3io-dependency-policy"
+name = "l3io Dependency Policy"
+applies_to = "any"
+when = "Code or a design that adds, bumps or chooses a dependency, runtime or service, or writes logic a library may already provide."
+instruction = "Load `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-dependency-policy.md` and follow it."
+[[entry]]
+id = "l3io-lens-dependency-policy-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-dependency-policy"
+name = "l3io Dependency Policy"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-dependency-policy.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-dependency-policy-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-dependency-policy"
+name = "l3io Dependency Policy"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-dependency-policy.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-dependency-policy-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-dependency-policy"
+name = "l3io Dependency Policy"
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-dependency-policy.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-observability-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-arch"
+
+[entry.value]
+code = "l3io-observability"
+name = "l3io Observability"
+applies_to = "code"
+when = "Code that logs, handles errors, or crosses a service, process or async boundary."
+instruction = "Load `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-observability.md` and follow it."
+[[entry]]
+id = "l3io-lens-observability-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-observability"
+name = "l3io Observability"
+when = "Code that logs, handles errors, or crosses a service, process or async boundary."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-observability.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-observability-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-observability"
+name = "l3io Observability"
+when = "Code that logs, handles errors, or crosses a service, process or async boundary."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-observability.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-observability-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-observability"
+name = "l3io Observability"
+when = "Code that logs, handles errors, or crosses a service, process or async boundary."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-observability.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-stack-rules-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-arch"
+
+[entry.value]
+code = "l3io-stack-rules"
+name = "l3io Stack Rules"
+applies_to = "code"
+when = "Code, build or CI files in a stack l3io's standards cover: Python, Node.js, .NET, GitHub Actions, Docker, PowerShell or shell."
+instruction = "Load `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-stack-rules.md` and follow it."
+[[entry]]
+id = "l3io-lens-stack-rules-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-stack-rules"
+name = "l3io Stack Rules"
+when = "Code, build or CI files in a stack l3io's standards cover: Python, Node.js, .NET, GitHub Actions, Docker, PowerShell or shell."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-stack-rules.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-stack-rules-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-stack-rules"
+name = "l3io Stack Rules"
+when = "Code, build or CI files in a stack l3io's standards cover: Python, Node.js, .NET, GitHub Actions, Docker, PowerShell or shell."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-stack-rules.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-stack-rules-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-arch"
+
+[entry.value]
+id = "l3io-stack-rules"
+name = "l3io Stack Rules"
+when = "Code, build or CI files in a stack l3io's standards cover: Python, Node.js, .NET, GitHub Actions, Docker, PowerShell or shell."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-arch/scripts/lenses/l3io-stack-rules.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-external-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-sec"
+
+[entry.value]
+code = "l3io-threat-external"
+name = "l3io Threat: External Attacker"
+applies_to = "any"
+when = "Content with a security surface: authentication or authorization, input from outside the process, data access, secrets, or a trust boundary."
+instruction = "Load `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-external.md` and follow it."
+[[entry]]
+id = "l3io-lens-threat-external-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-external"
+name = "l3io Threat: External Attacker"
+when = "Content with a security surface: authentication or authorization, input from outside the process, data access, secrets, or a trust boundary."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-external.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-external-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-external"
+name = "l3io Threat: External Attacker"
+when = "Content with a security surface: authentication or authorization, input from outside the process, data access, secrets, or a trust boundary."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-external.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-external-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-external"
+name = "l3io Threat: External Attacker"
+when = "Content with a security surface: authentication or authorization, input from outside the process, data access, secrets, or a trust boundary."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-external.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-insider-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-sec"
+
+[entry.value]
+code = "l3io-threat-insider"
+name = "l3io Threat: Malicious Insider"
+applies_to = "any"
+when = "Content touching data access, roles and permissions, audit or logging, shared state, or a dependency, CI or build definition."
+instruction = "Load `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-insider.md` and follow it."
+[[entry]]
+id = "l3io-lens-threat-insider-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-insider"
+name = "l3io Threat: Malicious Insider"
+when = "Content touching data access, roles and permissions, audit or logging, shared state, or a dependency, CI or build definition."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-insider.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-insider-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-insider"
+name = "l3io Threat: Malicious Insider"
+when = "Content touching data access, roles and permissions, audit or logging, shared state, or a dependency, CI or build definition."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-insider.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-insider-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-insider"
+name = "l3io Threat: Malicious Insider"
+when = "Content touching data access, roles and permissions, audit or logging, shared state, or a dependency, CI or build definition."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-insider.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-chaos-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-sec"
+
+[entry.value]
+code = "l3io-threat-chaos"
+name = "l3io Threat: Chaos Engineer"
+applies_to = "any"
+when = "Code or a design with failure modes worth attacking: transactions, retries, concurrency, queues, external calls, or resource limits."
+instruction = "Load `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-chaos.md` and follow it."
+[[entry]]
+id = "l3io-lens-threat-chaos-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-chaos"
+name = "l3io Threat: Chaos Engineer"
+when = "Code or a design with failure modes worth attacking: transactions, retries, concurrency, queues, external calls, or resource limits."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-chaos.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-chaos-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-chaos"
+name = "l3io Threat: Chaos Engineer"
+when = "Code or a design with failure modes worth attacking: transactions, retries, concurrency, queues, external calls, or resource limits."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-chaos.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-chaos-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-chaos"
+name = "l3io Threat: Chaos Engineer"
+when = "Code or a design with failure modes worth attacking: transactions, retries, concurrency, queues, external calls, or resource limits."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-chaos.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-abuse-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-sec"
+
+[entry.value]
+code = "l3io-threat-abuse"
+name = "l3io Threat: Abusive User"
+applies_to = "any"
+when = "Content exposing features to users: endpoints, workflows, state machines, quotas, or input handling."
+instruction = "Load `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-abuse.md` and follow it."
+[[entry]]
+id = "l3io-lens-threat-abuse-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-abuse"
+name = "l3io Threat: Abusive User"
+when = "Content exposing features to users: endpoints, workflows, state machines, quotas, or input handling."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-abuse.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-abuse-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-abuse"
+name = "l3io Threat: Abusive User"
+when = "Content exposing features to users: endpoints, workflows, state machines, quotas, or input handling."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-abuse.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-abuse-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-abuse"
+name = "l3io Threat: Abusive User"
+when = "Content exposing features to users: endpoints, workflows, state machines, quotas, or input handling."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-abuse.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-design-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-sec"
+
+[entry.value]
+code = "l3io-threat-design"
+name = "l3io Threat: Design Red Team"
+applies_to = "any"
+when = "A design, spec or change that draws or crosses a trust boundary, or adds or relies on a security control."
+instruction = "Load `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-design.md` and follow it."
+[[entry]]
+id = "l3io-lens-threat-design-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-design"
+name = "l3io Threat: Design Red Team"
+when = "A design, spec or change that draws or crosses a trust boundary, or adds or relies on a security control."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-design.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-design-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-design"
+name = "l3io Threat: Design Red Team"
+when = "A design, spec or change that draws or crosses a trust boundary, or adds or relies on a security control."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-design.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-threat-design-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-threat-design"
+name = "l3io Threat: Design Red Team"
+when = "A design, spec or change that draws or crosses a trust boundary, or adds or relies on a security control."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-threat-design.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-ai-poisoning-review"
+skill = "bmad-review"
+kind = "keyed"
+path = "workflow.lenses"
+requires = "l3io-sec"
+
+[entry.value]
+code = "l3io-ai-poisoning"
+name = "l3io AI Poisoning"
+applies_to = "any"
+when = "Content with an AI, ML or LLM component: prompts, model calls, retrieval, training or fine-tuning data, agent tools, or model output consumed by code."
+after = "l3io-threat-external"
+instruction = "Load `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-ai-poisoning.md` and follow it."
+[[entry]]
+id = "l3io-lens-ai-poisoning-code-review"
+skill = "bmad-code-review"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-ai-poisoning"
+name = "l3io AI Poisoning"
+when = "Content with an AI, ML or LLM component: prompts, model calls, retrieval, training or fine-tuning data, agent tools, or model output consumed by code."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-ai-poisoning.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-ai-poisoning-build"
+skill = "bmad-build"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-ai-poisoning"
+name = "l3io AI Poisoning"
+when = "Content with an AI, ML or LLM component: prompts, model calls, retrieval, training or fine-tuning data, agent tools, or model output consumed by code."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-ai-poisoning.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+[[entry]]
+id = "l3io-lens-ai-poisoning-build-auto"
+skill = "bmad-build-auto"
+kind = "keyed"
+path = "workflow.thorough_lenses"
+requires = "l3io-sec"
+
+[entry.value]
+id = "l3io-ai-poisoning"
+name = "l3io AI Poisoning"
+when = "Content with an AI, ML or LLM component: prompts, model calls, retrieval, training or fine-tuning data, agent tools, or model output consumed by code."
+instruction = """
+Launch a context-free subagent with this prompt, writing the project's root directory in place of `{project-root}`:
+
+Read `{project-root}/_bmad/l3io-sec/scripts/lenses/l3io-ai-poisoning.md` completely and follow it as your review instructions.
+
+Review content: the unified diff at `{diff_file}`. Read that file — it is the change under review. The ticket is `{ticket_file}` and the plan `{plan_file}`; read them for intent, and treat either as absent when it is empty.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+
+# --------------------------------------------------------------------------------------------
+# l3io-arch-review joins bmad-architecture (spec §14.3). Its three surfaces are lists that
+# append (customize.toml:62-99), so none can collide with a team's own value. The design review
+# is a `file:` finalize reviewer (:90-93): it runs at every Reviewer Gate, Finalize, Validate
+# and headless alike (references/reviewer-gate.md:7, headless.md:5), which makes it the epic
+# architecture gate 3.x ran inside l3io-execute. The standards are consulted on demand as an
+# external source (:66-75), and the documentation standard is applied to fuller prose
+# documents only (:54-64).
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-arch-design-review"
+skill = "bmad-architecture"
+kind = "list"
+path = "workflow.finalize_reviewers"
+requires = "l3io-arch"
+value = "file:{project-root}/_bmad/l3io-arch/scripts/reviewers/epic-design-review.md"
+
+[[entry]]
+id = "l3io-arch-standards-source"
+skill = "bmad-architecture"
+kind = "list"
+path = "workflow.external_sources"
+requires = "l3io-arch"
+value = "When choosing a stack, a dependency, a runtime or base image, a logging approach or a deployment mode, or when drawing a module boundary, consult l3io's engineering standards before recommending: `{project-root}/_bmad/l3io-arch/scripts/standards/standards-core.md`, plus the overlay beside it for each stack in play (`standards-python.md`, `standards-nodejs.md`, `standards-dotnet.md`, `standards-github-actions.md`, `standards-docker.md`, `standards-powershell.md`, `standards-shell.md`). Commit only to what they allow, or record the departure as an AD naming the principle it departs from."
+
+[[entry]]
+id = "l3io-arch-doc-standard"
+skill = "bmad-architecture"
+kind = "list"
+path = "workflow.doc_standards"
+requires = "l3io-arch"
+value = "l3io documentation standard (`{project-root}/_bmad/l3io-arch/scripts/standards/standards-core.md` §10): the document says which axes it serves (architectural, developer, operational, API), carries a context view and a flow diagram wherever a flow is non-trivial, in Mermaid (ASCII only where Mermaid cannot render), leveled C4-style, and names where it sits in the project's documentation."
+
+# --------------------------------------------------------------------------------------------
+# The epic-closure spec sync, beside bmad-retrospective's decision records. The retrospective
+# proposes decision records and spec reconciliations and writes only the records the user
+# approves (references/acceptance-verdict.md:16-25, workflow.md:101), so no hook of ours may
+# edit a spec there. This fact steers its records into docs/adr/ and makes an accepted
+# departure from an architecture spec an explicit reconciliation item, which the user applies
+# through bmad-architecture, where the design review above runs. persistent_facts is a list
+# (customize.toml:33), so it composes with the team's own facts and with l3io-epic-close.
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-fact-spec-sync"
+skill = "bmad-retrospective"
+kind = "list"
+path = "workflow.persistent_facts"
+requires = "l3io-pm"
+value = "file:{project-root}/_bmad/l3io-pm/scripts/facts/spec-sync.md"

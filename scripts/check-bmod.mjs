@@ -58,6 +58,7 @@ export const CUSTOMIZE_PATHS = {
   "bmad-retrospective": "skills/method/bmad-retrospective/customize.toml",
   "bmad-review": "skills/core-tools/bmad-review/customize.toml",
   "bmad-code-review": "skills/method/bmad-code-review/customize.toml",
+  "bmad-architecture": "skills/method/bmad-architecture/customize.toml",
 };
 
 function lookup(table, dotted) {

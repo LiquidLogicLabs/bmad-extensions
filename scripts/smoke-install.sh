@@ -424,6 +424,48 @@ check "unwire after the refusal leaves the planted team file as the team wrote i
   "cmp -s '$work/retro-planted.toml' '$retro_team'"
 rm -rf "$custom" && cp -a "$work/custom-before-retro-plant" "$custom"
 info "refusal: $(grep refused "$work/wire-retro-planted.txt" | head -n 1 | cut -c1-160)..."
+# R6: wire also adds the eleven review lenses (l3io-arch's five, l3io-sec's six) and three
+# bmad-architecture entries, each loading a file its module declares. v7's renderer must still
+# render every thorough-review host with all eleven in place, v7's resolver must list them in
+# bmad-review's merged lenses (AI poisoning after the external attacker) and ours in
+# bmad-architecture's merged finalize_reviewers, and unwire must restore every team file (R15).
+lens_codes="l3io-design-integrity l3io-testability l3io-dependency-policy l3io-observability \
+l3io-stack-rules l3io-threat-external l3io-threat-insider l3io-threat-chaos l3io-threat-abuse \
+l3io-threat-design l3io-ai-poisoning"
+resolve() { # <skill>: its merged [workflow], as the skill itself resolves it
+  (cd "$proj" && uv run --quiet --no-project _bmad/scripts/resolve_customization.py \
+    --skill ".claude/skills/$1" --project-root . --key workflow)
+}
+rm -rf "$work/custom-before-lenses" && cp -a "$custom" "$work/custom-before-lenses"
+check "every lens file the wired entries load is installed by setup" \
+  "(for c in $lens_codes; do ls '$proj'/_bmad/l3io-arch/scripts/lenses/\$c.md '$proj'/_bmad/l3io-sec/scripts/lenses/\$c.md 2>/dev/null | grep -q . || exit 1; done) \
+     && test -f '$proj/_bmad/l3io-arch/scripts/reviewers/epic-design-review.md' \
+     && test -f '$proj/_bmad/l3io-arch/scripts/standards/standards-core.md' \
+     && test -f '$proj/_bmad/l3io-pm/scripts/facts/spec-sync.md'"
+check "wire applies the lens and architecture entries (exit 0)" \
+  "(cd '$proj' && uv run --quiet '$wire_py' wire --project-root . > '$work/wire-lenses.txt') \
+     && ! grep -q skipped '$work/wire-lenses.txt'"
+resolve bmad-review > "$work/resolved-review.json" || true
+check "bmad-review's merged lenses list all eleven l3io codes, BMad's own kept (R6)" \
+  "(for c in $lens_codes; do jq -e --arg c \$c '[.workflow.lenses[] | select(.code == \$c)] | length == 1' '$work/resolved-review.json' >/dev/null || exit 1; done) \
+     && jq -e 'any(.workflow.lenses[]; .code == \"adversarial\")' '$work/resolved-review.json' >/dev/null"
+check "... with l3io-ai-poisoning after l3io-threat-external" \
+  "jq -e '.workflow.lenses[] | select(.code == \"l3io-ai-poisoning\") | .after == \"l3io-threat-external\"' '$work/resolved-review.json' >/dev/null"
+for host in bmad-code-review bmad-build bmad-build-auto; do
+  check "$host renders after wire (exit 0), its thorough review listing all eleven l3io lenses (R6)" \
+    "render $host > '$work/render-$host.md' \
+       && (for c in $lens_codes; do grep -rqF \"(\\\`\$c\\\`)\" '$proj/_bmad/render/$host' || exit 1; done)"
+done
+resolve bmad-architecture > "$work/resolved-arch.json" || true
+check "bmad-architecture's merged finalize_reviewers include l3io's design review, BMad's two kept (R6)" \
+  "jq -e '.workflow.finalize_reviewers | (length == 3) and any(.[]; . == \"file:{project-root}/_bmad/l3io-arch/scripts/reviewers/epic-design-review.md\")' '$work/resolved-arch.json' >/dev/null"
+check "... and its external_sources and doc_standards carry the standards" \
+  "jq -e '(.workflow.external_sources | any(.[]; contains(\"_bmad/l3io-arch/scripts/standards/\"))) and (.workflow.doc_standards | any(.[]; contains(\"_bmad/l3io-arch/scripts/standards/\")))' '$work/resolved-arch.json' >/dev/null"
+check "bmad-retrospective renders with the spec-sync fact beside epic-close" \
+  "grep -q 'facts/spec-sync.md' '$retro_team' && render bmad-retrospective > '$work/render-retro-lenses.md'"
+(cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
+check "unwire restores every team file the lens wire touched (R15)" \
+  "diff -r '$work/custom-before-lenses' '$custom' >/dev/null"
 # epic-close itself, from the installed copy, on the hand-written epic: it writes only our
 # sidecar and state, so tickets.py reads the tree byte-identically afterwards.
 retro_md="$init/tickets/epic-smoke/epic-smoke-retrospective.md"

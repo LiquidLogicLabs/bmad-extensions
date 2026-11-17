@@ -44,24 +44,25 @@ l3io-execute       the unattended run over an initiative or epic
     |-- per ticket --> bmad-build-auto thorough      (build-open / build-close hooks measure it)
     \-- per epic ----> bmad-retrospective -H <slug>  (epic-close hook records closure)
 
-l3io-sec-redteam   standalone
+l3io-sec-redteam   standalone persona; its six threat lenses are wired into BMad's review
 l3io-doctor        standalone — health check, stats, wire/unwire, migrations, housekeeping
-l3io-arch-review   standalone; its standards can be wired into core bmad-architecture
+l3io-arch-review   ADR recording; its standards, lenses and design review are wired into BMad
 ```
 
 `l3io-sec` and `l3io-arch` run standalone and only read the `l3io-pm` config section if
-`l3io-pm` is configured. `l3io-arch` carries the engineering-standards charter
-(`references/standards-*.md`), designed to be wired into core `bmad-architecture` and
-`bmad-code-review` via `bmad-customize` so the standards apply during design and review without
-forking those skills.
+`l3io-pm` is configured. Their viewpoints are lenses (ADR-0017): `l3io-arch`'s five engineering
+lenses and `l3io-sec`'s five threat lenses plus AI poisoning run inside `bmad-review` and every
+thorough review of `bmad-code-review`, `bmad-build` and `bmad-build-auto`, and `l3io-arch`'s
+standards and design review join `bmad-architecture`. Each loads a file its module declares, so
+they run on a project where nobody types an `l3io-` command.
 
 ## Hooks: how l3io attaches to v7
 
 `/l3io-doctor wire` writes l3io's entries into the team's `_bmad/custom/<skill>.toml` and
 records what it wrote; `/l3io-doctor unwire` removes exactly that ([ADR-0020](adr/0020-wire-in-owns-team-customization-edits.md)). It never
-overwrites a team value. Every entry calls a script BMad v7 installs from this package's
-declared scripts, at `{project-root}/_bmad/l3io-pm/scripts/…`, and is skipped while `l3io-pm`
-is not set up.
+overwrites a team value. Every entry calls a script, or loads a file, BMad v7 installs from
+this package's declared scripts, at `{project-root}/_bmad/<module>/scripts/…`, and is skipped
+while that module is not set up.
 
 | Host skill | Extension point | Runs |
 |---|---|---|
@@ -69,7 +70,10 @@ is not set up.
 | `bmad-agent-po` | `workflow.checks.ticket`, `workflow.checks.set`; a `persistent_facts` entry | `spec-align.py check-pointers --story-file`; `estimate-entries --check`; `facts/ac-dimensions.md` |
 | `bmad-agent-po` | `board_after`; `l3io-waves`, `l3io-lanes` menu items | `sidecar-reconcile` after a `move`, then `plan-graph.py waves` and `lanes` |
 | `bmad-build`, `bmad-build-auto` | activation prepend; On Complete | `build-open`; `build-close` |
-| `bmad-retrospective` | On Complete | `epic-close` |
+| `bmad-retrospective` | On Complete; a `persistent_facts` entry | `epic-close`; `facts/spec-sync.md`, the epic-closure spec sync |
+| `bmad-review` | `lenses` | the eleven l3io lenses (`l3io-arch`, `l3io-sec`) |
+| `bmad-code-review`, `bmad-build`, `bmad-build-auto` | `thorough_lenses` | the same eleven |
+| `bmad-architecture` | `finalize_reviewers`, `external_sources`, `doc_standards` | l3io's design review (the epic architecture gate); the standards; the documentation standard |
 
 **No hook may leave the tree dirty**, because `bmad-build-auto` halts on a dirty tree at its
 first step. `build-open` writes only a self-ignoring spool, `{state_root}/.inflight/`. Every
