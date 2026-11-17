@@ -160,8 +160,22 @@ v7 owns the work-item tree (ADR-0015) and has no sprints (ADR-0016), so what l3i
 **Six `l3io-doctor` modes are removed**, because each wrote the 3.x state tree:
 `bootstrap-state`, `split-status`, `sort-status`, `reconcile-status`, `migrate-schema` and
 `clean-layout` (with its alias `layout-cleanup`). The health check and `stats` now read a v7
-initiative through `pm-status.py report`. `migrate-state` stays until a later release replaces it
-with a migration onto v7's tree.
+initiative through `pm-status.py report`.
+
+**A 3.x project migrates under `bmad migrate`, and `migrate-state` and `redrive` are removed.**
+`l3io-pm` ships `migration-1` (3 → 4, ADR-0019). It applies only once v7's initiative layout
+exists, so method's own migration runs first; `bmad migrate` lists modules by name, which is
+why the order lives in `detect`. Method's migration writes the work-item tree and every
+status; ours carries what l3io recorded — story estimates and classes into each epic's
+`tickets/l3io.toml`, actuals and completion evidence into `<plan-stem>.l3io.toml` beside each
+plan, lanes into the initiative's `tickets/l3io.toml`, and the calibration file, event log,
+ADR register and reorg log into `{output_folder}/l3io/` — from any 3.x layout (the sharded
+tree, the flat or split `sprint-status*.yaml`, or `_bmad/state/`). A 3.x key that maps to no
+v7 ticket or to two, a value v7-era work already set, or a story with actuals and no plan
+stops it before anything is written; the plan names the fix (`--map`, or v7's `tickets.py
+mark`). The 3.x source is renamed aside as `.legacy` only after every datum verifies.
+`/l3io-doctor`'s Check 20 reports when it is pending. The health check's Checks 2, 6 and 7 and
+the 3.x half of Check 16 are retired with it, and so is the inline `rename-epic-dirs` action.
 
 **Sixteen `pm-status.py` verbs are removed**, with their last callers:
 - `set-status`, `move-epic`, `reparent-story`, `retire-epic`, `reorg-log`, `reorg-undo` and `dump-plan` are removed — status and placement are v7's, written by Sofia and `bmad-build-auto`.
@@ -169,8 +183,7 @@ with a migration onto v7's tree.
 - `set-depends-on`, `story-doc-init` and `set-field` are removed — dependencies are v7's `after`, tickets are Sofia's, and a lane is written by `set-lane`.
 - `set-lock`, `clear-lock` and `check-lock` are removed — an epic's run is owned through its `l3io/<slug>` branch and worktree, not a lock in a node file.
 
-The sprint level goes from estimation and calibration too: `estimate-rollup` takes `--epic`
-only, `set-actual --node` takes `story` or `epic`, and an epic's estimate is the sum of its
+The sprint level goes from estimation and calibration too: an epic's estimate is the sum of its
 tickets plus the epic closure and orchestration bands.
 
 **The backlog is v7's `backlog/` folder; l3io keeps no issues ledger.** `issues.yaml`,
@@ -971,6 +984,9 @@ invoke — and there was never a reason to invoke it alone, because a renamed fl
 a legacy layout.
 
 ## BMad v7: do not run `bmad migrate` on an l3io-pm project yet
+
+*With l3io 4.0.0 installed and set up, do run it — see → 4.0.0: l3io-pm's own `migration-1`
+then follows method's. This section is for a project still on l3io 3.x.*
 
 BMad v7 ships a migration that turns a v6 project into its initiative/ticket layout.
 `bmad migrate` is not a script: an agent reads each migration's `detect` rules and judges

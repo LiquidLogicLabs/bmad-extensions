@@ -119,8 +119,11 @@ folder's `next_id` never decreases, so an old entry id is never reused.
 **Reads are lock-free.** Every write is an atomic rename, so a reader — `report --watch`
 during a parallel wave — never sees a torn file.
 
-**3.x state trees** (`{implementation_artifacts}/state/`) are read only by
-`/l3io-doctor migrate-state`, until Phase 6 replaces it.
+**3.x state trees** (`{implementation_artifacts}/state/`, and the older flat, split and
+per-epic layouts) are read only by the 3.x → 4.x migration: `bmad migrate` runs l3io-pm's
+`migration-1.toml` after method's own, and its guide runs l3io-util's
+`scripts/migrate-engine.py` (ADR-0019), which writes only l3io's sidecars and
+`{output_folder}/l3io/`.
 
 ## The unattended run
 

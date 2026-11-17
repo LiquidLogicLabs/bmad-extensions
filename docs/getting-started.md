@@ -37,11 +37,10 @@ a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar term
 
 ## Prerequisites
 
-- **An agent IDE** — Claude Code or GitHub Copilot. Both are supported; pick one or both with
-  the `--tools` flag at [Install](#install).
-- **BMad** installed in the target repo (`npx bmad-method install` or equivalent), including the
-  `bmm` module. For every official module BMad offers — which are optional, and which is
-  required here — see the module table in the [README](../README.md).
+- **An agent** — Claude Code, Codex, or another the `skills` CLI supports; pick one or more
+  with `-a` at [Install](#install).
+- **BMad v7** installed and set up in the target repo: its `core-tools` and `method` modules.
+  l3io 4.x runs on BMad v7 only; a BMad 6.x project stays on l3io 3.x.
 - **[uv](https://docs.astral.sh/uv/)** on your `PATH`. The Python helpers (`pm-status.py`,
   `spec-align.py`) are invoked as `uv run`, which provisions their dependencies from an inline
   PEP 723 header — there is nothing else to install, but without `uv` the first status write
@@ -58,53 +57,49 @@ Node.js is **not** needed to use the skills — only to develop this package its
 
 You can install all four modules or only the ones you need — but `l3io-util` is required
 whenever `l3io-pm` is installed (it provides the doctor that PM skills forward to for
-migrations, the progress dashboard, and the version report). The marketplace bundle
-ships all four together so a standard install always carries `l3io-util`.
+the progress dashboard, the hooks and the version report, and `bmad setup l3io-pm` reports it
+as an unmet requirement when it is missing).
 
 | Module | Install if you want |
 |--------|---------------------|
 | **l3io-pm** | Unattended runs over BMad v7 initiatives, per-ticket estimates, waves and lanes |
-| **l3io-util** | **Required with `l3io-pm`.** Diagnostics, `wire`/`unwire` for l3io's hooks, the progress dashboard, legacy layout migration, and the version report. |
+| **l3io-util** | **Required with `l3io-pm`.** Diagnostics, `wire`/`unwire` for l3io's hooks, the progress dashboard, the 3.x → 4.x migration engine `bmad migrate` runs, and the version report. |
 | **l3io-sec** | Adversarial security review |
 | **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
-All four modules are installed by the same `npx bmad-method install` command. No module
-configures itself on first use — every setting has a default, so installing is enough to run.
-`l3io-pm`, the only multi-skill module, is configured with `bmad setup l3io-pm` when you do
-want to change a setting; the other three self-register from their own single skill on an
-explicit `configure` request.
+All four modules are installed the same way: each is its own folder under `skills/`, added
+with its own `npx skills add`, and `bmad setup <code>` then installs the scripts it declares
+and asks its questions.
 
 ## Install
 
-Run in the project repo where you want to use the extension:
+Run in the project repo where you want to use the extension — the same sequence
+`npm run smoke:install` runs against a real v7 project:
 
 ```bash
-npx -y bmad-method@latest install \
-  --directory . \
-  --custom-source https://github.com/LiquidLogicLabs/bmad-extensions \
-  --modules bmm \
-  --tools claude-code \
-  --yes
+for m in l3io-pm l3io-util l3io-sec l3io-arch; do
+  npx --yes skills add LiquidLogicLabs/bmad-extensions/skills/$m -s '*' -a claude-code -y --copy
+done
 ```
 
-**Do not drop `--modules bmm`.** A `--custom-source` install installs BMad's `core` plus the
-custom modules only. The required BMad skills listed under
-[Prerequisites](#prerequisites) live in the official `bmm` module, so omitting the flag leaves
-you with the `l3io` skills and nothing for them to dispatch to. Everything appears to install
-correctly and then fails at the first dev phase.
+Together, this installs all five skills and registers the four modules with v7 once
+`bmad setup` has run. Repeat `-a` for each agent (`-a claude-code -a codex`), never comma-separated. Never add
+`skills/_shared/` — it is source, not a module. `install.sh --action install` at the repository
+root runs the same loop.
 
-`--tools` selects which agent surfaces are generated: `claude-code` (`.claude/commands/*`),
-`github-copilot` (`.github/agents/*.agent.md` plus `.github/copilot-instructions.md`), or both
-as a comma-separated list with no spaces.
+Then, in your agent:
 
-BMad ≥6.12.0 installs skills to `.claude/skills/<name>/SKILL.md`; earlier releases install to
-`.claude/commands/<name>.md`. No `--shims` flag is needed either way — every dependency site in
-this package probes both layouts and both name generations and resolves whichever is present.
+```
+bmad setup l3io-pm
+bmad setup l3io-util
+/l3io-doctor wire
+```
 
-Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
-(the installer prompts for which IDEs to target).
-
-This installs all five skills and registers the four modules in `.claude-plugin/marketplace.json`.
+`npx skills add` installs skills but none of the scripts they declare; `bmad setup` installs
+those under `_bmad/<code>/scripts/`. `bmad setup l3io-pm` asks `lane_count`; every other setting
+has a default. `wire` attaches l3io's hooks, lenses and facts to Sofia, the builds and the
+retrospective through the team's `_bmad/custom/<skill>.toml` files, and `/l3io-doctor unwire`
+removes exactly what it added.
 
 ### Verify the install
 
@@ -203,25 +198,16 @@ See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the
 
 ## Upgrading
 
-An upgrade is **not** the install command re-run. It is shorter, and it is a different code
-path:
+An upgrade is the install sequence again: `npx skills add` of each installed module folder
+replaces its skills, `bmad setup` rebuilds every declared script and offers any migration that
+now applies, and `/l3io-doctor wire` adds whatever entries the release added
+(`install.sh --action upgrade`, or `/l3io-doctor upgrade`, runs the first and third for you).
 
-```bash
-npx -y bmad-method@latest install --directory . --action quick-update --yes
-```
-
-`--action quick-update` derives the module set and the IDE list off the existing install,
-refreshes custom-source modules, preserves module settings, and performs no selection-driven
-deletion.
-
-**Do not use the first-install form to upgrade.** It passes `--modules` and `--tools`, which
-are authoritative rather than additive: BMad removes every installed module and every IDE tree
-those flags do not name, without confirming.
-
-This page used to say to re-run the install command, and advised keeping `--modules bmm` so
-that BMad's own skills would refresh alongside the extension. That is how a repo with `cis`
-and `tea` installed loses both — and a repo that followed this advice lost the per-module
-`config.yaml` for `core`, `bmm`, `cis` and `tea`. Reach for the first-install form only to
+**From l3io 3.x.** After installing 4.x and running `bmad setup`, run `bmad migrate`: method's
+own migration first, which turns the v6 folders into a v7 initiative, then l3io-pm's
+`migration-1`, which carries your estimates, actuals, calibration, event log and ADR register
+into l3io's v7 sidecars, verifies every datum, and only then renames the 3.x source `.legacy`.
+`/l3io-doctor`'s Check 20 says when it is pending.
 CHANGE the module or IDE set, deliberately.
 
 `install.sh` at the repository root picks the right command and refuses the wrong one; inside
@@ -409,7 +395,7 @@ Modes worth knowing:
 ```
 /l3io-doctor wire             # add l3io's hooks to BMad's skills (unwire removes them)
 /l3io-doctor stats            # progress dashboard over a v7 initiative, read-only
-/l3io-doctor migrate-state    # a legacy l3io state layout → the 3.x sharded tree
+bmad migrate                  # l3io 3.x data → its v7 sidecars (l3io-pm migration-1, after method's)
 ```
 
 > `/l3io-util-cleanup` was renamed to `/l3io-doctor` in 2.1.0. The old name's deprecated

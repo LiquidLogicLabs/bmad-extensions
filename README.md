@@ -135,8 +135,10 @@ proposes the fixes in order. See [Getting started](docs/getting-started.md) for 
 
 Pull the new release into your checkout and repeat steps 2 and 3: `skills add` replaces each
 skill folder, and `bmad setup` rebuilds each module's declared scripts. Re-run
-`/l3io-doctor wire` only when the release notes say the wire-in set changed. A project still on
-a 3.x state layout migrates with `/l3io-doctor migrate-state`.
+`/l3io-doctor wire` only when the release notes say the wire-in set changed. A project still
+carrying l3io 3.x data migrates under `bmad migrate`: method's own migration first, then
+l3io-pm's `migration-1`, which moves estimates, actuals, calibration, events and the ADR
+register into the v7 sidecars and keeps the 3.x source until every datum verifies.
 
 See **[Upgrading](docs/upgrading.md)** for version-by-version notes.
 
@@ -158,7 +160,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 | `/l3io-plan` | `/l3io-plan estimate [<folder>]` estimates a v7 initiative's or epic's tickets into l3io's sidecars and rolls each epic up; Sofia's hooks run the same as she writes tickets. `/l3io-plan waves` gives the order an initiative's epics may run in and the epic closures that will pause a run. `/l3io-plan lanes` partitions the epics across developers who each have their **own clone** — it proposes which epics each lane owns, reports what the partition costs (cross-lane dependencies and lanes left idle in a wave), and shows one lane's view. One epic is one lane; lanes stay entirely off unless setup recorded `lane_count` above 1. Shaping the plan itself is Sofia's: REFINE, REPLAN and BOARD |
 | `/l3io-execute` | Build a BMad v7 initiative or epic unattended: one `bmad-build-auto` run per ticket, invoked `thorough`, in the wave order `plan-graph.py` gives; each epic closed with `bmad-retrospective -H`, its tickets marked `done` on an accepted verdict, and merged. It adds no review or fix loop of its own — those are `bmad-build-auto`'s — and it stops for you at every epic a later wave waits on. Each epic runs on its own branch, in its own git worktree when your project commits `_bmad/`, and one at a time otherwise |
 | `/l3io-sec-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research. The same six viewpoints run as lenses in `bmad-review` and every thorough code review once `/l3io-doctor wire` has run |
-| `/l3io-doctor` | **Run without arguments** for a project health check — scans for all known issues (legacy l3io layouts, untracked debt markers, AI instruction references, ADRs left in the old per-epic home, story spec pointers, spec-index freshness, BMad dependency resolution, `pm_status` version skew, and initiative progress) and proposes the right actions in order with a single confirmation. Or pass a keyword to skip directly to a specific mode. **The following is a selection, not the full set** — `/l3io-doctor help` prints every keyword, and [`docs/l3io-util-reference.md`](docs/l3io-util-reference.md) documents each one: `check` (read-only diagnostic only), `stats` (progress dashboard over a v7 initiative), `backlog` / `issues` (aliases for `stats` that always print the per-item backlog table), `check-deps` (verify the BMad skills this package dispatches resolve here), `wire` / `unwire` (attach or detach l3io's hooks), `migrate-state` (legacy l3io state layout → the sharded state tree), `harvest-debt` (sweep for `bmad-defer:` markers), `migrate-adrs` (move ADRs from the old per-epic home to `docs/adr/`), `triage` (audit the issues backlog and close what is already fixed), `clean-legacy` (remove migration backups) |
+| `/l3io-doctor` | **Run without arguments** for a project health check — scans for all known issues (l3io 3.x data awaiting `bmad migrate`, untracked debt markers, AI instruction references, ADRs left in the old per-epic home, story spec pointers, spec-index freshness, BMad dependency resolution, `pm_status` version skew, and initiative progress) and proposes the right actions in order with a single confirmation. Or pass a keyword to skip directly to a specific mode. **The following is a selection, not the full set** — `/l3io-doctor help` prints every keyword, and [`docs/l3io-util-reference.md`](docs/l3io-util-reference.md) documents each one: `check` (read-only diagnostic only), `stats` (progress dashboard over a v7 initiative), `backlog` / `issues` (aliases for `stats` that always print the per-item backlog table), `check-deps` (verify the BMad skills this package dispatches resolve here), `wire` / `unwire` (attach or detach l3io's hooks), `migrate-state` (legacy l3io state layout → the sharded state tree), `harvest-debt` (sweep for `bmad-defer:` markers), `migrate-adrs` (move ADRs from the old per-epic home to `docs/adr/`), `triage` (audit the issues backlog and close what is already fixed), `clean-legacy` (remove migration backups) |
 | `/l3io-arch-review` | Apply engineering standards in one of three modes: **design** (hands you to `bmad-architecture`, which carries the guardrails once wired), **review** (runs `bmad-review` with the five engineering lenses on a design/component/diff → severity-graded findings, with a BLOCKER/MAJOR gate), or **decision** (weigh options against the standards and record an ADR). Auto-detects the stack and loads the matching overlay (Python, Node.js, .NET, GitHub Actions). `/l3io-doctor wire` applies it automatically: guardrails and a design review in `bmad-architecture`, five engineering lenses in `bmad-review` and every thorough code review |
 
 ## Context Boundary Rule
@@ -216,10 +218,9 @@ this package carries no dev agent.
 Required intra-package: `l3io-util` (provides `l3io-doctor`, which wires the hooks).
 `/l3io-doctor check-deps` shows what resolved in your project.
 
-`bmm` is an **official module, not part of `core`**, so a `--custom-source` install does not
-include it unless you pass `--modules bmm` — see [Quick Start](#quick-start). If these skills
-are missing, the l3io skills install and activate normally and then fail at the first phase that
-dispatches to one. Run `/l3io-doctor check-deps` in a target project to see exactly what
+These come from BMad v7's `method` module, which must be installed and set up before l3io —
+see [Quick Start](#quick-start). If they are missing, the l3io skills install and activate
+normally and then fail at the first phase that dispatches to one. Run `/l3io-doctor check-deps` in a target project to see exactly what
 resolved there.
 
 ## Repo Layout

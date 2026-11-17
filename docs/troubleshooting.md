@@ -62,8 +62,8 @@ tells you to run the BMad installer. It will not write a config itself or contin
 ## A 3.x project
 
 l3io 4.x does not read a 3.x state tree (`{implementation_artifacts}/state/`, a flat
-`sprint-status.yaml` or a legacy `_bmad/state/`). `/l3io-doctor migrate-state` still migrates
-the legacy layouts until a later release replaces it with a migration onto v7's tree; see
+`sprint-status.yaml` or a legacy `_bmad/state/`). `bmad migrate` moves it onto v7's tree:
+method's migration first, then l3io-pm's `migration-1`; see
 [Upgrading](upgrading.md).
 
 ## Estimation problems

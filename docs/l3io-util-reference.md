@@ -43,13 +43,13 @@ Key settings (with defaults):
 | `stats` (aliases `backlog`, `issues`) | Progress dashboard over BMad v7's work-item tree. For each initiative under `{output_folder}` (or the one named) it runs `pm-status.py report --project-root … --initiative-dir …`, which reads v7's own `tickets.py status` and joins l3io's sidecars, the event log and the build spool: each epic's status, lane and built count, the tickets not yet `done`, estimates and actuals, `tickets.py`'s problems, and any build whose bracket has been open past `--stall-minutes` (default 15). It then appends v7's backlog (`{output_folder}/backlog/`) counted by type and state, its open tickets listed, and calibration state from `{output_folder}/l3io/pm-calibration.yaml`. The `backlog` and `issues` aliases always print that table; both views come from one `tickets.py status` call over `backlog/`. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). |
 | `check-deps` | Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. Read-only. |
 | `version` (aliases `--version`, `which-version`) | Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill, and per module for the four module homes. Exits non-zero on a tree carrying more than one version, which is a partial or interrupted install. This is the mode that answers "which l3io am I on?": `_bmad/_config/manifest.yaml` records a custom-source module's `version` as the git ref that was cloned, so a project tracking the default branch reads `version: main`, which is accurate and useless. With `--project-root` it also lists the two `pm_status` copies BMad v7 installs (`_bmad/l3io-pm/scripts/pm_status/`, `_bmad/l3io-util/scripts/pm_status/`) and reports them disagreeing as a `pm_status SKEW` finding, exiting non-zero; the health check's Check 18 runs the same report. Read-only. |
-| `install` (aliases `upgrade`, `uninstall`) | Runs the right BMad command for the intent, and refuses the wrong one. **`upgrade`** uses `--action quick-update`, which derives the module set and the IDE list off the existing install, preserves settings, and performs no selection-driven deletion. **`install`** is first-install only and refuses an existing install, because the form it must use passes `--modules` and `--tools`, which are authoritative: BMad `fs.remove`s every installed module and runs `cleanupByList` over every IDE tree those flags do not name, without confirming — two repos here were told to use that form for an upgrade and one lost the per-module `config.yaml` for core, bmm, cis and tea. **`clean`** removes only this extension's payload, decided file by file by SHA-256 against each skill's `payload-manifest.json`: a matching hash is ours and removable, a differing hash is reported and **kept** because somebody edited it, and anything absent from the manifests is never touched. Project state under the artifacts tree appears in no manifest, so it is out of scope by construction. Dry run until `--apply`; confirms before every action. The BMad release is pinned, overridable with `--bmad-version`. |
+| `install` (aliases `upgrade`, `uninstall`) | **`upgrade`** re-adds each installed module with `npx skills add LiquidLogicLabs/bmad-extensions/skills/<code>` (which replaces its skill folders), hands `bmad setup` to you — it rebuilds every declared script under `_bmad/<code>/scripts/` and offers any migration that now applies, l3io-pm's 3 → 4 among them — and re-runs `wire`. **`install`** on a project without l3io points at the repository's `install.sh --action install`, since a first install has no payload to run from. **`clean`** runs `unwire`, then removes only this extension's payload, decided file by file by SHA-256 against each skill's `payload-manifest.json`: a matching hash is ours and removable, a differing hash is reported and **kept** because somebody edited it, and anything absent from the manifests is never touched. Project state appears in no manifest, so it is out of scope by construction. Dry run until `--apply`; confirms before every action. |
 
 ### One-time migrations
 
 | Command | What it does |
 |---------|--------------|
-| `migrate-state` | Migrates a legacy state layout (flat `sprint-status.yaml`, the three-file split, or legacy per-epic `_bmad/state/`) to the 3.x sharded state tree. The source is renamed to `.legacy`, never deleted. A migration that would move nothing is refused rather than run. Each node is written through `pm-status.py import-node`, which also carries the source's `goal`, `superseded_by` and `depends_on`; estimates and actuals follow through `set-estimate` and `import-actual`, and any other field the reader saw is reported on stderr as a `WARN` naming the record and the value. The 3.x tree is read only by this mode — no 4.x skill reads or writes it. |
+| *(3.x → 4.x)* | Not a doctor mode: `bmad migrate` runs l3io-pm's `migration-1` (ADR-0019) once method's own migration has made the v7 initiative. Its guide runs `_bmad/l3io-util/scripts/migrate-engine.py` — `--detect`, `--plan`, `--apply`, `--dispose` — which reads every 3.x layout (the sharded tree, a flat or split `sprint-status*.yaml`, `_bmad/state/`) and writes only l3io's sidecars beside v7's tree and `{output_folder}/l3io/`: story estimates and classes, actuals and completion evidence, lanes, and the calibration file, event log, ADR register and reorg log. A 3.x key that maps to no ticket or to two, a value v7-era work already set, or a story with actuals and no plan refuses before anything is written. The source is renamed `.legacy` only after every datum verifies. Health Check 20 reports when it is pending. |
 | `migrate-adrs` | Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, the one ADR home (ADR-0005). Plans first, confirms, then commits once. Three outcomes per ADR: a **plain move** when `docs/adr/` has no such number; a **collision** (same number, *different* slug — two real decisions competing) which keeps the `docs/adr/` number and renumbers the epic copy, rewriting mentions only inside that epic's artifacts; and a **duplicate** (same number **and** slug — the epic copy is a leftover of an ADR already migrated), which is **never moved and never renumbered**, only reported for you to diff and delete. A run where every ADR is a duplicate does nothing and says so. |
 
 ### Ongoing maintenance (safe to repeat)
@@ -57,7 +57,6 @@ Key settings (with defaults):
 | Command | What it does |
 |---------|--------------|
 | `triage` | Audits v7's backlog (`{output_folder}/backlog/`, plus every epic's `tickets.toml` and l3io's sidecars) with `scripts/audit-tree.py`, read-only: findings 1a–1l re-expressed over v7's tree (1a, 1e, 1g and 1j have no v7 meaning and are never reported), marker evidence for each ticket citing a `code-marker (<file>:<line>)`, and an optional agent review. Every repair is a proposal for Sofia (`bmad-agent-po`) — BOARD `mark`/`move`, REFINE — except an orphaned plan sidecar with one heir, which `sidecar-reconcile` moves on confirmation. The 3.x spec pass went with the issues ledger in 4.0.0. |
-| `redrive` | Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect that once stored `fix_iterations` as a string and misclassified them as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly. |
 
 ### Source & external sync
 
@@ -88,7 +87,7 @@ here stays out: the specified `diff` action above stages a file under
 | Command | What it does |
 |---------|--------------|
 | `setup` / `configure` | Registers the `l3io-util` module config for the project. |
-| `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, the `state/pm-calibration.yaml.v1` calibration schema backup (beside the live calibration file, not under `_bmad/`), `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
+| `clean-legacy` | Removes migration backup files and directories after confirmation: `*.legacy` files, the `{implementation_artifacts}/state.legacy/` tree the 3.x → 4.x migration set aside, the `state/pm-calibration.yaml.v1` calibration schema backup (beside the live calibration file, not under `_bmad/`), `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
 | `wire` | Adds the entries in `assets/wire-in.toml` to the team's `_bmad/custom/<skill>.toml` files (ADR-0020). Round-trip safe (comments, key order and hand-added entries survive) and idempotent. Three kinds: a **keyed** table appended to an array of tables by `code`/`id` — a team entry with the same identity wins, and ours must start with `l3io-` so it can never replace a BMad default; a **list** string appended once; a **scalar** single-value hook set only when absent or empty. A non-empty team hook is **refused** (exit 3), naming the file, key and both values, and nothing is written for that entry. Records what it added in `{output_folder}/l3io/wire-in.json`. |
 | `unwire` | Removes exactly what the ledger records. A file untouched since `wire` gets its pre-wire bytes back (or is deleted, if `wire` created it); a file the team has edited since loses only l3io's entries, each only while it still equals what `wire` wrote. Never removes a team entry. |
 | `help` / `?` | Prints the command list and exits — no project scan. |
@@ -102,10 +101,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | Subcommand | Used by | For |
 |---|---|---|
 | `report` | `stats`, the health check (Check 19) | Progress over one v7 initiative: `tickets.py status` joined with l3io's sidecars, the event log and the build spool. The tree, the stalled builds and `tickets.py`'s problems are rendered from its output rather than duplicated here. |
-| `import-node` | `migrate-state` | Creates a missing 3.x state node from a migration record, with its `goal`, `superseded_by` and `depends_on` (`--depends-on` repeats) in the same write; idempotent by skip (an existing node is left exactly as-is, no event appended). |
-| `set-estimate` | `migrate-state` | Writes a migrated node's estimate after `import-node` lands it. |
-| `import-actual` | `migrate-state` | Writes a migrated node's actual as `runtime: other` with tokens `N/A` and no calibration sample — fixed, not optional, so a bulk import cannot poison the learned ratios. |
-| `calibration` | `redrive`, `stats` | `redrive` rebuilds the `scope` and `fix` components through it; `stats` reads the file's state with `show`. |
+| `calibration` | `stats` | Reads the calibration file's state with `show`. |
 | `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to, in `{l3io_state_root}`. |
 | `sidecar-reconcile` | `triage` | Moves an orphaned plan sidecar (finding 1l) beside the one same-named plan it belongs to, and commits what it moved. |
 | `notice` | `references/config-resolution.md` (shipped, not invoked by the doctor) | Records a one-time-ever advisory in `{state-root}/.notices.yaml`. The contract ships with every skill; only `l3io-execute` and `l3io-plan` call it. |
@@ -113,39 +109,38 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 
 ## Project Health Check
 
-The default mode runs eighteen numbered read-only checks (Check 13 is retired), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation. The checks, with the action each proposes:
+The default mode runs sixteen numbered read-only checks (Checks 2, 6, 7 and 13 are retired, their numbers not reused), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation. The checks, with the action each proposes:
 
 1. Status file naming (`rename-active`)
-2. 3.x state layout (`migrate-state`) — a legacy flat or per-epic layout, more than one layout at once, or the 3.x sharded tree on its own, which no 4.x skill reads
+2. Retired in 4.0.0 (3.x state layout; `bmad migrate` replaced `migrate-state`, and Check 20 reports it)
 3. Deferred code markers (`harvest-debt`)
 4. AI instruction references (`update-ai-rules`)
 5. Migration backup files (`clean-legacy`)
-6. Epic directory padding (`rename-epic-dirs`)
-7. Poisoned calibration provenance (`redrive`)
+6. Retired in 4.0.0 (epic directory padding, which only prepared `migrate-state`)
+7. Retired in 4.0.0 (poisoned 3.x calibration provenance and `redrive`)
 8. Backlog integrity and audit (`triage`)
 9. Lock files tracked in git (`untrack-locks`)
 10. ADR home and register (`migrate-adrs`)
 11. Spec pointers (report only)
 12. ADR links (report only)
-13. Retired in 4.0.0 (unconfirmed spec changes; the issues ledger it read is gone, and the number is not reused)
+13. Retired in 4.0.0 (unconfirmed spec changes; the issues ledger it read is gone)
 14. Spec index freshness (report only)
 15. BMad dependency resolution
-16. State reachable and tracked (report only) — `{l3io_state_root}` ignored by git, and on the migration path a 3.x tree orphaned or ignored
+16. State tracked (report only) — `{output_folder}/l3io/` ignored by git
 17. Agent instruction block
 18. `pm_status` version skew (report only)
 19. Initiative progress (v7) — runs `report` over every initiative and reports stalled builds and `tickets.py`'s problems (report only)
+20. l3io 3.x data awaiting migration (report only) — `migrate-engine.py --detect`; says to run `bmad migrate`, and whether method's migration must run first
 
 The action sequence:
 
-`rename-active → rename-epic-dirs → migrate-state → harvest-debt → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
+`rename-active → harvest-debt → migrate-adrs → triage → update-ai-rules → untrack-locks → clean-legacy`
 
-Three of those actions are **not modes** and have no keyword — the health check runs each one
+Two of those actions are **not modes** and have no keyword — the health check runs each one
 inline, from the check that detects it:
 
 - `rename-active` (Check 1) renames `sprint-status-active.yaml` → `sprint-status.yaml`, content
   unchanged. It refuses on a conflict and renames back if the result does not parse.
-- `rename-epic-dirs` (Check 6) renames legacy two-digit `epic-{nn}/` artifact directories to
-  the three-digit `epic-{nnn}/` form, skipping any whose destination already exists.
 - `untrack-locks` (Check 9) makes sure `.gitignore` has a `*.lock` line in each state root
   holding a tracked lock file (`{implementation_artifacts}/state/`, `{output_folder}/l3io/`),
   then runs `git rm --cached` over those `*.lock` files. The files stay on disk, and the

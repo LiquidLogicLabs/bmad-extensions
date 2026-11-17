@@ -50,7 +50,7 @@ setup.
 | Variable | Key | Default | Description |
 |----------|-----|---------|-------------|
 | `output_folder` | `core.output_folder` | `{project-root}/_bmad-output` | Root directory for all generated output |
-| `implementation_artifacts` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` | Root of a 3.x artifact and state tree; read by `/l3io-doctor migrate-state` |
+| `implementation_artifacts` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` | Root of a 3.x artifact and state tree; read by the 3.x → 4.x migration (`bmad migrate`) |
 | `planning_artifacts` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` | Root for planning documents |
 
 BMad v7's core config carries only `project_name` and `output_folder`, so the skills read no
@@ -318,7 +318,6 @@ it. Sofia (`bmad-agent-po`) files, moves and closes them; l3io keeps no ledger. 
 
 | Subcommand | Addressing |
 |---|---|
-| `set-actual`, `set-estimate`, `verify` on a 3.x tree | `--state-root` + node keys (`--story KEY`, or `--epic ID`). `set-actual` takes `--node story\|epic` and `--block {actual,orchestration}`. Kept for `/l3io-doctor migrate-state` until Phase 6 |
 | `set-estimate`, `set-actual`, `add-test-run`, `verify` on v7's tree | `--project-root P` and a v7 address: `set-estimate --ticket-dir DIR --entry ID` writes `[entry.<id>].estimate` in that epic's `tickets/l3io.toml`; `set-actual`, `add-test-run` and `verify --scope story` take `--plan-file PATH` and address the ticket sidecar `<plan-stem>.l3io.toml` beside the plan. Project-wide files go to the main checkout's `{output_folder}/l3io/`. Mixing the schemes is exit 2; an unknown entry or a missing plan is exit 3. A ticket's `set-actual` records no calibration sample. No v7 file is ever written; a hand-set `estimate` or `l3io_<name>` on a `tickets.toml` entry is read as an override (`status-files.md` §12) |
 | `sidecar-reconcile` | `--project-root P --initiative-dir D [--moved-json J]` — after `tickets.py move` (whose stdout is `J`: the JSON, a file holding it, or `-`), repoints `[entry.<old_id>]` to `[entry.<id>]` in the destination's `l3io.toml` and moves `<plan-stem>.l3io.toml` beside the moved plan. Without `--moved-json`, sweeps `D` for orphans: a plan sidecar whose plan is gone moves beside the one same-named plan elsewhere in `D`; an `[entry.<id>]` no `tickets.toml` holds is reported. One line per action. Commits the sidecars it changed (a moved one's old path as a deletion), and nothing else, as `chore(l3io): reconcile sidecars`. Exit 0, 2 on usage, 1 when the commit failed. Never writes a v7 file |
 | `estimate-entries` | `--project-root P --ticket-dir D [--entry ID …] [--class ID=CLASS …] [--force] [--check] [--model M] [--token-rates JSON]` — `--check` (Sofia's validate Set check) writes nothing, prints `entry <id> (<title>): no estimate` for each entry with neither our estimate nor a hand-set one, and exits 1 when there is any, 0 otherwise; it refuses `--entry`, `--class` and `--force` (exit 2). Otherwise: Sofia's slice, refine and replan hooks and `/l3io-plan estimate <folder>`. Writes `[entry.<id>]` in `D`'s `l3io.toml` (`class`, `fingerprint`, `estimated_at`, and the `estimate` that `estimate-story` computes: class band × calibrated scope ratio × fix factor, cost priced from the tokens) for every entry that is new, whose `description`/`verify`/`covers` changed, whose `--class` differs from the recorded one, that `--entry` names, or every entry under `--force`. Never an entry with a hand-set `estimate` or `l3io_<metric>` in `tickets.toml`; a hand-set `l3io_class` is used as the class. Then recomputes `[epic].estimate` as Σ entries + the epic closure band + the orchestration band, with no sprint term, and drops it when no entry is left. Reads `tickets.toml` directly, read-only. An entry to write with no class is exit 2 naming each, with nothing written. One JSON line per entry written, then one for the epic. Commits `l3io.toml` as `chore(l3io): estimates <epic>`. Exit 0; 2 on usage; 3 for an `--entry` `D` does not list; 1 when the commit failed |
@@ -369,8 +368,9 @@ Global flags go before the subcommand: `--project-root`, `--planning-root`, `--i
 ### Legacy migration
 
 A 3.x state tree (`{implementation_artifacts}/state/`), a flat `sprint-status.yaml` or a legacy
-`_bmad/state/` tree is read only by `/l3io-doctor migrate-state` (original preserved as
-`.legacy`), until Phase 6 replaces it with a migration onto v7's tree.
+`_bmad/state/` tree is read only by the 3.x → 4.x migration: `bmad migrate` runs l3io-pm's
+`migration-1` after method's own, carries every l3io datum into the v7 sidecars, verifies
+each, and only then renames the source aside as `.legacy`.
 
 ## Progress Reporting
 

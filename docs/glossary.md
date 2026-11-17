@@ -129,7 +129,8 @@ research cache.
 
 The current state design: one bare node per file, with children discovered by listing the
 directory rather than by a list wrapper. It replaced a flat `sprint-status.yaml` and a legacy
-per-epic tree, both of which are migrated by `/l3io-doctor migrate-state`.
+per-epic tree. On 4.x every one of them is read only by the 3.x → 4.x migration
+(`bmad migrate`, l3io-pm's `migration-1`).
 
 ### spec index
 

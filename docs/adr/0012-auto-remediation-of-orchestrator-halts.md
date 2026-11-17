@@ -9,7 +9,7 @@
 
 `l3io-execute` and `l3io-plan` stop at a `BLOCKED:` line when they cannot proceed. Of the 23
 column-0 `BLOCKED:` sites in the shared step files, several already name their own remedy —
-`/l3io-doctor migrate-state`, `/l3io-plan`, the doctor's `bootstrap-state` mode — and stop so the
+the doctor's `migrate-state` mode (3.x; `bmad migrate` in 4.x), `/l3io-plan`, the doctor's `bootstrap-state` mode — and stop so the
 user can type it and start the run over. The user learns what the project needed only by being
 interrupted, and the run does not resume where it stopped.
 
@@ -34,7 +34,7 @@ not qualify.
 |---|---|
 | artifact-only stories (story `.md` files, no state YAML) | the doctor's `bootstrap-state` mode |
 | four plan-pointer sites in `step-03-load-plan` (pointer absent, absent with snapshots, readiness RED, target missing) | `/l3io-plan` |
-| legacy state layout | `/l3io-doctor migrate-state` |
+| legacy state layout | the doctor's `migrate-state` mode (3.x; `bmad migrate` in 4.x) |
 | `implementation_artifacts` moved away from existing state | repoint `_bmad/custom/config.toml`, recording the previous value |
 | multiple state layouts | **conditional** — move the legacy tree to `_bmad/state.superseded` only when every legacy epic key is also in the sharded tree |
 
