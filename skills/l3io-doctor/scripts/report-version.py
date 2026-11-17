@@ -36,7 +36,7 @@ the installer finishes) and the self-installed copy only as a secondary, labelle
 Scope is derived, never enumerated
 ----------------------------------
 Skills are discovered by scanning `--skills-root` for a `payload-manifest.json` whose
-`generated_from` is this package's shared source. A hand-kept skill list would drift from
+`generated_from` is one of this package's two markers. A hand-kept skill list would drift from
 the install -- and a reporter that silently covers fewer skills than are installed is
 worse than none, because it would report agreement over a set that no longer contains the
 disagreement. The four deprecated forwarders ship no payload and so carry no manifest;
@@ -56,7 +56,9 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_GENERATED_FROM = "skills/_shared/"
+# The manifest writer stamps `skills/<skill>/`; manifests written before 2026-10-10 carry
+# `skills/_shared/`. Both are ours.
+_GENERATED_FROM = ("skills/<skill>/", "skills/_shared/")
 _INSTALLED_PM_STATUS = Path("_bmad") / "scripts" / "pm-status" / "__main__.py"
 
 
@@ -98,7 +100,7 @@ def discover(skills_root: Path) -> list[dict]:
             rec["errors"].append(f"payload-manifest.json unreadable: {e}")
             found.append(rec)
             continue
-        if data.get("generated_from") != _GENERATED_FROM:
+        if data.get("generated_from") not in _GENERATED_FROM:
             continue                      # not ours
         rec["payload_version"] = data.get("version")
         module_yaml = entry / "assets" / "module.yaml"

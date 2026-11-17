@@ -51,7 +51,7 @@
     "scripts/read-l3io-flat.py": "b9941eb319c9c4d4da226f2894b17abf879d598d9c6dd3ec49d67225aacd346e",
     "scripts/read-per-epic.py": "97cc684184433b77b3c6073ce84939234e8fd202884422c14e83abf5f4446f1c",
     "scripts/read-split.py": "ae160e34a1f6033e375610316d6493053cecc482ebd26a21754d68cbd51641e2",
-    "scripts/report-version.py": "ad90c5147159d871d1ded72f9e7c93aa003ee427641370ed6029205fbdae3a8b",
+    "scripts/report-version.py": "04e656c8ca825a74ee482752c9ef9f5402f9833f1b11946f679452825d08e44a",
     "scripts/spec-align.py": "bf7385ca6337b3ec3e842716339553f2a5a54a5ca81e721507dce212ed27faec",
     "scripts/state-record.py": "9f24f244499d149195a19e3eb041b0ac5de46e767950deb87596912d063d90a2",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",

@@ -42,7 +42,7 @@ class Base(unittest.TestCase):
         self.skills = Path(self.d) / "skills"
         self.skills.mkdir()
 
-    def skill(self, name, version, generated_from="skills/_shared/",
+    def skill(self, name, version, generated_from="skills/<skill>/",
               module=None, manifest_text=None, module_text=None):
         """Create one skill directory. `manifest_text`/`module_text` write raw bytes so a
         case can plant a corrupt file; otherwise both are generated."""
@@ -134,6 +134,24 @@ class TestScope(Base):
         self.assertEqual(code, 0, out)
         self.assertIn("1 skills installed", out)
         self.assertNotIn("6.12.0", out)
+
+    def test_the_marker_the_manifest_writer_ships_is_recognised(self):
+        """The fake manifests above choose their own `generated_from`, so they cannot see
+        the writer and this script disagree. Copy the real shipped manifest instead."""
+        real = Path(_SCRIPT).resolve().parent.parent / "payload-manifest.json"
+        d = self.skills / "l3io-doctor"
+        d.mkdir()
+        shutil.copy(real, d / "payload-manifest.json")
+        code, out, _ = self.run_cli()
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 skills installed", out)
+
+    def test_a_manifest_with_the_earlier_marker_is_still_ours(self):
+        """Manifests written before 2026-10-10 carry `skills/_shared/`."""
+        self.skill("l3io-execute", "3.2.4", generated_from="skills/_shared/")
+        code, out, _ = self.run_cli()
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 skills installed", out)
 
     def test_no_l3io_skills_is_exit_4_and_names_the_fix(self):
         code, out, _ = self.run_cli()
