@@ -111,7 +111,62 @@
 
 ### Task 3.3: Delete self-install
 
-**Files:**
+> **Done 2026-11-17** — `82b7983`. The verb and everything that existed only for it are gone:
+> the content guard, the downgrade refusal, `_SHIPPED_SHAS`, `package_root`, `tree_digest`,
+> `sweep_stale`, `_file_sha` and `_parse_version_line`. `core` now registers no verb, so the
+> CLI has 42 subcommands. Both activation steps went too, along with the sibling-payload halt
+> they needed. The `check-pm-status` mode is deleted (step file, routing row, help rows, script,
+> suite), and the doctor now has twenty modes. `report-version.py` reads
+> `_bmad/{l3io-pm,l3io-util}/scripts/pm_status/__main__.py`. Copies that disagree produce exit
+> 3 and one finding naming both paths and both versions. A copy that is absent or lagging is
+> explained but not flagged. Health-check Check 25 runs it. Step 2's grep reaches zero except
+> for the ADR-0001 filename (ruling below). Review Focus 4: on the fixture, re-running setup
+> removed both a planted `_bmad/scripts/pm-status/` and `pm-status.py`, and `smoke:install`
+> now asserts it, so `clean-legacy` needed no change. Gates: every `checks.yml` step,
+> test:python 21/21, test:scripts 427/427, smoke:install PASS.
+>
+> - Ruling: the 3.x v7 refusal is retired and inverted. §0 keeps the two v7 markers and halts
+>   with `BLOCKED: BMad v7 not detected. l3io 4.x supports BMad v7 only; on BMad 6.x install
+>   l3io 3.x.` That covers `unknown` (no BMad) too. Its `Halts` row replaces the old one, and the
+>   only copies were the shared file and its two synced copies — why: on this branch the old
+>   halt stopped every l3io-pm skill on the install 4.x is for — cost if wrong: a 6.x user of a
+>   4.x build is told to change line rather than getting a 6.x run, which is what 3.x is for.
+> - Ruling: `clean-payload.py` keeps `_LEGACY_COPY`/`_LEGACY_COPY_DIR`, renamed from
+>   `_SELF_INSTALLED*`. Their markers now give an uninstall reason, and no marker's reason is
+>   self-install — why: a project that added 4.x skills but has not re-run setup still has the
+>   3.x copy, and uninstall should take it — cost if wrong: two marked constants and their
+>   tests that never fire.
+> - Ruling: the version-skew finding lives in `report-version.py` and Check 25 reads its JSON.
+>   No second reader was added. The finding reads each copy's marker — why: one reader means
+>   one answer between `version` and the health check, and `check:version` keeps the marker
+>   equal to `PM_STATUS_VERSION` — cost if wrong: none at runtime; a copy with a hand-edited
+>   marker would be reported by its marker.
+> - Ruling: `report-version.py` also accepts `generated_from = "skills/<skill>/"`, test first.
+>   Since 2026-10-10 it recognised only `skills/_shared/`, so on every current install it found
+>   no skills and exited 4 — why: without this, Check 25 would be inert on every real install —
+>   cost if wrong: none; `clean-payload.py` already accepts the same pair. The defect is on
+>   `main` (3.x) too.
+> - Ruling: `scripts/check-pm-status-version.mjs` becomes `scripts/check-version.mjs`, with its
+>   test renamed to match — why: Step 2's grep covers `scripts/`, and the old name contains
+>   `check-pm-status` — cost if wrong: one rename, and `check:version` and `prerelease` are
+>   repointed.
+> - Ruling: check:docs' forward CLI arm drops `self` from its hand-kept prefix list — why: once
+>   the verb is gone, the prefix only judged release history (the ADR-0001 title, ADR-0014, the
+>   upgrade notes, a dated assessment). The title's first-line match could never carry removal
+>   wording — cost if wrong: a doc claiming a new `self-*` verb is judged only in the explicit
+>   `pm-status.py self-…` form or on a same-line pm_status claim.
+> - Ruling: Step 2's grep leaves three hits, all on the ADR-0001 filename
+>   (`0001-pm-status-single-self-installed-file.md`, in check 12 and its test) — why: an ADR's
+>   filename is history and is not renamed — cost if wrong: none.
+> - Ruling: the docs sweep edited every live doc, but left two lines of release history alone:
+>   `docs/2026-09-26-outstanding-work-assessment.md:135` and the 3.0.1 todo in
+>   `docs/handoff/bmad-extensions.md`. The same applies to upgrading.md's 3.x version notes,
+>   which describe what those releases did — why: rewriting a dated record falsifies it, which
+>   is the reason the plan already excludes `docs/superpowers/`, `docs/adr/` and `CHANGELOG.md`
+>   — cost if wrong: two stale mentions in history.
+> - Open: the `BLOCKED:` line in the doctor's `SKILL.md` is still unclassified, because check 36
+>   scans only `skills/_shared/steps`. Check 36 was not widened.
+
 - Delete from `skills/_shared/pm_status/`: the `self-install` verb, its content guard, the downgrade refusal and the shipped-hash list (`core/__init__.py`, `__main__.py`). Then delete their tests in `skills/_shared/tests/test-pm-status.py`.
 - Delete: the activation self-install step in `skills/_shared/steps/shared/step-00-activate.md` §2, and `l3io-doctor`'s own activation self-install.
 - Delete: the `check-pm-status` doctor mode (its `steps/` file, its routing row and its `help/help.md` row), with `tests/l3io-doctor/test-check-pm-status.py`, `scripts/check-pm-status-version.mjs`'s self-install rationale, and `docs/l3io-util-reference.md`'s section.
@@ -119,10 +174,24 @@
 - Modify: `l3io-doctor`'s default health check to add the version-skew finding (Review Focus 3).
 - Modify: `CLAUDE.md` (the self-install paragraph and the Shared Files table), `scripts/CLAUDE.md`, and every doc `git grep -il self-install` names outside `docs/superpowers/`, `docs/adr/` and `CHANGELOG.md`. Add a short amendment to ADR-0001 stating that 4.x retires self-install in favour of declared scripts.
 
-- [ ] **Step 1: Failing test (Review Focus 3).** In the doctor suite: with two fixture copies whose `PM_STATUS_VERSION` differ, the health-check script reports one finding naming both paths and both versions. With identical copies it reports none.
-- [ ] **Step 2:** Delete. Afterwards `git grep -n -i "self-install\|self_install\|check-pm-status"` over `skills/`, `scripts/`, `tests/`, `package.json` and `.versionrc.cjs` reaches zero. Run `sync:scripts` and the manifests.
-- [ ] **Step 3: Review Focus 4, on the fixture.** Plant `_bmad/scripts/pm-status/__main__.py` in a fixture project, then re-run v7 setup. Record whether it is removed. If it is not, the doctor's `clean-legacy` mode lists it, with a test.
-- [ ] **Step 4:** Run every gate in `checks.yml`, both suites, and `smoke:install`.
-- [ ] **Step 5: Commit.** `feat(infra)!: retire self-install; v7 installs pm_status`.
+- [x] **Step 1: Failing test (Review Focus 3).** In the doctor suite: with two fixture copies whose `PM_STATUS_VERSION` differ, the health-check script reports one finding naming both paths and both versions. With identical copies it reports none.
+- [x] **Step 2:** Delete. Afterwards `git grep -n -i "self-install\|self_install\|check-pm-status"` over `skills/`, `scripts/`, `tests/`, `package.json` and `.versionrc.cjs` reaches zero. Run `sync:scripts` and the manifests.
+- [x] **Step 3: Review Focus 4, on the fixture.** Plant `_bmad/scripts/pm-status/__main__.py` in a fixture project, then re-run v7 setup. Record whether it is removed. If it is not, the doctor's `clean-legacy` mode lists it, with a test.
+- [x] **Step 4:** Run every gate in `checks.yml`, both suites, and `smoke:install`.
+- [x] **Step 5: Commit.** `feat(infra)!: retire self-install; v7 installs pm_status`.
 
 **Exit (Phase 3):** no self-install anywhere; both declared copies resolve and run on the fixture; R7 holds under check 39; every `checks.yml` gate is green.
+
+> **Phase 3 Exit — met 2026-11-17.**
+> - *No self-install anywhere*: `git grep -i "self-install\|self_install\|check-pm-status"` over
+>   `skills/`, `scripts/`, `tests/`, `package.json` and `.versionrc.cjs` finds only the ADR-0001
+>   filename (Task 3.3 ruling). No shipped file names `_bmad/scripts/pm-status` except
+>   `clean-payload.py`'s two marked constants, which check 39 accepts.
+> - *Both declared copies resolve and run on the fixture*: `smoke:install` PASS. Each module's
+>   declared files are installed under `_bmad/<code>/scripts/`, and `--help` exits 0. The
+>   doctor's report finds the two copies agreeing and reports a changed one, and a planted 3.x
+>   copy is removed by setup.
+> - *R7 holds under check 39*: `check:docs` passes with check 39's three arms (Task 3.1, Task 3.2).
+> - *Every `checks.yml` gate green*: check:lock, check:audit, check:scripts, check:docs,
+>   test:scripts (427/427), check:version, check:manifest, check:module, check:bmod,
+>   check:lint:py, check:types, check:lint:sh, test:python (21/21).
