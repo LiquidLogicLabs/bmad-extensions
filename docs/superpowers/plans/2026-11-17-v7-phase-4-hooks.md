@@ -111,6 +111,16 @@ Rules the hooks live under:
 
 ### Task 4.1: Sidecars and the project-wide state root (item 1)
 
+**Done 2026-11-17** (`282471b3`). New module `pm_status/sidecar/` (`__init__.py` load/save/lock, `verbs.py` the v7 handlers and `route`, `reconcile.py` `sidecar-reconcile`); resolvers in `nodes/`; `skills/_shared/tests/test-pm-status-sidecar.py` (17 tests); `smoke:install` asserts byte-identical `tickets.py status` around our writes. CLI is 43 subcommands.
+
+- Ruling: sidecar writes lock the sidecar's **directory** (`flock` on a directory fd), not a lock file — why: a lock file beside a sidecar is an untracked file in the user's tree, which is exactly what fails `bmad-build-auto`'s clean-tree check (`step-01:60`) — cost if wrong: every writer in one tickets folder serialises (they are short), and a non-flock filesystem loses the guard as everywhere else in the package.
+- Ruling: `set-actual --plan-file` records **no** calibration sample and says so on stdout — why: the plan → entry → estimate pairing is `build-close`'s (Task 4.2, step 5); sampling here would duplicate it or sample unestimated tickets — cost if wrong: a caller that uses `set-actual` alone on v7 gets no sample until 4.2 lands.
+- Ruling: v7 handlers are chosen after parsing by `sidecar.verbs.route` (called from `main`), and `--state-root` (plus `add-test-run --story`) is no longer argparse-required; `route` enforces it with exit 2 — why: argparse cannot make one flag required only when another is absent, and the 3.x handlers stay untouched — cost if wrong: a caller invoking a handler without `main` skips the check.
+- Ruling: `verify --plan-file` judges the ticket sidecar as a story node is judged **except status**, which is the plan's and v7's to write — cost if wrong: none; status is read from `tickets.py` where needed.
+- Ruling: a hand-set override is `l3io_<metric>` per metric and `l3io_class`; a bare `estimate` is carried verbatim as `hand_estimate` (its unit is the user's) — exposed through `sidecar.effective_estimate`; `set-estimate` still writes our sidecar and notes the override on stderr — cost if wrong: Task 4.3 may want `set-estimate` to refuse instead.
+- Ruling: `project_state_root` runs core's `resolve_config.py` through `uv run` when `uv` is on PATH, else the current interpreter, and retries in the main checkout when the worktree's own `_bmad/` cannot resolve — cost if wrong: one subprocess per CLI call (~0.1 s).
+- `--moved-json` takes the JSON itself, a file, or `-`; `from`/`to` are folder names, located under the initiative's `tickets/`, then beside it.
+
 **Files:**
 - Create: `skills/_shared/pm_status/sidecar/__init__.py` (load/save of `l3io.toml` and ticket sidecars through `tomlkit`, under `flock`; no path assembly).
 - Modify: `skills/_shared/pm_status/nodes/__init__.py`. Inside the check-26 marker section, add the only functions that turn a v7 address into a path: `entry_sidecar(ticket_dir)`, `ticket_sidecar(plan_file)`, `container_sidecar(initiative_dir)`, `project_state_root(project_root)`.
@@ -131,7 +141,7 @@ Rules the hooks live under:
 - `sidecar-reconcile --project-root P --initiative-dir D [--moved-json J]`. `J` is `tickets.py move`'s stdout. It repoints `[entry.<old_id>]` to `[entry.<id>]` in the destination's `l3io.toml`, moves `<plan-stem>.l3io.toml` beside the moved plan, and prints one line per action. With no `--moved-json`, it sweeps for orphans (a sidecar whose plan is absent but has a same-named plan elsewhere in the initiative). Exit 0, or 2 on usage.
 - A hand-set `estimate` or `l3io_*` key on a `tickets.toml` entry is read as an override and never written (§3.2).
 
-- [ ] **Step 1: Failing tests.**
+- [x] **Step 1: Failing tests.**
   - `test_tickets_toml_never_written`: snapshot the bytes of every `tickets.toml`, `*.md` leaf and `*-plan.md` in a fixture initiative. Run every verb with v7 addressing. Every byte is unchanged.
   - `test_sidecar_names_are_invisible_to_tickets_py`: no name we create matches `*.md` or `epic-*` (pins `tickets.py:322`, `:406`).
   - `test_state_root_resolves_to_main_worktree`: from a `git worktree add` checkout, the state root equals the main checkout's.
@@ -139,10 +149,10 @@ Rules the hooks live under:
   - `test_concurrent_set_actual_distinct_plans`: 8 processes; every sidecar and every event survives.
   - `test_reconcile_follows_move`: built from a recorded `tickets.py move` JSON.
   - `test_hand_set_estimate_is_override`.
-- [ ] **Step 2:** Implement `nodes` resolvers, `sidecar/`, and the new flags. `--state-root` keeps working for the 3.x tree until Task 4.8.
-- [ ] **Step 3: On the fixture.** Hand-write a small initiative in the fixture project (one epic, three entries). Run `set-estimate`/`set-actual` with v7 addressing. Assert `uv run _bmad/method/scripts/tickets.py status <initiative>` prints byte-identical JSON before and after, with no `problems`. Add this to `scripts/smoke-install.sh`.
-- [ ] **Step 4:** Sync, regenerate manifests and the declared lists (`check:scripts` sees the new module), then run the gate run.
-- [ ] **Step 5: Commit.** `feat(l3io-pm): sidecars beside v7's tree; project state under {output_folder}/l3io`.
+- [x] **Step 2:** Implement `nodes` resolvers, `sidecar/`, and the new flags. `--state-root` keeps working for the 3.x tree until Task 4.8.
+- [x] **Step 3: On the fixture.** Hand-write a small initiative in the fixture project (one epic, three entries). Run `set-estimate`/`set-actual` with v7 addressing. Assert `uv run _bmad/method/scripts/tickets.py status <initiative>` prints byte-identical JSON before and after, with no `problems`. Add this to `scripts/smoke-install.sh`.
+- [x] **Step 4:** Sync, regenerate manifests and the declared lists (`check:scripts` sees the new module), then run the gate run.
+- [x] **Step 5: Commit.** `feat(l3io-pm): sidecars beside v7's tree; project state under {output_folder}/l3io`.
 
 ### Task 4.2: Measurement on every build (item 2, R13)
 
