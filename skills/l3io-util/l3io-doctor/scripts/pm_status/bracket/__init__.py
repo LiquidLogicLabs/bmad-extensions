@@ -75,10 +75,16 @@ def _iso(when: datetime) -> str:
     return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def session_key(sid: str) -> str:
+    """A session id as a bracket key: the name of its spool file and the `bracket` of its
+    events."""
+    return _SAFE_RE.sub("_", sid)
+
+
 def _bracket_key(args) -> str:
     sid = args.session_id or os.environ.get(actuals_usage.CLAUDE_SESSION_ENV, "")
     if sid:
-        return _SAFE_RE.sub("_", sid)
+        return session_key(sid)
     where = commit.toplevel(args.project_root) or os.path.realpath(args.project_root)
     return f"{args.agent}-{hashlib.sha1(where.encode()).hexdigest()[:12]}"
 
@@ -172,7 +178,7 @@ def _parse_test_runs(raw: list) -> list:
     return runs
 
 
-def _window_tokens(opened: dict, since: datetime, until: datetime, model: str) -> tuple:
+def window_tokens(opened: dict, since: datetime, until: datetime, model: str) -> tuple:
     """({model: {class: tokens}} read from the Claude transcript over [since, until], note).
     Tokens a record names no model for are put on `model`, else on the model that served
     the most; an empty dict when the transcript cannot be read or names no model at all."""
@@ -195,7 +201,7 @@ def _window_tokens(opened: dict, since: datetime, until: datetime, model: str) -
     return served, ""
 
 
-def _sum_dispatches(dispatches: list) -> dict:
+def sum_dispatches(dispatches: list) -> dict:
     """The ticket's actual: every closed bracket summed. Per-model tokens (Claude, Codex),
     Copilot's input/output totals, and whether any bracket recorded `N/A`."""
     out = {"elapsed_hours": 0.0, "man_hours": 0.0, "hitl_hours": 0.0}
@@ -223,7 +229,7 @@ def _sum_dispatches(dispatches: list) -> dict:
             "copilot": copilot, "runtimes": runtimes, "na": na}
 
 
-def _actual_args(total: dict, token_rates: str) -> tuple:
+def actual_args(total: dict, token_rates: str) -> tuple:
     """(set-actual's flags for a summed actual, a note or ""), so `actual_values` validates
     and prices it under the runtime that measured it, as it does a hand-typed one."""
     ns = argparse.Namespace(
@@ -259,7 +265,7 @@ def _actual_args(total: dict, token_rates: str) -> tuple:
 TYPED_TOKENS = {"codex": ("input", "output", "cache_read"), "copilot": ("input", "output")}
 
 
-def _typed_tokens(args):
+def typed_tokens(args):
     """The bracket's tokens as typed for a runtime this verb cannot read: per-model counts
     under Codex, {input, output} under Copilot, None otherwise. Exits 2, before anything is
     written, on counts a runtime does not take or on missing ones."""
@@ -287,14 +293,14 @@ def _typed_tokens(args):
         return raw
     if not args.model:
         _die_usage("runtime=codex needs --model: the same tokens price differently per model")
-    unpriced = _priceable({args.model: None}, args.token_rates)
+    unpriced = priceable({args.model: None}, args.token_rates)
     if unpriced:
         _die_usage(f"no rate card for {unpriced}; add it to modules.l3io-pm.token_rates")
     return {args.model: {"input": raw["input"], "output": raw["output"], "cache_write": 0,
                          "cache_read": raw["cache_read"]}}
 
 
-def _priceable(tokens: dict, token_rates: str) -> str:
+def priceable(tokens: dict, token_rates: str) -> str:
     overrides = json.loads(token_rates) if token_rates else None
     for m in tokens:
         try:
@@ -336,7 +342,7 @@ def _sample(state_root: str, plan: str, ticket: str, sidecar_path: str) -> str:
 
 def cmd_build_close(args) -> int:
     runs = _parse_test_runs(args.test_run)
-    typed = _typed_tokens(args)
+    typed = typed_tokens(args)
     for flag in ("man_hours", "hitl_hours"):
         v = getattr(args, flag)
         if v < 0:
@@ -398,8 +404,8 @@ def cmd_build_close(args) -> int:
         elif args.runtime != "claude":
             record["tokens"] = "N/A"
         elif since:
-            tokens, why = _window_tokens(opened, since, now, args.model)
-            unpriced = _priceable(tokens, args.token_rates)
+            tokens, why = window_tokens(opened, since, now, args.model)
+            unpriced = priceable(tokens, args.token_rates)
             if unpriced:
                 why, tokens = (f"no rate card for {unpriced}; add it to "
                                "modules.l3io-pm.token_rates"), {}
@@ -419,7 +425,7 @@ def cmd_build_close(args) -> int:
                 item[k] = v
             doc["dispatch"].append(item)
             dispatches = sidecar.plain(doc["dispatch"])
-        summed, why = _actual_args(_sum_dispatches(dispatches), args.token_rates)
+        summed, why = actual_args(sum_dispatches(dispatches), args.token_rates)
         if why:
             notes.append(why)
         provided = actuals_usage.actual_values(summed)

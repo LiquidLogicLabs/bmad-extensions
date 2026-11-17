@@ -365,6 +365,20 @@ Subcommands
                 estimated beforehand, then commits each path it wrote inside the worktree
                 as `chore(l3io): actuals <ticket>`. Exit 4 when no bracket was open: the
                 close is recorded as unmatched)
+  epic-close    --project-root P  --epic-dir D  --retro-file F
+                --runtime {claude,codex,copilot,other}  [--model M]  --man-hours H
+                --hitl-hours H  [--since ISO]  [--token-rates JSON]
+                [--tokens-input K --tokens-output K [--tokens-cache-read K]]
+                [--session-id ID]
+                (v7 retrospective hook, on_complete: appends the run to the epic's
+                [[epic.closure_runs]], writes [epic.closure] as their sum and [epic.actual]
+                as every ticket sidecar under D/tickets/ plus the closure, reads `verdict`
+                from F's frontmatter into [epic].retro_verdict, takes one closure
+                calibration sample when [epic].estimate exists and the verdict is
+                accepted, then commits what it wrote as `chore(l3io): epic close <slug>`.
+                The window is --since, else the first turn of this Claude session that
+                touched F. Writes no status. Exit 2 on usage with nothing written, 3 when
+                F does not exist, 1 when the commit failed)
   sync-agent-instructions  --runtime {claude,codex,copilot,other}  --project-root P
                 [--body-file F] [--version V]  (--apply | --remove | --check)
                 (creates, replaces or removes the marker-wrapped l3io block in the running
@@ -478,9 +492,13 @@ if not __package__ and __name__ == "__main__":
 #
 # `bracket` is the ninth: `build-open` and `build-close`, the measurement bracket v7's
 # `bmad-build` and `bmad-build-auto` run through their hooks. It sits above `sidecar.verbs`
-# and `metrics`, and nothing imports it but `build_parser`. It is not named `build/`
-# because a consumer's `.gitignore` commonly ignores every `build/`, which would drop it
-# from a committed `_bmad/`.
+# and `metrics`, and nothing imports it but `build_parser` and `sidecar.closure`. It is not
+# named `build/` because a consumer's `.gitignore` commonly ignores every `build/`, which
+# would drop it from a committed `_bmad/`.
+#
+# `sidecar.closure` holds `epic-close`, the hook v7's `bmad-retrospective` runs. It sits above
+# `bracket`, whose token and summing helpers it reuses, so `sidecar.verbs` cannot register it
+# without a cycle; `build_parser` does, bound here as `sidecar_closure`.
 from . import (
     bracket,
     core,  # noqa: F401 -- re-export only
@@ -654,6 +672,7 @@ from .plan import (
     retire_epic,  # noqa: F401 -- re-export only
     undo_reorg,  # noqa: F401 -- re-export only
 )
+from .sidecar import closure as sidecar_closure
 from .sidecar import verbs as sidecar_verbs
 
 # The status verbs, by name. Nothing here is a mock.patch target: the patched names the
@@ -700,6 +719,7 @@ def build_parser() -> argparse.ArgumentParser:
     instructions.register(sub)
     sidecar_verbs.register(sub)
     bracket.register(sub)
+    sidecar_closure.register(sub)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

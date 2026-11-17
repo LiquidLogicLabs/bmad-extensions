@@ -389,6 +389,58 @@ else
   check "unwire puts bmad-agent-po.toml back byte for byte (R15)" "cmp -s '$work/po-before.toml' '$po_team'"
 fi
 
+echo "== epic closure on bmad-retrospective (Phase 4 Task 4.6) =="
+# wire sets bmad-retrospective's single-slot On Complete. v7 must still render it, with our
+# epic-close command in the rendered retro-document.md's On Complete; unwire must restore the
+# team file byte for byte (R15); and a team's own on_complete must make wire refuse, naming
+# both values, and stay untouched (ADR-0020).
+retro_team="$custom/bmad-retrospective.toml"
+if [ -f "$retro_team" ]; then cp "$retro_team" "$work/retro-before.toml"; else : > "$work/retro-before.absent"; fi
+check "wire applies the retrospective entry (exit 0)" \
+  "(cd '$proj' && uv run --quiet '$wire_py' wire --project-root . > '$work/wire-retro.txt')"
+check "wire wrote l3io-epic-close into bmad-retrospective.toml" "grep -q 'epic-close' '$retro_team'"
+check "bmad-retrospective renders after wire (exit 0)" "render bmad-retrospective > '$work/render-retro.md'"
+retro_doc="$(find "$proj/_bmad/render/bmad-retrospective" -name retro-document.md -type f | head -n 1)"
+check "the rendered retro-document.md's On Complete holds the epic-close command" \
+  "[ -n '$retro_doc' ] && sed -n '/^## On Complete/,\$p' '$retro_doc' | grep -q 'pm_status/__main__.py epic-close'"
+(cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
+if [ -e "$work/retro-before.absent" ]; then
+  check "unwire removes the bmad-retrospective team file wire created (R15)" "[ ! -e '$retro_team' ]"
+else
+  check "unwire puts bmad-retrospective.toml back byte for byte (R15)" "cmp -s '$work/retro-before.toml' '$retro_team'"
+fi
+cp -a "$custom" "$work/custom-before-retro-plant"
+printf '[workflow]\non_complete = "Team hook: file the retro."\n' >> "$retro_team"
+cp "$retro_team" "$work/retro-planted.toml"
+code=0; (cd "$proj" && uv run --quiet "$wire_py" wire --project-root . > "$work/wire-retro-planted.txt") || code=$?
+check "with a team on_complete planted on bmad-retrospective, wire exits 3" "[ '$code' = 3 ]"
+check "the refusal names l3io-epic-close, the team's value and ours, and leaves the team file" \
+  "grep -q 'refused.*l3io-epic-close' '$work/wire-retro-planted.txt' \
+     && grep -q 'Team hook: file the retro.' '$work/wire-retro-planted.txt' \
+     && grep -q 'l3io wants.*epic-close' '$work/wire-retro-planted.txt' \
+     && ! grep -q 'epic-close' '$retro_team'"
+(cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
+check "unwire after the refusal leaves the planted team file as the team wrote it" \
+  "cmp -s '$work/retro-planted.toml' '$retro_team'"
+rm -rf "$custom" && cp -a "$work/custom-before-retro-plant" "$custom"
+info "refusal: $(grep refused "$work/wire-retro-planted.txt" | head -n 1 | cut -c1-160)..."
+# epic-close itself, from the installed copy, on the hand-written epic: it writes only our
+# sidecar and state, so tickets.py reads the tree byte-identically afterwards.
+retro_md="$init/tickets/epic-smoke/epic-smoke-retrospective.md"
+printf -- '---\nepic: epic-smoke\ndate: 2026-11-17\nverdict: accepted\ncriteria: declared\nheadless: true\n---\n# Retro\n' > "$retro_md"
+tstatus > "$work/tickets-before-close.json"
+code=0
+(cd "$proj" && uv run --quiet "$pm_main" epic-close --project-root . --epic-dir "$init/tickets/epic-smoke" \
+   --retro-file "$retro_md" --runtime other --since "$(date -u -d '-10 min' +%Y-%m-%dT%H:%M:%SZ)" \
+   --man-hours 1 --hitl-hours 0 > "$work/epic-close.txt" 2>&1) || code=$?
+check "epic-close runs from the installed copy on the hand-written epic (exit 0)" "[ '$code' = 0 ]"
+check "... and records the epic's actual, its closure and the verdict in l3io.toml" \
+  "grep -q 'retro_verdict = \"accepted\"' '$epic_t/l3io.toml' && grep -q '^\[epic.closure\]' '$epic_t/l3io.toml' \
+     && grep -q '^\[epic.actual\]' '$epic_t/l3io.toml'"
+tstatus > "$work/tickets-after-close.json"
+check "tickets.py status prints byte-identical JSON after epic-close" \
+  "cmp -s '$work/tickets-before-close.json' '$work/tickets-after-close.json'"
+
 echo "== only l3io-pm (Review Focus 3) =="
 add_module "$pm_only" "$pkg/skills/l3io-pm" -s '*'
 status="$work/pm-only-status.json"

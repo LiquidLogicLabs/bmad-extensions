@@ -655,6 +655,46 @@ def _skip_summary(skipped: dict) -> str:
     return "; ".join(f"{m}: {r}" for m, r in skipped.items()) or "no metrics available"
 
 
+def closure_ratio(level: str, metric: str, residual: float, pest, children) -> tuple:
+    """(ratio, "") for one metric's measured closure overhead, or (None, why it is skipped).
+
+    The denominator is the closure overhead the parent estimate `pest` carried: its range
+    midpoint less the children's estimates (`children`, each a mapping holding `estimate`)
+    less the orchestration band at its midpoint, so it is exactly the quantity the closure
+    ratio is applied to (see `derive_closure_sample`). The ratio applied when the estimate
+    was written (`closure_ratios`) is divided back out. Shared by the 3.x node closure and
+    the v7 epic closure (`sidecar.closure`), whose children are the epic's entries."""
+    lo, hi = CLOSURE_RANGE_KEYS[metric]
+    pmid = _mid(pest, lo, hi)
+    if pmid is None:
+        return None, f"{level} has no estimate range for this metric"
+    est_total = 0.0
+    for cn in children:
+        v = _child_estimate_value(cn, metric) if cn is not None else None
+        if v is None:
+            return None, "a child is missing this metric's estimate"
+        est_total += v
+    # Back out the orchestration band before dividing: `pmid - est_total` is
+    # closure band PLUS orchestration band, and `residual` is closure-only.
+    orch_f = 0.0
+    applied_orch = pest.get("orchestration_ratios")
+    if hasattr(applied_orch, "get"):
+        f = _num_or_none(applied_orch.get(metric))
+        if f is not None and f > 0:
+            orch_f = f
+    expected = pmid - est_total - est_total * orch_f * ORCH_MID
+    if expected <= 0:
+        return None, (f"estimated closure overhead is {round(expected, 4)} (<= 0) — "
+                      f"nothing to measure the residual against")
+    applied = 1.0
+    applied_ratios = pest.get("closure_ratios")
+    if hasattr(applied_ratios, "get"):
+        a = _num_or_none(applied_ratios.get(metric))
+        if a is not None and a > 0:
+            applied = a
+    return residual * applied / expected, ""
+
+
 def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None):
     """Closure overhead = parent actual - sum(children actuals). Returns (sample, reason).
 
@@ -740,8 +780,6 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         _, cn = load_node(cp)
         children.append(cn)
 
-    applied_ratios = pest.get("closure_ratios")
-    applied_orch = pest.get("orchestration_ratios")
     closure, ratios, skipped = {}, {}, {}
     for metric in CALIBRATED_METRIC_FIELDS:
         total = 0.0
@@ -789,45 +827,38 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
                                    f"{total}) — miscounted")
             continue
         closure[metric] = residual
-
-        lo, hi = CLOSURE_RANGE_KEYS[metric]
-        pmid = _mid(pest, lo, hi)
-        if pmid is None:
-            skipped[metric] = f"{level} has no estimate range for this metric"
-            continue
-        est_total, all_est = 0.0, True
-        for cn in children:
-            v = _child_estimate_value(cn, metric) if cn is not None else None
-            if v is None:
-                all_est = False
-                break
-            est_total += v
-        if not all_est:
-            skipped[metric] = "a child is missing this metric's estimate"
-            continue
-        # Back out the orchestration band before dividing: `pmid - est_total` is
-        # closure band PLUS orchestration band, and `residual` is closure-only.
-        orch_f = 0.0
-        if hasattr(applied_orch, "get"):
-            f = _num_or_none(applied_orch.get(metric))
-            if f is not None and f > 0:
-                orch_f = f
-        expected = pmid - est_total - est_total * orch_f * ORCH_MID
-        if expected <= 0:
-            skipped[metric] = (f"estimated closure overhead is {round(expected, 4)} (<= 0) — "
-                               f"nothing to measure the residual against")
-            continue
-        applied = 1.0
-        if hasattr(applied_ratios, "get"):
-            a = _num_or_none(applied_ratios.get(metric))
-            if a is not None and a > 0:
-                applied = a
-        ratios[metric] = residual * applied / expected
+        ratio, why = closure_ratio(level, metric, residual, pest, children)
+        if why:
+            skipped[metric] = why
+        else:
+            ratios[metric] = ratio
 
     if not closure:
         return None, "no metric produced a closure residual — " + _skip_summary(skipped)
     return {"level": level, "closure_actual": closure, "ratios": ratios,
             "skipped": skipped}, "ok"
+
+
+def append_closure_ratios(state_root: str, level: str, ratios: dict) -> None:
+    """Append one closure sample's per-metric ratios to the shared file, under its lock.
+    A write path, unlike load_calibration: migrates a stale schema version first, so a v1
+    file is never mistaken for v2 and corrupted by samples landing in a structure that
+    doesn't exist there yet."""
+    from ruamel.yaml.comments import CommentedMap
+    with calibration_lock(state_root):
+        y, cal = load_calibration(state_root)
+        if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+            cal = migrate_calibration(y, cal, state_root)
+        for line in migrate_calibration_metrics(y, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
+        for line in migrate_calibration_token_basis(y, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
+        bucket = cal["closure"].setdefault(level, CommentedMap())
+        for metric, ratio in ratios.items():
+            entry = bucket.setdefault(metric, CommentedMap())
+            entry.setdefault("samples", [])
+            entry["samples"].append(round(ratio, 4))
+        save_calibration(y, cal, state_root)
 
 
 def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None) -> str:
@@ -849,21 +880,7 @@ def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     if not sample["ratios"]:
         return "no closure sample: " + _skip_summary(sample["skipped"])
 
-    from ruamel.yaml.comments import CommentedMap
-    with calibration_lock(state_root):
-        y, cal = load_calibration(state_root)
-        if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
-            cal = migrate_calibration(y, cal, state_root)
-        for line in migrate_calibration_metrics(y, cal, state_root):
-            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
-        for line in migrate_calibration_token_basis(y, cal, state_root):
-            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
-        bucket = cal["closure"].setdefault(level, CommentedMap())
-        for metric, ratio in sample["ratios"].items():
-            entry = bucket.setdefault(metric, CommentedMap())
-            entry.setdefault("samples", [])
-            entry["samples"].append(round(ratio, 4))
-        save_calibration(y, cal, state_root)
+    append_closure_ratios(state_root, level, sample["ratios"])
     _mark_sampled(pnode, ppath, y_node)
     note = f"closure {level} +{len(sample['ratios'])} metrics"
     if sample["skipped"]:

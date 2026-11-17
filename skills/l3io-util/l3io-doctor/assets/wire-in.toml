@@ -320,3 +320,32 @@ requires = "l3io-pm"
 code = "l3io-lanes"
 description = "l3io lanes: which developer's lane owns each epic, and every wait across lanes"
 prompt = "Run the l3io-plan skill in lanes mode on the initiative the user names, or the active initiative."
+
+# --------------------------------------------------------------------------------------------
+# Epic closure on bmad-retrospective. Its On Complete runs after the retrospective document
+# is saved (references/retro-document.md:41-45), and epic-close records the epic's actuals,
+# the retrospective's own spend as the closure actual, the verdict from the document's
+# frontmatter (:9-21) and one closure calibration sample, then commits only l3io's files.
+# It writes no status, as the retrospective writes none (:39): `done` is the owner's call.
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-epic-close"
+skill = "bmad-retrospective"
+kind = "scalar"
+path = "workflow.on_complete"
+requires = "l3io-pm"
+value = """
+l3io (l3io-pm) records this epic's closure. Fill the slots, then run it as the last thing before exiting:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py epic-close --project-root {project-root} --epic-dir '<epic folder>' --retro-file '<retrospective file>' --runtime <runtime> --man-hours <man_hours> --hitl-hours <hitl_hours>
+```
+
+- `<epic folder>`: the epic folder this retrospective reviewed, and `<retrospective file>` the document you just saved in it, `epic-<slug>-retrospective.md`.
+- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Under Claude never type token counts: the command reads this retrospective's own turns from the session transcript. Under Codex append `--model <model> --tokens-input K --tokens-output K --tokens-cache-read K`, and under Copilot `--tokens-input K --tokens-output K`, in thousands of tokens over this retrospective, read from the runtime's own usage records; they are required there, and never guessed. Under any runtime but Claude also append `--since <time>`.
+- `--since <time>`: the ISO 8601 time, with its UTC offset, at which this retrospective began. If the command exits asking for it, append it and run it again.
+- `<man_hours>`: the counterfactual, not the wall-clock. How long a person would have taken to do this retrospective by hand (l3io's HARD RULE on estimates and actuals).
+- `<hitl_hours>`: the human attention this retrospective actually took; 0 in a headless (`-H`) run.
+
+The command rolls the tickets' actuals up into the epic's, records this retrospective's spend as the closure actual and the verdict from the document's frontmatter, and commits only l3io's own files; it leaves your document as it is. It writes no status: never run v7's `mark` verb or set the epic `done` for it, which stays the owner's call on the verdict. If the command fails, report its message in one line and exit as you would have."""

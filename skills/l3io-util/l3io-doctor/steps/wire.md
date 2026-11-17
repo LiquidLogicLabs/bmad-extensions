@@ -33,6 +33,7 @@ What it adds (`assets/wire-in.toml`):
 | `l3io-board-waves` | `bmad-agent-po.toml` | `workflow.board_after` | after every board operation: repoints l3io's files after a move (`sidecar-reconcile`), then shows the initiative's waves and, when lanes are on, its lanes (`plan-graph.py waves`/`lanes`) |
 | `l3io-menu-waves` | `bmad-agent-po.toml` | `agent.menu` (code `l3io-waves`) | a Sofia menu item running `l3io-plan` in waves mode |
 | `l3io-menu-lanes` | `bmad-agent-po.toml` | `agent.menu` (code `l3io-lanes`) | a Sofia menu item running `l3io-plan` in lanes mode |
+| `l3io-epic-close` | `bmad-retrospective.toml` | `workflow.on_complete` | after the retrospective is saved: the epic's actuals, the retrospective's own spend as the closure actual, its verdict, one closure calibration sample, and a commit of them (`epic-close`); writes no status |
 
 Each hook calls a script under `{project-root}/_bmad/l3io-pm/scripts/` (`pm_status/__main__.py`,
 `spec-align.py`, `plan-graph.py`, or the fact file `facts/ac-dimensions.md`), which `bmad setup l3io-pm`

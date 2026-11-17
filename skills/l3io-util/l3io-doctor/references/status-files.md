@@ -719,7 +719,7 @@ never reads one.
 | File | Holds | Written by |
 |---|---|---|
 | `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` (1..`lane_count`) | `set-lane` |
-| `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class`, `fingerprint`, `estimated_at` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `orchestration` | `estimate-entries`; `set-estimate --ticket-dir DIR --entry ID`; epic closure |
+| `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class`, `fingerprint`, `estimated_at` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `closure`, `closure_runs`, `retro_verdict`, `calibration_sampled_at`, `orchestration` | `estimate-entries`; `set-estimate --ticket-dir DIR --entry ID`; `epic-close` |
 | `<…>/tickets/<stem>-plan.l3io.toml`, beside `<stem>-plan.md` | `actual`, `fix_iterations`, `completion_evidence.test_runs` / `tests_passing`, `dispatch`, `calibration_sampled_at` | `build-close`; `set-actual`, `add-test-run` with `--plan-file PATH` |
 | `{state_root}` = `<main checkout>/<core.output_folder>/l3io/` | `events.jsonl`, `pm-calibration.yaml`, `adr-register.yaml`, `.notices.yaml`, `.inflight/` | every verb with `--project-root P` |
 
@@ -820,3 +820,18 @@ ticket actuals from the sidecars, joined through each plan's `ticket:` frontmatt
 `tickets.py` joins it. A build bracket still open in `.inflight/` past `--stall-minutes` is
 reported as a stalled build: until `build-close` runs, the spool is the only place it exists.
 It writes nothing unless `--out` is given.
+
+**Epic closure rides `bmad-retrospective`.** `/l3io-doctor wire` gives it an On Complete that
+runs `epic-close --project-root P --epic-dir D --retro-file F` once the retrospective document
+is saved. It appends one record per retrospective run to `[[epic.closure_runs]]` in the epic's
+`l3io.toml` — its window, `man_hours`, `hitl_hours`, tokens and verdict — and writes
+`[epic.closure]` as the sum of those runs and `[epic.actual]` as every ticket sidecar under
+`D/tickets/` **plus** the closure: a parent's actual is its children plus its own closure-phase
+spend, never the bare sum (`metrics-contract.md` §6). The window starts at `--since`, else at
+the first turn of the Claude session that touched `F`, and never before the epic's previous
+closure run or the last build of one of its tickets in the same session; under any other
+runtime `--since` is required. `verdict` is read from `F`'s frontmatter into
+`[epic].retro_verdict`. One `closure` calibration sample is taken per epic, and only when
+`[epic].estimate` exists and the verdict is `accepted` or `accepted-with-open-items`. It
+**writes no status** — neither does the retrospective — and commits only its own files, as
+`chore(l3io): epic close <slug>`; the retrospective document is left as v7 left it.

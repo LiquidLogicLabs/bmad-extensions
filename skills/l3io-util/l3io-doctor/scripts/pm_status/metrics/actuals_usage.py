@@ -551,6 +551,51 @@ def read_transcript_usage(paths, since=None, until=None) -> dict:
             "windowed": since is not None or until is not None}
 
 
+def first_tool_use_naming(paths, needle: str):
+    """The earliest aware timestamp of an assistant turn in `paths` (files or directories,
+    as `read_transcript_usage` takes them) whose tool call names `needle` in its input --
+    a Write, an Edit or a shell command touching that file. None when no turn does.
+
+    How a run that opened no bracket of its own is located inside its session: a workflow
+    whose document is created when it starts (bmad-retrospective's, retro-document.md:7)
+    first touches that file at its start, and every turn before is somebody else's."""
+    files: list = []
+    for entry in (paths if isinstance(paths, (list, tuple)) else [paths]):
+        if os.path.isdir(entry):
+            for root, _dirs, names in os.walk(entry):
+                files.extend(os.path.join(root, n) for n in sorted(names)
+                             if n.endswith(".jsonl"))
+        elif os.path.exists(entry):
+            files.append(entry)
+    first = None
+    for fp in files:
+        try:
+            fh = open(fp, "r", encoding="utf-8")  # noqa: SIM115 -- catch OSError on open, then `with fh:` below
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict) or rec.get("type") != "assistant":
+                    continue
+                content = (rec.get("message") or {}).get("content")
+                if not isinstance(content, list):
+                    continue
+                if not any(isinstance(c, dict) and c.get("type") == "tool_use"
+                           and needle in json.dumps(c.get("input"), ensure_ascii=False)
+                           for c in content):
+                    continue
+                when = _parse_iso(rec.get("timestamp"))
+                if when is None or when.tzinfo is None:
+                    continue
+                if first is None or when < first:
+                    first = when
+    return first
+
+
 def price_by_model(by_model: dict, default_model: str, overrides=None) -> tuple:
     """(report lines, total USD) pricing each model's tokens at that model's own rates.
 

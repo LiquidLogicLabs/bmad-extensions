@@ -801,5 +801,246 @@ class TestReportV7(Project):
         self.assertIn("--initiative-dir", r.stderr)
 
 
+
+# --------------------------------------------------------------------------- #
+# Epic closure on bmad-retrospective (Task 4.6)
+# --------------------------------------------------------------------------- #
+SESSION = "5e55a0d1-0000-4000-8000-0000000e71c0"
+
+
+def _uv_dirs():
+    """uv's cache and Python installs, captured before HOME is redirected, so the `uv run`
+    of the fake resolver reuses them instead of provisioning from the network."""
+    out = {}
+    for key, argv in (("UV_CACHE_DIR", ["uv", "cache", "dir"]),
+                      ("UV_PYTHON_INSTALL_DIR", ["uv", "python", "dir"])):
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, check=False)
+        except OSError:
+            continue
+        if r.returncode == 0 and r.stdout.strip():
+            out[key] = r.stdout.strip()
+    return out
+
+
+def retro_doc(verdict="accepted", epic="epic-cart", body_verdict="rejected"):
+    """The retrospective as retro-document.md:9-21 has bmad-retrospective write it: the
+    verdict in the frontmatter, and prose below that must never be read for it."""
+    fm = f"epic: {epic}\ndate: 2026-11-17\n"
+    if verdict is not None:
+        fm += f"verdict: {verdict}\n"
+    return (f"---\n{fm}criteria: declared\nheadless: true\n---\n\n# Retrospective\n\n"
+            f"## Acceptance verdict\n\nverdict: {body_verdict} was considered and set aside.\n")
+
+
+class TestEpicClose(Project):
+    """`epic-close`: the On Complete l3io wires into `bmad-retrospective`. It rolls the epic's
+    ticket actuals up, records the retrospective's own spend as the closure actual, takes one
+    closure calibration sample against the epic estimate, and records the verdict -- and
+    writes no status and no v7 file."""
+
+    CLASSES = ("--class", "1=simple", "--class", "2=standard", "--class", "3=complex")
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.root, ".home")
+        os.makedirs(self.home)
+        self.retro = os.path.join(self.epic, "epic-cart-retrospective.md")
+        write(self.retro, retro_doc())
+        self.env = {**os.environ, **_uv_dirs(), "HOME": self.home,
+                    "CLAUDE_CODE_SESSION_ID": SESSION}
+        self.ticket_actual(1, man="2", tokens=("10", "2", "1", "50"))
+        self.ticket_actual(2, man="4", tokens=("20", "4", "2", "100"))
+
+    def ticket_actual(self, n, man, tokens):
+        i, o, w, r = tokens
+        self.run_cli("set-actual", "--project-root", self.root, "--plan-file", self.plans[n],
+                     "--node", "story", "--runtime", "claude", "--model", MODEL,
+                     "--elapsed-hours", "1", "--man-hours", man, "--hitl-hours", "0.25",
+                     "--tokens-input", i, "--tokens-output", o, "--tokens-cache-write", w,
+                     "--tokens-cache-read", r)
+
+    def estimate(self):
+        self.run_cli("estimate-entries", "--project-root", self.root, "--ticket-dir",
+                     self.tdir, *self.CLASSES)
+
+    def transcript(self):
+        """This session's transcript: a turn long before the retrospective, which must not
+        count, then the turn that wrote the retrospective's skeleton and one after it."""
+        from datetime import UTC, datetime, timedelta
+        d = os.path.join(self.home, ".claude", "projects", "-tmp-proj")
+        now = datetime.now(UTC)
+
+        def rec(mid, when, usage, content=None):
+            msg = {"id": mid, "model": MODEL, "usage": usage}
+            if content is not None:
+                msg["content"] = content
+            return json.dumps({"type": "assistant", "sessionId": SESSION,
+                               "timestamp": when.isoformat(), "message": msg})
+        lines = [
+            rec("m0", now - timedelta(hours=3),
+                {"input_tokens": 999000, "output_tokens": 999000,
+                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}),
+            rec("m1", now - timedelta(minutes=30),
+                {"input_tokens": 1000, "output_tokens": 2000,
+                 "cache_creation_input_tokens": 3000, "cache_read_input_tokens": 40000},
+                [{"type": "tool_use", "name": "Write",
+                  "input": {"file_path": self.retro, "content": "---\nepic: epic-cart\n"}}]),
+            rec("m2", now - timedelta(minutes=1),
+                {"input_tokens": 500, "output_tokens": 500,
+                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 10000}),
+        ]
+        write(os.path.join(d, f"{SESSION}.jsonl"), "\n".join(lines) + "\n")
+
+    def close(self, *extra, runtime="claude", man="1.5", hitl="0", check=True):
+        argv = ["epic-close", "--project-root", self.root, "--epic-dir", self.epic,
+                "--retro-file", self.retro, "--runtime", runtime, "--man-hours", man,
+                "--hitl-hours", hitl, *extra]
+        r = subprocess.run([sys.executable, SCRIPT, *argv], capture_output=True, text=True,
+                           env=self.env)
+        if check:
+            self.assertEqual(r.returncode, 0, f"{argv}\nstdout: {r.stdout}\nstderr: {r.stderr}")
+        return r
+
+    def epic_side(self):
+        p = os.path.join(self.tdir, "l3io.toml")
+        return self.load_toml(p).get("epic", {}) if os.path.exists(p) else {}
+
+    def closure_samples(self):
+        p = os.path.join(self.state_root, "pm-calibration.yaml")
+        if not os.path.exists(p):
+            return {}
+        from ruamel.yaml import YAML
+        with open(p, encoding="utf-8") as fh:
+            cal = YAML(typ="safe").load(fh) or {}
+        epic = (cal.get("closure") or {}).get("epic") or {}
+        return {m: list(v.get("samples", [])) for m, v in epic.items()}
+
+    def test_epic_close_rolls_up_sidecars(self):
+        self.transcript()
+        self.close()
+        epic = self.epic_side()
+        closure, actual = epic["closure"], epic["actual"]
+        self.assertEqual(list(closure)[:5], list(pm.METRIC_FIELDS), closure)
+        self.assertEqual(list(actual)[:5], list(pm.METRIC_FIELDS), actual)
+        tk = closure["tokens_k"]
+        self.assertEqual((tk["input"], tk["output"], tk["cache_write"], tk["cache_read"]),
+                         (1.5, 2.5, 3.0, 50.0), "a turn before the retrospective was counted")
+        self.assertEqual((closure["man_hours"], closure["hitl_hours"]), (1.5, 0))
+        self.assertGreater(closure["elapsed_hours"], 0.4)
+        self.assertLess(closure["elapsed_hours"], 0.6)
+        self.assertGreater(closure["cost"], 0)
+        # The epic is every ticket sidecar under its tickets/ folder, plus the closure.
+        self.assertEqual(actual["man_hours"], 2 + 4 + 1.5)
+        self.assertEqual(actual["hitl_hours"], 0.25 + 0.25 + 0)
+        self.assertEqual(actual["tokens_k"]["total"], 63 + 126 + 57)
+        self.assertEqual(actual["tokens_k"]["cache_read"], 50 + 100 + 50)
+        tickets_cost = sum(self.load_toml(os.path.join(self.tdir, f"story-{s}-plan.l3io.toml"))
+                           ["actual"]["cost"] for s in ("scaffold", "ui-shell"))
+        self.assertAlmostEqual(actual["cost"], tickets_cost + closure["cost"], places=2)
+        with open(os.path.join(self.state_root, "events.jsonl"), encoding="utf-8") as fh:
+            events = [json.loads(x) for x in fh]
+        retro = [e for e in events if e.get("agent") == "bmad-retrospective"]
+        self.assertEqual([e["event"] for e in retro], ["dispatch_open", "dispatch_close"])
+        self.assertTrue(all(e.get("epic") == "epic-cart" for e in retro), retro)
+        # A second retrospective of the same epic adds its own spend and never re-counts the
+        # first: the window starts where the last closure ended.
+        self.close(man="0.5")
+        again = self.epic_side()
+        self.assertEqual(len(again["closure_runs"]), 2)
+        self.assertEqual(again["closure"]["man_hours"], 2.0)
+        self.assertEqual(again["closure"]["tokens_k"]["total"], tk["total"],
+                         "the second run re-counted the first run's turns")
+
+    def test_closure_sample_only_with_estimate(self):
+        self.transcript()
+        r = self.close()
+        self.assertEqual(self.closure_samples(), {}, "a sample with no estimate to compare")
+        self.assertIn("no closure sample", r.stderr)
+        self.assertNotIn("calibration_sampled_at", self.epic_side())
+
+        self.estimate()
+        est = self.epic_side()["estimate"]
+        self.close(man="1.5")
+        samples = self.closure_samples()
+        self.assertEqual(sorted(samples), ["elapsed_hours", "man_hours", "tokens_k"],
+                         samples)   # hitl_hours is 0 here: a zero closure is never a sample
+        self.assertTrue(all(len(v) == 1 for v in samples.values()), samples)
+        children = sum(self.load_toml(os.path.join(self.tdir, "l3io.toml"))["entry"][str(i)]
+                       ["estimate"]["man_hours"] for i in (1, 2, 3))
+        expected = (est["man_hours_low"] + est["man_hours_high"]) / 2 - children
+        closure = self.epic_side()["closure"]["man_hours"]
+        self.assertAlmostEqual(samples["man_hours"][0], round(closure / expected, 4), places=4)
+        self.assertIn("calibration_sampled_at", self.epic_side())
+        self.close(man="0.5")
+        self.assertEqual(self.closure_samples(), samples, "the epic was sampled twice")
+
+    def test_rejected_verdict_takes_no_sample(self):
+        self.transcript()
+        self.estimate()
+        write(self.retro, retro_doc(verdict="rejected", body_verdict="accepted"))
+        r = self.close()
+        self.assertEqual(self.closure_samples(), {})
+        self.assertIn("rejected", r.stderr)
+        self.assertEqual(self.epic_side()["retro_verdict"], "rejected")
+
+    def test_epic_close_writes_no_status_and_no_tree_file(self):
+        self.transcript()
+        self.estimate()
+        before, tree = self.snapshot(), self.tree()
+        side = os.path.join(self.tdir, "l3io.toml")
+        self.close()
+        self.assertEqual(self.snapshot(), before, "epic-close wrote a v7 file")
+        created = {os.path.join(self.root, p) for p in self.tree() - tree}
+        inside = {p for p in created if p.startswith(self.initiative + os.sep)}
+        self.assertEqual(inside, set(), f"epic-close created {sorted(inside)} in v7's tree")
+        self.assertTrue(all(p.startswith(self.state_root) for p in created), created)
+        with open(side, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertNotRegex(text, r"(?m)^\s*status\s*=", "epic-close wrote a status")
+        for n in (1, 2):
+            ticket = self.load_toml(pm.nodes.ticket_sidecar(self.plans[n]))
+            self.assertNotIn("status", ticket)
+
+    def test_verdict_read_from_frontmatter(self):
+        self.transcript()
+        write(self.retro, retro_doc(verdict="accepted-with-open-items"))
+        self.close()
+        self.assertEqual(self.epic_side()["retro_verdict"], "accepted-with-open-items")
+        side = os.path.join(self.tdir, "l3io.toml")
+        def text():
+            with open(side, encoding="utf-8") as fh:
+                return fh.read()
+        written = text()
+        for bad, why in ((retro_doc(verdict=None), "verdict"),
+                         (retro_doc(verdict="maybe"), "maybe"),
+                         (retro_doc(epic="epic-search"), "epic-search")):
+            write(self.retro, bad)
+            r = self.close(check=False)
+            self.assertEqual(r.returncode, 2, r.stdout)
+            self.assertIn(why, r.stderr)
+            self.assertEqual(text(), written,
+                             "a refused close wrote the sidecar")
+        r = self.run_cli("epic-close", "--project-root", self.root, "--epic-dir", self.epic,
+                         "--retro-file", os.path.join(self.epic, "nope.md"), "--runtime",
+                         "other", "--man-hours", "1", "--hitl-hours", "0", check=False)
+        self.assertEqual(r.returncode, 3, r.stderr)
+
+    def test_window_needs_since_where_no_transcript_can_give_it(self):
+        r = self.close(runtime="other", check=False)
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("--since", r.stderr)
+        self.assertEqual(self.epic_side(), {})
+        from datetime import UTC, datetime, timedelta
+        since = (datetime.now(UTC) - timedelta(minutes=12)).isoformat()
+        self.close("--since", since, runtime="other")
+        closure = self.epic_side()["closure"]
+        self.assertEqual(closure["tokens_k"], "N/A")
+        self.assertAlmostEqual(closure["elapsed_hours"], 0.2, places=2)
+        # One part of the epic with no token count makes the epic's count unknown, not a
+        # partial sum that reads as the whole.
+        self.assertEqual(self.epic_side()["actual"]["tokens_k"], "N/A")
+
+
 if __name__ == "__main__":
     unittest.main()
