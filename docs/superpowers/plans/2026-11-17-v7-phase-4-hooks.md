@@ -223,6 +223,18 @@ Rules the hooks live under:
 
 ### Task 4.3: Estimation on Sofia (item 3)
 
+**Done 2026-11-17** (`e8a08fb9`, `08fcdb11`, `91f48cec`). Carry-overs from 4.2 first: `pm_status/build/` is now `pm_status/bracket/` and the `.gitignore` negation is gone (`e8a08fb9`); `build-close` takes the counts Codex and Copilot expose instead of laundering `N/A` through `runtime=other` (`08fcdb11`). Then `estimate-entries` in `pm_status/sidecar/estimate.py`, a shared `sidecar/commit.py`, `metrics.estimates.rollup_values` extracted from `estimate-rollup`, four entries in `assets/wire-in.toml`, `l3io-plan estimate <folder>` (`steps/estimate/step-estimate-entries.md`), `bmad-agent-po` declared optional. Tests: seven in `test-pm-status-sidecar.py` (the four named), `tests/l3io-pm/test-sofia-hooks.py` (4, run from the shipped hook values, `git status --porcelain` empty after each), seven more in `test-build-hooks.py`. `smoke:install` renders Sofia after `wire`. CLI is 46 subcommands.
+
+- Ruling: under `codex` and `copilot`, `build-close` takes `--tokens-input`/`--tokens-output` (and `--tokens-cache-read` with `--model` under Codex) and refuses `N/A` there with exit 2 before any write, leaving the bracket open; `other` records `N/A`; Claude refuses typed counts — why: metrics-contract.md §3, `set-actual` and `verify` all forbid `N/A` under codex and copilot (tests `test_tokens_na_forbidden_under_codex`/`_copilot`), and 4.2's close recorded `N/A` as `runtime=other`, so `verify --runtime codex|copilot` failed every ticket it closed. The 4.2 report's statement that `set-actual` refuses `N/A` for those runtimes was correct; the "refused only under claude" reading of the HARD RULE is not what the contract says — cost if wrong: a Codex or Copilot agent that cannot read its own usage cannot close a bracket until the contract is loosened in all three places.
+- Ruling: a close with no plan file records the bracket's `dispatch_open`/`dispatch_close` and commits them, with no actual and no sample, exit 0 — why: `bmad-build-auto` runs On Complete at every HALT, including a step-1 `blocked` before `plan_file` is set (`step-01-clarify-and-route.md:2`), and refusing would leave the spool open and fail the hook — cost if wrong: a plan-less build's time is visible only in `events.jsonl`.
+- Ruling: `set-estimate` does not refuse when a hand-set override exists; it writes ours and notes the override on stderr, as 4.1 left it — why: it is an explicit, per-entry call, the override still wins on read (`effective_estimate`), and refusing would make it impossible to record a model estimate beside a person's bare `estimate`; the sweep is the one that must not overwrite a person, so `estimate-entries` skips such an entry — cost if wrong: a deliberate `set-estimate` on a hand-estimated entry is silently secondary.
+- Ruling: `estimate-entries` reads `tickets.toml` directly and read-only, not `tickets.py status` — why: the status rows (`public`, `tickets.py:722-745`) carry neither `description` nor `verify`, which the change test needs; `set-estimate` already reads it this way — cost if wrong: an entry `tickets.py` would reject is estimated anyway; `smoke:install` asserts `tickets.py status` is byte-identical and problem-free after a run.
+- Ruling: the change test is a `fingerprint` (SHA-256 of the entry's `description`, `verify`, `covers`); a refine changes the leaf rather than the entry, so the refine hook names its entry with `--entry` — cost if wrong: a leaf-only edit outside REFINE is not re-estimated until replan or `--force`.
+- Ruling: an entry to write with no class (given, recorded or hand-set `l3io_class`) is exit 2 naming every such entry, nothing written; the hook prose has the agent classify and re-run — why: the class is the one judgement, and a default class would be a guess recorded as a prediction — cost if wrong: one extra command per slice.
+- Ruling: `estimate-entries` and `sidecar-reconcile` commit exactly what they changed (`chore(l3io): estimates <epic>`, `chore(l3io): reconcile sidecars`; a moved sidecar's old path as a deletion); `set-estimate`, `set-actual` and `add-test-run` are not hooks and commit nothing — cost if wrong: one commit per hook run that changed a file.
+- Ruling: the epic roll-up is recomputed on every run, and dropped when no estimated entry is left — why: a move or drop otherwise leaves a stale `[epic].estimate` — cost if wrong: a calibration change rewrites the epic roll-up on the next hook run.
+- Ruling: `--class` differing from the recorded class re-estimates (`reclassified`); `--force` re-estimates every entry without a hand-set estimate and never overrides one.
+
 **Files:**
 - Create: `skills/_shared/pm_status/sidecar/estimate.py`, holding `estimate-entries`.
 - Modify: `skills/l3io-pm/l3io-plan/SKILL.md`. Add an `estimate` mode that runs `estimate-entries` over an initiative or epic folder. The 3.x modes stay until Task 4.8. Add a row to `help/help.md` (check:module).
@@ -242,15 +254,15 @@ Rules the hooks live under:
 - The menu value is `prompt = "Run the l3io-plan skill in estimate mode on the folder the user names, or the active initiative."`.
 - `replan_after` runs `sidecar-reconcile` **first** (with the move JSON in context when there was a move), then re-estimates what the replan touched (Review Focus 3).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `test_estimate_entries_writes_only_l3io_toml` (byte check as in 4.1);
   - `test_changed_entry_is_reestimated_unchanged_is_not`;
   - `test_epic_rollup_has_no_sprint_term`;
   - `test_reconcile_then_estimate_after_move`. A recorded move from entry 3 → 7 leaves no `[entry.3]` estimate in the source, and leaves the estimate at `[entry.7]` in the destination.
-- [ ] **Step 2:** Implement, wire the four entries, and add `l3io-plan estimate`.
-- [ ] **Step 3: On the fixture:** wire, then render `bmad-agent-po`. The output contains our text at the end of `slice.md`, `ticket.md` and `replan.md`, and the menu lists `l3io-estimate`. Run `estimate-entries` on the hand-written initiative and assert `tickets.py status` is unchanged.
-- [ ] **Step 4:** Sync, regenerate manifests, then run the gate run.
-- [ ] **Step 5: Commit.** `feat(l3io-pm): estimate on Sofia's slice, refine and replan`.
+- [x] **Step 2:** Implement, wire the four entries, and add `l3io-plan estimate`.
+- [x] **Step 3: On the fixture:** wire, then render `bmad-agent-po`. The output contains our text at the end of `slice.md`, `ticket.md` and `replan.md`, and the menu lists `l3io-estimate`. Run `estimate-entries` on the hand-written initiative and assert `tickets.py status` is unchanged.
+- [x] **Step 4:** Sync, regenerate manifests, then run the gate run.
+- [x] **Step 5: Commit.** `feat(l3io-pm): estimate on Sofia's slice, refine and replan`.
 
 ### Task 4.4: Readiness gates on Sofia's validate (item 4)
 
