@@ -13,7 +13,7 @@
     "references/status-files.md": "7230dc6f3eed6d9c453018e3bda3818f5b1ec7b89d31bdd4e462ddd47ce5ebe1",
     "scripts/facts/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
     "scripts/pm_status/__init__.py": "c1160cd0055d5c468314ca906ce876d219bfbbac05835ed9ec2dba5ccb2c8ac8",
-    "scripts/pm_status/__main__.py": "10ffc3cc7c81d826ec72f4f54c9862ecfd4280da3fab0ac5f89289a337d42b91",
+    "scripts/pm_status/__main__.py": "cb33088346dd487351cad578cc8a11e685b03de6033621819dc260ac56d3a175",
     "scripts/pm_status/bracket/__init__.py": "d24c8d8dddaf65effce7bc67299f19fce0c9093fff8a0aa83130accd098301af",
     "scripts/pm_status/core/__init__.py": "9dbab3f50013f73f147f01bb69d4f6f26dabcb9a25a099d86798a9c55430e466",
     "scripts/pm_status/instructions/__init__.py": "9543415ff0b21a01d0e797bec0b624bc9274b518a28992bf61bbf66d20c24587",

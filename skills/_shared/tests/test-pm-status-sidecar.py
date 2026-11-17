@@ -1042,5 +1042,26 @@ class TestEpicClose(Project):
         self.assertEqual(self.epic_side()["actual"]["tokens_k"], "N/A")
 
 
+class TestNoBytecode(unittest.TestCase):
+    """v7 installs pm_status under `_bmad/l3io-pm/scripts/`, and a project that commits `_bmad/`
+    (the only kind whose worktrees can run a build) would see a `__pycache__/` appear there on
+    the first hook. `bmad-build-auto` halts on any untracked file (step-01-clarify-and-route.md
+    :60), so the package writes no bytecode, as v7's own scripts do not (`render_skill.py:26`,
+    `tickets.py:54`)."""
+
+    def test_running_an_installed_copy_writes_no_bytecode(self):
+        root = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        pkg = os.path.join(root, "_bmad", "l3io-pm", "scripts", "pm_status")
+        shutil.copytree(os.path.dirname(SCRIPT), pkg,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        r = subprocess.run([sys.executable, os.path.join(pkg, "__main__.py"), "rates"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        caches = [d for d, _dirs, _files in os.walk(pkg) if os.path.basename(d) == "__pycache__"]
+        self.assertEqual(caches, [])
+
+
 if __name__ == "__main__":
     unittest.main()

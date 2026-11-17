@@ -412,6 +412,11 @@ import importlib.util
 import os
 import sys
 
+# v7 installs this package under `_bmad/l3io-pm/scripts/`, which a project may commit; a
+# `__pycache__/` written there is an untracked file, and `bmad-build-auto` refuses to start on
+# any (step-01-clarify-and-route.md:60). v7's own scripts set the same flag.
+sys.dont_write_bytecode = True
+
 # --------------------------------------------------------------------------- #
 # SCRIPT-PATH BOOTSTRAP. Nothing relative may appear above this block.
 #
