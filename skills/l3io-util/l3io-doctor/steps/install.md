@@ -66,9 +66,9 @@ of `claude`, `codex`, `copilot` or `other`, chosen by the detection procedure in
 harness's file.
 
 The block is **not payload** — it lives in a user-owned file and is not covered by the
-SHA-256 comparison below, so the payload sweep cannot see it. It goes first because the
-payload sweep removes the self-installed `pm-status.py` this call needs. Remove it by its
-markers:
+SHA-256 comparison below, so the payload sweep cannot see it. It goes first so that a
+failure in the sweep cannot leave a block behind describing an extension that is half gone.
+Remove it by its markers:
 
 ```bash
 uv run {pm_status} sync-agent-instructions --runtime {runtime} \
@@ -118,6 +118,7 @@ rather than assumed.
   the dist-tag on every run. Pin a specific release only for a deliberate exception.
 - The clean never touches project state: `{implementation_artifacts}/state/**` appears in no
   payload manifest, so the derived delete scope excludes it by construction.
-- The clean removes the copy self-install writes in BMad's own scripts directory, file by
-  file, each only when it matches a shipped copy. That is safe — any l3io skill reinstalls it at activation.
+- The clean also removes the `pm_status` copy l3io 3.x kept in BMad's own `_bmad/scripts/`
+  directory, if one is still there, file by file, each only when it matches a shipped copy.
+  Nothing in 4.x runs it.
   It does not touch `{project-root}/_bmad/<module-code>/scripts/`: that tree is v7's, rebuilt by `bmad setup`.

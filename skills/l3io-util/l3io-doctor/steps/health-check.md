@@ -6,7 +6,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (26 checks, read-only)
+### Step HC2 — Scan (27 checks, read-only)
 
 Run all checks. They change no project files, with one exception: a check that runs
 `pm-status.py` (Check 13) takes its locks when an issue file exists, and taking a lock may
@@ -453,6 +453,26 @@ different findings with opposite remedies:
 - Exit 0 → ✓
 - Any other exit → not a finding; mention the exit code and continue
 
+**Check 25 — pm_status version skew**
+BMad v7 installs `pm_status` once per module that declares it — at
+`_bmad/l3io-pm/scripts/pm_status/` and `_bmad/l3io-util/scripts/pm_status/` — and both copies
+write the same state tree. The two modules can be set up separately, so the copies can carry
+different versions, and two versions of one writer over one tree can disagree about what they
+write.
+
+```bash
+uv run {skill-root}/scripts/report-version.py --project-root {project-root} --format json; echo "exit=$?"
+```
+
+- `pm_status.findings` non-empty → flag · Priority: **High** · print each finding as-is; it
+  names both paths and both versions. Report only: the remedy is `bmad setup <module-code>` for
+  the module whose copy is older, which asks that module's config questions, and those
+  answers are the user's
+- a copy whose `version` is `null` → not a finding; that module has not been set up, and the
+  activation of any skill that needs it halts naming `bmad setup`
+- `pm_status.findings` empty → ✓. Exit 3 with no finding is a mixed skill install, which the
+  `version` mode reports; it is not this check's finding
+
 ### Step HC3 — Report findings
 
 
@@ -489,6 +509,7 @@ ADR links                       ⚠ 1 unlinked departure         — (report onl
 Unconfirmed spec changes        ⚠ 1 built upon                 triage
 Spec index freshness            ✓ Fresh                        —
 Agent instruction block         ⚠ absent in CLAUDE.md          — (on request)
+pm_status version skew          ✓ both copies 4.0.0            —
 ================================================================
 ```
 

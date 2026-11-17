@@ -239,7 +239,7 @@ single_epic_phase: {single_epic_phase}
 headless: true
 
 # Inherited activation — sections 1-7 of step-00-activate.md are ALREADY DONE for this
-# project. Do not resolve config, self-install, detect layout, create directories, list
+# project. Do not resolve config, locate pm_status, detect layout, create directories, list
 # epics, verify schema, or generate a session id. Use these bindings as given.
 implementation_artifacts: {implementation_artifacts}
 planning_artifacts: {planning_artifacts}

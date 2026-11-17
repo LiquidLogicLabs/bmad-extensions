@@ -248,7 +248,6 @@ These are not errors to work around. Each one exists because the alternative shi
 | `set-field resolves` | Promotion schedules backlog items | `promote-issue` |
 | `--runtime` with any other value | Only `claude`, `codex`, `copilot`, `other` are valid | Use one of the four; `other` when unsure |
 | An `N/A` token count under `--runtime claude` | A Claude session can read its own usage | Capture the real figures from the transcript |
-| Downgrading the installed `pm-status.py` | Self-install refuses to overwrite a strictly newer copy, which would strand projects already on it | Upgrade the package instead |
 
 ## Still stuck?
 

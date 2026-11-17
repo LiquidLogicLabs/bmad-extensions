@@ -5,11 +5,11 @@ any subsequent step file.
 
 ---
 
-## 0. Confirm this is a BMad 6.x install
+## 0. Confirm this is a BMad v7 install
 
-l3io 3.x supports **BMad 6.x only**; l3io 4.x is the line for BMad v7. Check before anything
-else, because every later step reads or writes BMad 6.x's layout, and §2 installs into
-`_bmad/scripts/`, which v7 rebuilds on every setup.
+l3io 4.x supports **BMad v7 only**; l3io 3.x is the line for BMad 6.x. Check before anything
+else, because every later step reads v7's layout: config from v7's resolver, and `pm_status`
+from the copy `bmad setup` installs under `_bmad/l3io-pm/scripts/`.
 
 ```bash
 evidence_path=""
@@ -18,33 +18,24 @@ if [ -f "{project-root}/_bmad/scripts/setup.py" ]; then
 elif evidence_path=$(grep -ls '^\[bmod\]' {project-root}/.*/skills/*/bmod.toml | head -1) \
      && [ -n "$evidence_path" ]; then
   bmad_generation=v7
-elif [ -f "{project-root}/_bmad/_config/manifest.yaml" ]; then
-  bmad_generation=v6
 else
-  bmad_generation=unknown
+  bmad_generation=not-v7
 fi
 echo "bmad_generation=$bmad_generation evidence_path=$evidence_path"
 ```
 
-The v7 signals are checked **first**, and only things no 6.x release ships count:
-`_bmad/scripts/setup.py`, which v7's `bmad setup` writes, and a module record (`bmod.toml`
-carrying `[bmod]`) in any tool's skills folder, which arrives as soon as v7's skills are
-installed. `_bmad/scripts/config_utils.py` is **not** a signal: 6.12.0 and later ship it too.
-v7 wins over 6.x's `_bmad/_config/manifest.yaml` because that manifest stays behind after
-`bmad setup` until v7's own cleanup (`migrate_v6.py`) removes it. A project mid-upgrade is
-therefore a v7 project, and 3.x stops rather than running 6.x paths against it. Verified
+Only things no 6.x release ships count as v7: `_bmad/scripts/setup.py`, which v7's `bmad setup`
+writes, and a module record (`bmod.toml` carrying `[bmod]`) in any tool's skills folder, which
+arrives as soon as v7's skills are installed. `_bmad/scripts/config_utils.py` is **not** a
+signal: 6.12.0 and later ship it too. A 6.x project with v7's skills added, whose
+`_bmad/_config/manifest.yaml` is still present, is a v7 project by the second signal. Verified
 against a real 6.12.4 install (no v7 signal), a v7 install at `e435a22` (`setup.py`), and that
 6.12.4 install with v7's skills added (`[bmod]` record, manifest still present).
 
-`unknown` falls through to §1, which halts if BMad core is missing.
-
-When `bmad_generation` is `v7`, stop. Do not resolve config, install anything, or load another
-step:
+When `bmad_generation` is `not-v7`, stop. Do not resolve config or load another step:
 
 ```
-BLOCKED: BMad v7 detected ({evidence_path}). This is l3io 3.x, which supports BMad 6.x only —
-install l3io 4.x for BMad v7. Do not run `bmad migrate` on this project until l3io 4.x is
-installed: see docs/upgrading.md.
+BLOCKED: BMad v7 not detected. l3io 4.x supports BMad v7 only; on BMad 6.x install l3io 3.x.
 ```
 
 ## 1. Load module configuration
@@ -135,68 +126,7 @@ BLOCKED: _bmad/l3io-pm/scripts/pm_status is not installed — run bmad setup l3i
 Bind `{pm_status}` = `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py` for use in all
 subsequent steps.
 
-### 2a. Self-install the pre-v7 copy
-
-Self-install still writes the copy the 6.x layout used, from `l3io-execute`'s payload. Nothing
-in this module calls that copy any more; `{pm_status}` above is the one every step runs.
-
-The payload ships once per module, not once per skill. For `l3io-pm` it lives at
-`l3io-execute/scripts/pm_status/__main__.py`. Every skill self-installs through the sibling path
-`{skill-root}/../l3io-execute/…` — which is `l3io-execute`'s own copy when this skill *is*
-`l3io-execute` — so this one shared file names one path for all of them. The `l3io-pm` module
-installs its skills together, as siblings in one skills folder, so `l3io-execute` lands
-beside every other skill of the module.
-
-**That co-installation is conditional, not absolute — say so plainly.** BMad's installer only
-carries a skill into `.claude/skills/` and `_bmad/_config/skill-manifest.csv` when its
-`SKILL.md` frontmatter strict-YAML-parses and its `name:` equals its directory name; a skill
-that fails either test is silently dropped from the plugin, with no install-time warning. An
-unquoted `:` in a frontmatter description is enough to break that parse; `check:docs`'s
-`skill-frontmatter` check guards it mechanically, but a project on an older, unpatched copy of
-this package could still hit it.
-
-First confirm the sibling payload is actually on disk — the manifest states the intent, but
-only this on-disk check states the fact, whether the cause is the installer dropping the
-skill or someone hand-copying a single skill directory out of the plugin (or shipping a
-partial checkout). Either way the failure must name the missing piece rather than fail
-silently or opaquely inside `uv run`:
-
-```bash
-test -f {skill-root}/../l3io-execute/scripts/pm_status/__main__.py
-```
-
-If absent, halt:
-```
-BLOCKED: l3io-execute/scripts/pm_status/__main__.py is missing beside this skill.
-Check {project-root}/_bmad/_config/skill-manifest.csv for an l3io-execute row: if it is
-missing, the installer rejected that skill (a SKILL.md frontmatter or naming defect) and
-reinstalling the l3io-pm plugin will reproduce the same result until that is fixed upstream.
-If the row IS present, a skill directory was likely hand-copied or the checkout is partial —
-reinstalling the l3io-pm plugin resolves that case.
-```
-
-Self-install compares the installed copy's **bytes** against this one and reinstalls on any
-difference, so a project pinned to a stale copy heals itself on the next run. It skips only a
-byte-identical copy, and refuses to overwrite a strictly newer one. Pass `--force` to
-reinstall regardless.
-
-Self-install is layout-independent (it copies a file and needs no state), so nothing in
-detection below depends on it.
-
-```bash
-uv run {skill-root}/../l3io-execute/scripts/pm_status/__main__.py self-install \
-  --dest {project-root}/_bmad/scripts/pm-status.py  # check-39: legacy-path -- self-install's destination
-```
-
-`--dest` still names the pre-package file `pm-status.py` on purpose: self-install installs the
-`pm-status/` package directory **beside** that path and removes the file when it is an
-unmodified shipped copy. Do not point `--dest` at `pm-status/__main__.py` — the directory would be
-installed inside itself.
-
-If `uv` is unavailable, use `python3` instead. A "skipped — already up to date"
-message is normal. Failure here is BLOCKED.
-
-### 2b. Bind the runtime
+### 2a. Bind the runtime
 
 Bind `{runtime}` — passed as `--runtime` to every `set-actual` and `verify` call
 (`references/metrics-contract.md` §3). The value must be **exactly** one of `claude`,
@@ -265,7 +195,7 @@ fi
 
 **Warn but do not block.** This skill can complete without the doctor for its own core path;
 the failure is deferred to whichever specific step tries to forward to it (`migrate-state`,
-`bootstrap-state`, `check-pm-status`). Surfacing the warning up front turns "skill not found"
+`bootstrap-state`, `stats`). Surfacing the warning up front turns "skill not found"
 into a diagnosable install anomaly instead of a downstream mystery.
 
 When `doctor=absent`, print exactly once at activation (do not repeat later):
@@ -273,7 +203,7 @@ When `doctor=absent`, print exactly once at activation (do not repeat later):
 ```
 ⚠️  l3io-doctor is not installed — this is a required module of the LiquidLogicLabs
     extension, and `bmad setup` lists it as an unmet requirement of l3io-pm. Some steps
-    below (state-layout migrations, the progress dashboard, and `check-pm-status`) will fail
+    below (state-layout migrations and the progress dashboard) will fail
     if reached. Install it with
     `npx skills add LiquidLogicLabs/bmad-extensions/skills/l3io-util`, then run
     `bmad setup`.
@@ -450,8 +380,8 @@ locations and remove the stale one, then re-run /l3io-doctor migrate-state.
 **If only sharded** → current layout. Continue to section 4.
 
 **If only the legacy per-epic layout or only the legacy flat layout** → remediate, once
-(`references/auto-remediation.md` is the contract). `{pm_status}` was just
-self-installed in section 2, so `migrate-state` runs against a current copy, and it preserves the
+(`references/auto-remediation.md` is the contract). `migrate-state` runs against the copy
+`bmad setup` installed, and it preserves the
 original as `.legacy` — which is what makes this reversible. Set `{layout_migrated}` = `true`
 **before** running it — and if it is already `true`, this is a recurrence: go straight to the
 **Succeeded but persists** halt below and run nothing. Then print:

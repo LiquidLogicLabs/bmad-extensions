@@ -45,8 +45,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes. The full set of findings, their severities, and their remedies is defined in `steps/health-check.md`, not repeated here.
 - **`stats`** (aliases **`backlog`**, **`issues`**): Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_state_root}/issues.yaml` grouped by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
-- **`check-pm-status`:** Compares the self-installed copy of `pm-status.py` (the 6.x-layout copy activation still writes; no mode runs it) against this doctor's module version (`[bmod] version` in its `bmod.toml`) and reports whether it is current, stale, or absent. Runnable directly, or by any consumer that wants to warn about a stale copy. No files changed.
-- **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?"; `check-pm-status` answers the narrower question of whether the self-installed `pm-status.py` is current, and reports STALE for one invocation after a correct upgrade because the installer does not write that copy. No files changed.
+- **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?". With `--project-root` it also lists the two declared `pm_status` copies (`_bmad/l3io-pm/…`, `_bmad/l3io-util/…`) and reports them disagreeing as a finding, which the health check's Check 25 surfaces. No files changed.
 - **`install`** (aliases **`upgrade`**, **`uninstall`**): Runs the right BMad command for the intent and refuses the wrong one. `upgrade` uses `--action quick-update`, which derives the module set and IDE list off the existing install and deletes nothing; `install` is first-install only and refuses an existing install, because its `--modules`/`--tools` are authoritative and BMad deletes every module and IDE tree they do not name without confirming; `clean` removes only this extension's payload, decided by SHA-256 against each skill's `payload-manifest.json`, keeping any file a user has edited and never touching project state. Confirms before every action; `clean` is a dry run until `--apply`.
 
 **One-time migrations (run in this order)**
@@ -83,8 +82,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries twenty-one procedures and a run needs one, so inlining them all charged every
-invocation for twenty it would not execute. Read this file, match the keyword, load that
+carries twenty procedures and a run needs one, so inlining them all charged every
+invocation for nineteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -107,7 +106,6 @@ running a migration or a repair *without* the diagnosis that decides whether it 
 | `check` or `status` | `steps/health-check.md` | default | read-only — scan only, no changes |
 | `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
 | `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
-| `check-pm-status` | `steps/check-pm-status.md` | registered | read-only — verify the installed pm-status.py matches this doctor's module version |
 | `version`, `--version` or `which-version` | `steps/version.md` | registered | read-only — report the installed l3io-extensions version per skill and per module |
 | `install`, `upgrade` or `uninstall` | `steps/install.md` | registered | runs BMad's installer (`upgrade`/`install`) or deletes this extension's payload (`clean`) — every path confirms first; `clean` reports before it changes anything |
 | `clean-layout` or `layout-cleanup` | `steps/clean-layout.md` | health-check | layout reorganization only. `clean-layout` is the primary; `layout-cleanup` is the DEPRECATED alias from ≤ 3.1.3, kept so old muscle memory still routes. Verb-first (`clean-<noun>`) mirrors `clean-legacy`. |
@@ -193,24 +191,6 @@ BLOCKED: _bmad/l3io-util/scripts/pm_status is not installed — run bmad setup l
 
 Bind `{pm_status}` = `{project-root}/_bmad/l3io-util/scripts/pm_status/__main__.py` for use in
 all mode files below.
-
-Self-install still writes the copy the 6.x layout used, from this skill's own payload. No mode
-calls that copy any more; `{pm_status}` above is the one they run. Self-install compares the
-installed copy's **bytes** against this skill's own copy and reinstalls on any difference; it
-refuses only to overwrite a copy that is strictly *newer* than this skill's own.
-
-```bash
-uv run {skill-root}/scripts/pm_status/__main__.py self-install \
-  --dest {project-root}/_bmad/scripts/pm-status.py  # check-39: legacy-path -- self-install's destination
-```
-
-`--dest` still names the pre-package file `pm-status.py` on purpose: self-install installs the
-`pm-status/` package directory **beside** that path and removes the file when it is an
-unmodified shipped copy. Do not point `--dest` at `pm-status/__main__.py` — the directory would be
-installed inside itself.
-
-If `uv` is unavailable, use `python3` instead. A "skipped — already up to date" message is
-normal — that is the common case, not a problem. Failure here is BLOCKED.
 
 Bind `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {pm_state_root} --pm-status {pm_status}`
 for health Checks 15–19, triage's spec pass and `migrate-adrs`. It passes no `--spec-paths`,

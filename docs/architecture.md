@@ -166,10 +166,11 @@ sequenceDiagram
     P->>I: release
 ```
 
-`pm-status` is one self-installed **package** — `skills/_shared/pm_status/`, installed as
-`_bmad/scripts/pm-status/` ([ADR-0001](adr/0001-pm-status-single-self-installed-file.md) and
-its 2026-10-23 amendment, which took Option B; the ADR's title records the superseded
-single-file decision). What has not changed is the split by consumer: structural checks
+`pm-status` is one **package** — `skills/_shared/pm_status/`, declared in each owning skill's
+`bmod.toml` and installed by BMad v7's setup as `_bmad/l3io-pm/scripts/pm_status/` and
+`_bmad/l3io-util/scripts/pm_status/` ([ADR-0001](adr/0001-pm-status-single-self-installed-file.md),
+its 2026-10-23 amendment, which took Option B, and its 2026-11-16 amendment, which retires
+self-install; the ADR's title records the superseded single-file decision). What has not changed is the split by consumer: structural checks
 (`audit-issues`) live in the package because more than one skill runs them, while the
 heuristic audit ships in doctor's own `scripts/audit-backlog.py`.
 
@@ -267,7 +268,7 @@ intuitions about context size.
 | Fix loop capped at 3 | `step-01-classify-work.md` §5 | A retry tail bought at the steepest part of the turn curve. Was 10. |
 | Reviewers get a diff and named sections | every review spawn | A reviewer reading the corpus before its first thought. Scoped, review is ~3.4% of a story's tokens. |
 | Escalate the arch gate on signal | `step-04-arch-gate.md` §4 | Two extra full-epic reads buying a corroboration label — a single MAJOR already blocks. |
-| Subagents inherit activation | `step-05-epic-loop.md` §5 | Re-running config resolution, self-install, layout detection and schema verify once per dispatch. |
+| Subagents inherit activation | `step-05-epic-loop.md` §5 | Re-running config resolution, the `pm_status` lookup, layout detection and schema verify once per dispatch. |
 
 ## Quality Gate Contracts
 

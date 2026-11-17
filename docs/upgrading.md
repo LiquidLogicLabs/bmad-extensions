@@ -13,8 +13,7 @@ cannot read.
 # 1. Refresh the skills
 npx -y bmad-method@latest install --directory . --action quick-update --yes
 
-# 2. Migrate the data and refresh the installed pm-status.py — required after every update,
-#    not just once at first migration
+# 2. Migrate the data — required after every update, not just once at first migration
 /l3io-doctor
 ```
 
@@ -24,12 +23,9 @@ the installer never writes those layers.
 **Step 2 is required after every skill update, not optional and not one-time.** Step 1
 refreshes the skill payloads under `skills/`, but your project's on-disk data is untouched by
 a skill refresh, and `/l3io-doctor` is the one command that inspects it and applies every
-migration you need, in dependency order, behind one confirmation. It also self-installs the
-current `pm-status.py` at activation, before it does anything else — but that part is not
-unique to it: `l3io-execute`, `l3io-plan`, and `l3io-sync` each self-install the same
-current copy at their own activation too (content-guarded — it reinstalls only when the
-installed copy differs from the current skills), so a stale script would also self-heal on
-your next run of any of those. Migration is what a self-heal never does. Skipping
+migration you need, in dependency order, behind one confirmation. On BMad v7 the
+`pm_status` helper every skill runs is installed by `bmad setup`, one copy per module, and
+the health check reports the two copies drifting apart (see → 4.0.0). Skipping
 `/l3io-doctor` after an update leaves any migration your project needs undone: a
 subcommand the new payloads assume (a newly optional flag, a newly added subcommand) then
 fails with a plain argparse error that gives no hint the real cause is a missed migration, or
@@ -62,10 +58,9 @@ The skill is the authority on this sequence. If this document and
 
 ## Upgrade between runs
 
-Self-install converges every project to one byte-identical `pm-status.py`, but only for
-processes that start **after** it runs. A `pm-status.py` invocation already in flight when the
-upgrade lands keeps running the copy it loaded — it does not pick up a mid-flight file
-replacement.
+An upgrade replaces `pm-status.py` for processes that start **after** it lands. A
+`pm-status.py` invocation already in flight keeps running the copy it loaded — it does not pick
+up a mid-flight file replacement.
 
 This matters for locking specifically: an epic's lock file lives at a fixed path per
 `pm-status.py` version, and that path was relocated (from inside the epic's own directory to
@@ -75,8 +70,7 @@ same epic during the transition window, and so do not exclude each other, even t
 believe they hold "the" epic lock.
 
 Concretely: if `l3io-execute` sprint agents are mid-flight on the pre-upgrade copy while
-`/l3io-doctor` — which self-installs at activation, before dispatching to any mode — runs
-and refreshes `pm-status.py` mid-session, the doctor's own writes (and anything dispatched
+an upgrade refreshes `pm-status.py` mid-session, the doctor's own writes (and anything dispatched
 after it) use the new lock path and will not wait behind the still-running agents' lock, and
 vice versa. This is a narrow, self-resolving window: once every process still running has
 exited, every subsequent invocation loads the same, current copy and locks the same file. It
@@ -108,6 +102,28 @@ nor `.notices.yaml` matches the directory itself.
 
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
+
+### → 4.0.0
+
+**l3io 4.x supports BMad v7 only.** Every `l3io-pm` skill stops at activation when it finds no
+v7 install — no `_bmad/scripts/setup.py` and no `[bmod]` module record in any skills folder —
+and says to install l3io 3.x on BMad 6.x.
+
+**`pm-status.py` is installed by `bmad setup`, not by the skills.** Each module declares the
+`pm_status` package in its `bmod.toml`, and setup installs it at
+`_bmad/l3io-pm/scripts/pm_status/` and `_bmad/l3io-util/scripts/pm_status/`. Self-install —
+which copied it into `_bmad/scripts/` at every skill activation — is gone. After
+`npx skills add`, run `bmad setup` before any l3io skill; a skill run first stops naming the
+`bmad setup` command. The two copies can drift apart if one module is set up without the
+other: `/l3io-doctor`'s health check reports that (Check 25), and `/l3io-doctor version`
+lists both.
+
+**The `check-pm-status` mode is removed.** `/l3io-doctor version` reports what it used to,
+for both copies.
+
+**A copy l3io 3.x left in `_bmad/scripts/` goes away by itself.** v7's setup rebuilds that
+directory to exactly its own files, so the 3.x `pm-status/` package (and the older single
+`pm-status.py`) is removed the first time setup runs — verified on a real v7 install.
 
 ### → 3.7.2
 

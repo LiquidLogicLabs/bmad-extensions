@@ -52,7 +52,11 @@ in both tool roots; setup lists `lane_count`; no `problems`, no unmet requiremen
 found and registered at the package version; a `lane_count` in `_bmad/custom/config.toml`
 resolves; each module's declared `pm_status` (`l3io-pm`, `l3io-util`) is installed under
 `_bmad/<module-code>/scripts/`, every file its `bmod.toml` lists, and `uv run` of its `__main__.py
---help` exits 0; with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
+--help` exits 0; the installed doctor's `report-version.py` finds the two copies agreeing, and
+with one copy's version marker changed exits 3 with one finding naming both paths (the copy is
+restored after); a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
+the older single file) is gone after setup runs again, while BMad's own `setup.py` there stays;
+with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
 it with `--skill`, and following that hint against this checkout satisfies it. Setup's update
 check (`--source-record`, which reads `bmod.toml` from `main` on GitHub) is reported, not judged:
 it says `could-not-check` while `main` ships 3.x. It needs GitHub and npm, takes about 30 s, and
@@ -297,6 +301,6 @@ node scripts/write-payload-manifest.mjs   # regenerate the manifests after editi
 
 The `postbump` hook auto-syncs the new version into every `bmod.toml` module record — do not manually bump those files.
 
-> **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/`, a `payload-manifest.json` is stale, or `package-lock.json` no longer matches `package.json` (runs `sync-shared-scripts.mjs --check`, `write-payload-manifest.mjs --check`, `check-docs.mjs`, `check-pm-status-version.mjs`, and `npm ls --package-lock-only` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
+> **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/`, a `payload-manifest.json` is stale, or `package-lock.json` no longer matches `package.json` (runs `sync-shared-scripts.mjs --check`, `write-payload-manifest.mjs --check`, `check-docs.mjs`, `check-version.mjs`, and `npm ls --package-lock-only` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
 
 **Lock-drift is the same shape as manifest-drift, and it bit us the same way.** In 2026-09 the check-tooling devDependencies (`csv-parse`, `mvdan-sh`, `smol-toml`) were added to `package.json` and a `yaml` patch was bumped, but `package-lock.json` was never regenerated. CI's `npm ci` refused to install and every push from 2.5.2 through 3.0.1 died at that step — before any gate could run — so main was red for a week and nobody noticed until someone thought to look. `check:lock` runs `npm ls --package-lock-only --all --depth=0`, which is instantaneous, network-free, and prints `Missing: X from lock file` per drifted dep. It runs in CI as its own step *before* `npm ci` (so a red run names the drift cleanly rather than burying it under `npm ci`'s usage output) and in the release gate (so a release refuses to cut with drift, the same discipline as payload manifests). The class this closes is *the check is on CI and CI keeps dying before it reaches the check* — a green gate somewhere earlier that has to hold for the check to matter.

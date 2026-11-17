@@ -141,6 +141,35 @@ for decl in "l3io-pm:l3io-pm/l3io-execute" "l3io-util:l3io-util/l3io-doctor"; do
     "(cd '$proj' && uv run --quiet '$copy/__main__.py' --help >/dev/null)"
 done
 
+# Phase 3 Task 3.3, Review Focus 3: the doctor's version report (the health check's Check 25)
+# reads both installed copies. Agreeing copies are no finding; one copy's version moved is one
+# finding naming both paths. The edited copy is restored before anything else reads it.
+reporter="$proj/.agents/skills/l3io-doctor/scripts/report-version.py"
+util_main="$proj/_bmad/l3io-util/scripts/pm_status/__main__.py"
+check "the doctor's version report finds both pm_status copies agreeing (exit 0, no finding)" \
+  "(cd '$proj' && uv run --quiet '$reporter' --project-root . --format json) \
+     | jq -e '(.pm_status.findings == []) and ([.pm_status.copies[].version] | all(. != null))' >/dev/null"
+cp "$util_main" "$work/util-main.bak"
+sed -i 's/^# pm-status-version: .*/# pm-status-version: 0.0.1/' "$util_main"
+skew="$(cd "$proj" && uv run --quiet "$reporter" --project-root . --format json; echo "exit=$?")"
+cp "$work/util-main.bak" "$util_main"
+check "one copy at another version is exit 3 and one finding naming both paths" \
+  "printf '%s' '$skew' | grep -q '^exit=3$' && printf '%s' '$skew' | sed '\$d' \
+     | jq -e '(.pm_status.findings | length) == 1 and (.pm_status.findings[0] | contains(\"_bmad/l3io-pm/scripts/pm_status\") and contains(\"_bmad/l3io-util/scripts/pm_status\") and contains(\"0.0.1\"))' >/dev/null"
+
+# Phase 3 Task 3.3, Review Focus 4: a 3.x project kept its runtime copy in BMad's own
+# _bmad/scripts/, as the pm-status/ package or the older single file. Plant both and re-run
+# setup (no answers: every question is already answered): v7 rebuilds _bmad/scripts/ to exactly
+# its own set, so neither survives.
+mkdir -p "$proj/_bmad/scripts/pm-status"
+printf '# pm-status-version: 3.7.1\n' > "$proj/_bmad/scripts/pm-status/__main__.py"
+printf '# pm-status-version: 3.5.0\n' > "$proj/_bmad/scripts/pm-status.py"
+setup "$proj" > "$work/setup-rerun.json"
+check "re-running setup removes a 3.x copy left in _bmad/scripts/ (package and single file)" \
+  "[ ! -e '$proj/_bmad/scripts/pm-status' ] && [ ! -e '$proj/_bmad/scripts/pm-status.py' ]"
+check "re-running setup keeps BMad's own _bmad/scripts/ (setup.py)" \
+  "[ -f '$proj/_bmad/scripts/setup.py' ]"
+
 # Review Focus 4, the half that holds: a 3.x answer in _bmad/custom/config.toml still resolves.
 # (Setup asks again regardless -- plan Task 2.3's note; the migration copies the answer across.)
 printf '\n[modules.l3io-pm]\nlane_count = "3"\n' >> "$proj/_bmad/custom/config.toml"

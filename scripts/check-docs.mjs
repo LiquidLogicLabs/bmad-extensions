@@ -826,7 +826,9 @@ function checkCliSurface() {
       // otherToolPrecedesEveryOccurrence()). Both exemptions apply ONLY to this fallback arm --
       // an explicit "pm-status.py check-deps" or a same-line derived claim still gets judged,
       // because that really would be a false claim about the CLI.
-      const fallbackClaim = /^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)
+      // No `self-` prefix: the one verb it caught is gone from the CLI, and every remaining
+      // mention of it is release history in an ADR or the upgrade notes.
+      const fallbackClaim = /^(set|estimate|move|archive|append|list|check|clear)-/.test(name)
         && !(doctorKeywords && doctorKeywords.has(name))
         && !otherToolPrecedesEveryOccurrence(text, name);
       if (!explicit && !derivedClaim && !fallbackClaim) continue;
@@ -862,7 +864,6 @@ function checkCliSurface() {
   const refText = exists(CLI_REFERENCE_DOC) ? read(CLI_REFERENCE_DOC) : "";
   const documented = tableRowSubcommands(refText);
   for (const name of real) {
-    if (name === "self-install") continue; // internal plumbing, deliberately not user-facing
     checked += 1;
     if (documented.has(name)) continue;
     failures.push(
@@ -1827,9 +1828,6 @@ function checkPmStatusInvocations() {
 // l3io-doctor (commit 98945ac) would have demanded rows in docs/l3io-util-reference.md
 // for set-lock, check-lock and set-status purely because the shared state contract quotes
 // them. A guard that cries wolf gets switched off.
-//
-// self-install is excluded for the same reason the arm above excludes it: internal plumbing,
-// deliberately not user-facing surface.
 function sharedDocDigests() {
   const digests = new Set();
   for (const rel of walkMarkdown(path.join("skills", "_shared"))) {
@@ -1891,7 +1889,7 @@ function checkModuleReferenceCoverage() {
         if (shared.has(createHash("sha256").update(read(rel)).digest("hex"))) continue;
         for (const { sub, line, unreadable } of pmStatusCommands(rel)) {
           if (unreadable) continue;
-          if (sub === "self-install" || !real.has(sub)) continue;
+          if (!real.has(sub)) continue;
           if (!invoked.has(sub)) invoked.set(sub, `${rel}:${line}`);
         }
       }
@@ -2954,17 +2952,15 @@ function checkBmadDependencyInventory() {
 // are actually invoked, and actually matter, most. See the l3io-customization-layer Task 9
 // ruling for the found instance.
 //
-// Tolerance: skills/_shared/steps/shared/step-00-activate.md documents "If `uv` is
-// unavailable, use `python3` instead" as an explicit fallback for self-install, and
-// skills/l3io-doctor/assets/migrate-state.md and bootstrap-state.md restate the same
-// fallback. A rule that forbade the word `python3` outright would forbid its own escape
+// Tolerance: l3io-doctor's assets/migrate-state.md and bootstrap-state.md document "if `uv` is
+// unavailable, use `python3`" as an explicit fallback for running {pm_status}. A rule that forbade the word `python3` outright would forbid its own escape
 // hatch, so a line naming `uv`+`unavailable` or the word `fallback`, ON THE SAME LINE as the
 // invocation, is exempted from this check. PY_FALLBACK_QUALIFIER is MARKDOWN-ONLY and stays
 // that way (fix round 2, N-3): a workflow `run:` line is executable, not prose describing an
 // escape hatch, and `run: python3 …test-pm-status.py  # fallback until uv lands` used to pass
 // on it. Exactly three real sites under skills/ rely on the tolerance -- bootstrap-state.md:266
-// and migrate-state.md:484,599, all three restating step-00-activate.md's documented
-// `uv`-unavailable fallback for {pm_status}.
+// and migrate-state.md:484,599, all three stating the `uv`-unavailable fallback for
+// {pm_status}.
 //
 // DELIBERATE OVER-APPROXIMATION, stated because it is visible in the output: the rule reads
 // "no command line hands a .py to python3 outside a provisioned uv run", and it does NOT
@@ -4863,8 +4859,8 @@ function subcommandRequired() {
       for (const [name, subs] of scripts) {
         // Two things a first draft got wrong, both worth stating because both produced
         // confident false positives:
-        //   1. BOUNDARY. `check-pm-status.py` CONTAINS `pm-status.py`, so a plain indexOf
-        //      reported every check-pm-status.py call as a subcommand-less pm-status.py one.
+        //   1. BOUNDARY. A sibling script whose name ENDS in `pm-status.py` contains it, so a
+        //      plain indexOf reported every call of one as a subcommand-less pm-status.py one.
         //   2. INVOCATION vs MENTION. The script path also appears as an ARGUMENT
         //      (`--dest .../pm-status.py`) and as a test operand (`test -f .../pm-status.py`,
         //      `[ -f .../pm-status.py ]`). None of those is a call, and all three were

@@ -35,10 +35,10 @@ over months and merely READ by our skills. It appears in no payload manifest, so
 scope already excludes it; the exclusion is restated here because it is the one mistake that
 would matter, and a reader should not have to infer it.
 
-The self-installed package (`_SELF_INSTALLED_DIR`) IS removed file by file, each file only
-when it matches a manifest hash for the same path under `scripts/pm_status/`: it is our payload,
-and reinstalled automatically at the next skill activation. The pre-package single file
-(`_SELF_INSTALLED`) is treated the same way when it is still present. The copies v7 installs
+The runtime copy l3io 3.x kept in BMad's `_bmad/scripts/` (`_LEGACY_COPY_DIR`) IS removed
+file by file, each file only when it matches a manifest hash for the same path under
+`scripts/pm_status/`: it is our payload, and nothing in 4.x runs it. The pre-package single
+file (`_LEGACY_COPY`) is treated the same way when it is still present. The copies v7 installs
 under `_bmad/<module-code>/scripts/` are not touched: `bmad setup` owns that tree.
 
 Bytecode and the directories our files emptied
@@ -46,13 +46,13 @@ Bytecode and the directories our files emptied
 File-by-file removal is not what the operator sees. Measured on a real uninstall: all 91
 payload files removed, success reported, and 8 `__pycache__` directories holding 20 `.pyc`
 files left behind -- which also kept every package directory above them non-empty, so the
-whole self-installed package tree and the skill's own directories survived an uninstall
+whole legacy package tree and the skill's own directories survived an uninstall
 that said it was done. Before the package split there was one file and nothing to leave.
 
 A `.pyc` is not in any manifest, and it never can be: the interpreter writes it when it
 imports a file of OURS. It is a derived artifact of our payload, so it is removed -- under a
 narrow rule, not a recursive delete. Only a directory literally named `__pycache__`, only
-when it sits under a skill directory we identified or under the self-installed package
+when it sits under a skill directory we identified or under the legacy package
 directory, and only when every entry in it is a `.pyc`/`.pyo` FILE. Anything else in there
 and the directory is left whole, like any other survivor. The dry run lists what it would
 prune, so `--apply` never removes a directory the operator was not shown.
@@ -85,8 +85,8 @@ _SKILL_ROOT_GLOB = ".*/skills"
 # restored backup, or a project upgraded by hand can leave one old manifest beside a new
 # script. Accepting both costs one tuple and removes the whole class.
 _GENERATED_FROM = ("skills/<skill>/", "skills/_shared/")
-_SELF_INSTALLED = ("_bmad/scripts/pm-status.py",)  # check-39: legacy-path -- the pre-package single file
-_SELF_INSTALLED_DIR = "_bmad/scripts/pm-status"  # check-39: legacy-path -- the package directory
+_LEGACY_COPY = ("_bmad/scripts/pm-status.py",)  # check-39: legacy-path -- l3io 3.x's pre-package file, removed on uninstall
+_LEGACY_COPY_DIR = "_bmad/scripts/pm-status"  # check-39: legacy-path -- l3io 3.x's package copy, removed on uninstall
 _PACKAGE_PAYLOAD = "scripts/pm_status/"               # where a manifest keys the package's files
 _BYTECODE_DIR = "__pycache__"
 _BYTECODE_SUFFIXES = (".pyc", ".pyo")
@@ -156,7 +156,7 @@ def bytecode_dirs(roots) -> list[Path]:
 def plan(project: Path):
     """(removable, modified, missing, manifests, bytecode) -- decided, nothing done."""
     removable, modified, missing, manifests = [], [], [], []
-    roots = [project / _SELF_INSTALLED_DIR]
+    roots = [project / _LEGACY_COPY_DIR]
     for skill_dir, data in discover(project):
         roots.append(skill_dir)
         manifests.append(skill_dir / "payload-manifest.json")
@@ -168,9 +168,9 @@ def plan(project: Path):
             got = sha256(p)
             (removable if got == want else modified).append(p)
 
-    # The self-installed copy is payload too, and it is the one file of ours that lives
-    # outside a skill directory. It is matched against any manifest that ships it, because
-    # self-install writes whichever module home's copy ran -- there is no single owner.
+    # A 3.x runtime copy is payload too, and the one file of ours that can live outside a
+    # skill directory. It is matched against any manifest that ships it, because 3.x wrote
+    # whichever module home's copy ran -- there is no single owner.
     wanted, wanted_tree = set(), {}
     for _, data in discover(project):
         for rel, want in data["files"].items():
@@ -178,7 +178,7 @@ def plan(project: Path):
                 wanted.add(want)
             elif rel.startswith(_PACKAGE_PAYLOAD):
                 wanted_tree.setdefault(rel[len(_PACKAGE_PAYLOAD):], set()).add(want)
-    for rel in _SELF_INSTALLED:
+    for rel in _LEGACY_COPY:
         p = project / rel
         if not p.is_file():
             continue
@@ -187,7 +187,7 @@ def plan(project: Path):
             removable.append(p)
         else:
             modified.append(p)
-    pkg = project / _SELF_INSTALLED_DIR
+    pkg = project / _LEGACY_COPY_DIR
     if pkg.is_dir():
         for p in sorted(pkg.rglob("*")):
             if not p.is_file() or "__pycache__" in p.parts:

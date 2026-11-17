@@ -163,8 +163,7 @@ reboot, not backed up.*
 
 ## Churn caveat — this tooling causes it
 
-The l3io skills self-install `pm-status.py` at activation, and `/l3io-doctor update-ai-rules`
-writes AI instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, …) at the **project root**.
+`/l3io-doctor update-ai-rules` writes AI instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, …) at the **project root**.
 
 In *this* repo `.agents/`, `.claude/skills/` and `.claude/settings.local.json` are gitignored, so
 the churn is invisible to `git status`. **In a consuming repo they usually are not**, and the AI

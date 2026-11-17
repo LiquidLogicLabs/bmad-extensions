@@ -15,7 +15,7 @@
 //   inside one module.
 //   spec-align.py → scripts/ in l3io-execute (arch gate, story prep, closures) and
 //   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
-//   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
+//   it has two consumers (ADR-0001), run from each skill's own copy, never declared
 //   status-files.md / metrics-contract.md → references/ in PM skills
 //   auto-remediation.md → references/ in l3io-execute, l3io-plan
 //   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config

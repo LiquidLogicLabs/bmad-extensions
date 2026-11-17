@@ -133,6 +133,16 @@ class TestScope(Base):
         self.assertIn("1 skills installed", out)
         self.assertNotIn("6.12.0", out)
 
+    def test_both_generated_from_markers_are_ours(self):
+        """The manifest writer emits `skills/<skill>/`; installs made before that change carry
+        `skills/_shared/`. Recognising only the old one reports `no l3io skills found` on
+        every current install, and the pm_status skew finding never runs."""
+        self.skill("l3io-execute", "4.0.0", generated_from="skills/<skill>/")
+        self.skill("l3io-doctor", "4.0.0", generated_from="skills/_shared/", module="l3io-util")
+        code, out, _ = self.run_cli()
+        self.assertEqual(code, 0, out)
+        self.assertIn("2 skills installed", out)
+
     def test_no_l3io_skills_is_exit_4_and_names_the_fix(self):
         code, out, _ = self.run_cli()
         self.assertEqual(code, 4)
@@ -156,40 +166,76 @@ class TestCorruptInput(Base):
         self.assertEqual(code, 0, out)
 
 
-class TestPmStatusSecondary(Base):
-    """The self-installed copy is reported, but never as the headline: the installer does
-    not write it, so right after a correct upgrade it is legitimately the old version."""
+class TestDeclaredPmStatus(Base):
+    """The two declared copies v7 installs, one per module, both writing one state tree.
 
-    def _project(self, marker=None):
-        p = Path(self.d) / "proj" / "_bmad" / "scripts" / "pm-status"
-        p.mkdir(parents=True)
-        if marker:
-            (p / "__main__.py").write_text(
-                f"#!/usr/bin/env python3\n# pm-status-version: {marker}\n", encoding="utf-8")
+    `l3io-pm` and `l3io-util` can be set up separately, so their copies can differ in version.
+    The report names each copy, and a disagreement between them is a finding the doctor's
+    health check surfaces (Check 25)."""
+
+    PM = "_bmad/l3io-pm/scripts/pm_status/__main__.py"
+    UTIL = "_bmad/l3io-util/scripts/pm_status/__main__.py"
+
+    def _copy(self, rel, version):
+        p = Path(self.d) / "proj" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"#!/usr/bin/env python3\n# pm-status-version: {version}\n",
+                     encoding="utf-8")
         return str(Path(self.d) / "proj")
 
-    def test_absent_installed_copy_is_explained_not_flagged(self):
-        self.skill("l3io-doctor", "3.2.4", module="l3io-util")
-        code, out, _ = self.run_cli("--project-root", self._project())
-        self.assertEqual(code, 0, out)
-        self.assertIn("absent", out)
-        self.assertIn("not by the installer", out)
+    def test_differing_copies_are_one_finding_naming_both_paths_and_versions(self):
+        self.skill("l3io-doctor", "4.0.0", module="l3io-util")
+        self._copy(self.PM, "4.0.0")
+        proj = self._copy(self.UTIL, "3.9.0")
+        code, out, _ = self.run_cli("--project-root", proj, "--format", "json")
+        self.assertEqual(code, 3, out)
+        findings = json.loads(out)["pm_status"]["findings"]
+        self.assertEqual(len(findings), 1, findings)
+        for token in (self.PM, self.UTIL, "4.0.0", "3.9.0"):
+            self.assertIn(token, findings[0])
+        code, out, _ = self.run_cli("--project-root", proj)
+        self.assertEqual(code, 3, out)
+        self.assertIn("pm_status SKEW", out)
 
-    def test_a_lagging_installed_copy_does_not_change_the_exit_code(self):
-        """This is the STALE transient that made check-pm-status the wrong tool for the
-        question. Reporting it must not turn a correct install into a failure."""
-        self.skill("l3io-doctor", "3.2.4", module="l3io-util")
-        code, out, _ = self.run_cli("--project-root", self._project("3.2.2"))
+    def test_identical_copies_are_no_finding(self):
+        self.skill("l3io-doctor", "4.0.0", module="l3io-util")
+        self._copy(self.PM, "4.0.0")
+        proj = self._copy(self.UTIL, "4.0.0")
+        code, out, _ = self.run_cli("--project-root", proj, "--format", "json")
         self.assertEqual(code, 0, out)
-        self.assertIn("self-installed pm-status.py: 3.2.2", out)
-        self.assertIn("refreshed at the next skill activation", out)
+        d = json.loads(out)["pm_status"]
+        self.assertEqual(d["findings"], [])
+        self.assertEqual({c["path"]: c["version"] for c in d["copies"]},
+                         {self.PM: "4.0.0", self.UTIL: "4.0.0"})
 
-    def test_a_matching_installed_copy_carries_no_caveat(self):
-        self.skill("l3io-doctor", "3.2.4", module="l3io-util")
-        code, out, _ = self.run_cli("--project-root", self._project("3.2.4"))
+    def test_one_copy_absent_is_no_finding_and_says_setup_installs_it(self):
+        """Only l3io-pm set up: there is nothing to disagree with, and the absent copy is
+        explained, not flagged."""
+        self.skill("l3io-doctor", "4.0.0", module="l3io-util")
+        proj = self._copy(self.PM, "4.0.0")
+        code, out, _ = self.run_cli("--project-root", proj)
         self.assertEqual(code, 0, out)
-        self.assertIn("self-installed pm-status.py: 3.2.4", out)
-        self.assertNotIn("refreshed at the next", out)
+        self.assertIn(f"{self.UTIL}: absent", out)
+        self.assertIn("bmad setup l3io-util", out)
+
+    def test_a_copy_behind_the_installed_skills_is_noted_not_failed(self):
+        """Skills added with `npx skills add` but setup not re-run: the copies agree with each
+        other and lag the skills. Setup is the remedy, and the exit code stays 0."""
+        self.skill("l3io-doctor", "4.0.1", module="l3io-util")
+        self._copy(self.PM, "4.0.0")
+        proj = self._copy(self.UTIL, "4.0.0")
+        code, out, _ = self.run_cli("--project-root", proj)
+        self.assertEqual(code, 0, out)
+        self.assertIn("run bmad setup l3io-pm", out)
+
+    def test_the_old_shared_scripts_copy_is_not_read(self):
+        """`_bmad/scripts/` is BMad's own directory. A copy left there by l3io 3.x is not one
+        of the declared copies and must not be reported as one."""
+        self.skill("l3io-doctor", "4.0.0", module="l3io-util")
+        proj = self._copy("_bmad/scripts/pm-status/__main__.py", "3.7.1")
+        code, out, _ = self.run_cli("--project-root", proj)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("3.7.1", out)
 
 
 class TestJson(Base):

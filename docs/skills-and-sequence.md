@@ -27,9 +27,8 @@ for every known problem, reports findings, and proposes the fixes in dependency 
 one confirmation.
 
 It is also the documented post-upgrade step, because the installer refreshes skills but does
-**not** migrate your data. And it self-installs the shared `pm-status.py` helper at activation —
-comparing bytes rather than version strings, and never downgrading — so it repairs the runtime
-as a side effect of running.
+**not** migrate your data. Its health check also reports when the two modules' `pm_status`
+copies, which `bmad setup` installs one per module, have drifted to different versions.
 
 Reach for it: after install, after every upgrade, whenever something looks wrong, and for
 `triage` (close backlog items already fixed) and `stats` (a progress dashboard).

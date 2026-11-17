@@ -59,8 +59,6 @@ Each of these exists because the permissive version shipped a bug.
 - **`tests_passing`, `status` and `resolves` cannot be set directly.** Each has a verb that does
   the rest of the work — recording a test run, writing the transition event, scheduling backlog
   items.
-- **`self-install` never downgrades.** A strictly newer installed helper is left alone, because
-  overwriting it would strand every project already on that version.
 - **`migrate-adrs --apply` refuses a dirty tree** rather than attempting a partial repair over
   the remains of an interrupted run.
 - **A malformed lock is refused, not interpreted.** An unparseable claim is treated as held

@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 3.7.1   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 3.7.1   (machine-readable marker; the doctor reads it off each installed copy — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 sharded state tree, and the reader behind its progress report.
@@ -295,7 +295,6 @@ Subcommands
                 defaults merged with any --token-rates/modules.l3io-pm
                 override -- so what actually prices tokens is inspectable
                 without reading source or guessing; read-only)
-  self-install  --dest PATH  [--force]
   adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
                 (reserves N sequential ADR numbers under a lock, before dispatch;
                 prints one zero-padded number per line; see adr_register_path)
@@ -345,7 +344,7 @@ import sys
 # It loads THIS directory as a package named `pm_status` BY PATH and re-enters through
 # it, so the relative imports below and the `sys.modules[__name__] = _main` facade in
 # __init__.py behave exactly as they do under `import pm_status`. By path, never by
-# name: an installed directory need not be named `pm_status` -- self-install's is
+# name: an installed directory need not be named `pm_status` -- l3io 3.x installed it as
 # `pm-status`, with a hyphen, which is not an importable identifier -- and a bootstrap
 # that imported the name passed on a toy fixture and failed on the real install.
 #
@@ -388,20 +387,20 @@ if not __package__ and __name__ == "__main__":
 # dispatch_window` has no caller outside its own module; and `issues.store.
 # resolve_issue_core` is called module-qualified from `verbs/__init__.py` and from
 # `issues/audit.py`. None of the four is re-exported, here or by either `__init__.py`.
-# SIX of the seven are imported for a LIVE caller again, and that is new: `build_parser`
-# calls `<module>.register(sub)` on each of core, instructions, issues, metrics, plan and
-# verbs, so none of them carries a `noqa` any more. That is the honest state -- a `noqa`
+# FIVE of the seven are imported for a LIVE caller: `build_parser` calls
+# `<module>.register(sub)` on each of instructions, issues, metrics, plan and verbs, so none
+# of them carries a `noqa`. That is the honest state -- a `noqa`
 # over a module ruff can see used is a justification that reads as true and is not -- and it
 # means ruff now reports the one failure mode distributed registration introduces from this
 # side: delete a `register()` call and its import goes unused and FAILS `check:lint:py`,
 # before TestSubcommandRegistration is even reached.
 #
-# `nodes` is the exception and keeps its own `noqa`: it owns no verb (the node layer, not a
-# verb bucket), so nothing here calls it and it is bound purely for the suite's
-# `pm.nodes.<name>` patch targets. Its directive is its own, not shared, so if another
+# `core` and `nodes` are the exceptions and keep their own `noqa`: neither owns a verb (the
+# dependency root and the node layer, not verb buckets), so nothing here calls them and they
+# are bound purely for the suite's `pm.core.<name>` and `pm.nodes.<name>` patch targets. Its directive is its own, not shared, so if another
 # module later loses its caller that is reported separately rather than absorbed.
 from . import (
-    core,
+    core,  # noqa: F401 -- re-export only
     instructions,
     issues,
     metrics,
@@ -426,7 +425,6 @@ from .core import (
     _iter_count,  # noqa: F401 -- re-export only
     _now_iso,  # noqa: F401 -- re-export only
     _parse_iso,  # noqa: F401 -- re-export only
-    _parse_version_line,  # noqa: F401 -- re-export only
     _yaml,  # noqa: F401 -- re-export only
     adr_register_path,  # noqa: F401 -- re-export only
     append_event,  # noqa: F401 -- re-export only
@@ -437,11 +435,8 @@ from .core import (
     epic_node_lock,  # noqa: F401 -- re-export only
     events_path,  # noqa: F401 -- re-export only
     issues_lock,  # noqa: F401 -- re-export only
-    package_root,  # noqa: F401 -- re-export only
     parse_story_key,  # noqa: F401 -- re-export only
     sprint_dirname,  # noqa: F401 -- re-export only
-    sweep_stale,  # noqa: F401 -- re-export only
-    tree_digest,  # noqa: F401 -- re-export only
 )
 
 # The instruction-block leaf, re-exported by name: nothing in the suite patches a name it
@@ -593,7 +588,7 @@ from .verbs import (
 #
 # THE ORDER IS THE SURFACE. argparse lists subcommands in registration order, so this tuple
 # decides what `pm-status.py --help` prints. It is the order of each module's FIRST verb in
-# the pre-split function — verbs led, then metrics, core, issues, plan, instructions — so
+# the pre-split function — verbs led, then metrics, issues, plan, instructions — so
 # the listing stays as close to the shipped one as a per-module grouping can be. Every
 # individual subcommand's `--help` is byte-identical to the pre-split capture in
 # `.superpowers/sdd/2026-10-23-pm-status-package-split/cli-surface-before.txt`; what the
@@ -601,8 +596,8 @@ from .verbs import (
 # function interleaved the buckets (verbs held positions 1-5, 8-11, 15-20 and 42) and no
 # contiguous per-module grouping can reproduce that.
 #
-# `nodes` has no `register`: it is the node layer, and owns no verb. It is not called here
-# and must not grow an empty `register` to look symmetrical — an empty hook is a place for a
+# `core` and `nodes` have no `register`: neither owns a verb. Neither is called here, and neither
+# may grow an empty `register` to look symmetrical — an empty hook is a place for a
 # verb to be registered by accident.
 #
 # TestSubcommandRegistration is the standing guard: it pins all 43 names, and attributes a
@@ -615,7 +610,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     verbs.register(sub)
     metrics.register(sub)
-    core.register(sub)
     issues.register(sub)
     plan.register(sub)
     instructions.register(sub)

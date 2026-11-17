@@ -203,19 +203,19 @@ class TestNeverTouches(Base):
         self.assertTrue(self.exists("_bmad/_config/manifest.yaml"))
 
 
-class TestSelfInstalledCopy(Base):
+class TestLegacyCopy(Base):
     """`_bmad/scripts/pm-status.py` is our payload but lives outside any skill directory."""
 
-    def _self_install(self, content):
+    def _legacy_copy(self, content):
         p = self.d / "_bmad" / "scripts"
         p.mkdir(parents=True, exist_ok=True)
         (p / "pm-status.py").write_text(content, encoding="utf-8")
 
     def test_removed_when_it_matches_a_shipped_copy(self):
-        """Safe to remove: self-install rewrites it at the next skill activation."""
+        """Safe to remove: nothing in 4.x runs a copy l3io 3.x left in `_bmad/scripts/`."""
         body = "#!/usr/bin/env python3\n# pm-status-version: 3.2.4\n"
         self.skill("l3io-doctor", {"scripts/pm-status.py": (body, None)})
-        self._self_install(body)
+        self._legacy_copy(body)
         code, out, err = self.run_cli("--apply")
         self.assertEqual(code, 0, out + err)
         self.assertFalse(self.exists("_bmad/scripts/pm-status.py"))
@@ -224,7 +224,7 @@ class TestSelfInstalledCopy(Base):
         """A copy that differs from every shipped one is either locally patched or from
         another version. Either way it is not ours to delete."""
         self.skill("l3io-doctor", {"scripts/pm-status.py": ("shipped\n", None)})
-        self._self_install("LOCALLY PATCHED\n")
+        self._legacy_copy("LOCALLY PATCHED\n")
         code, out, err = self.run_cli("--apply")
         self.assertEqual(code, 0, out + err)
         self.assertTrue(self.exists("_bmad/scripts/pm-status.py"))
@@ -235,7 +235,7 @@ class TestSelfInstalledCopy(Base):
         and this package is explicit that it must never bundle or own them."""
         body = "shipped\n"
         self.skill("l3io-doctor", {"scripts/pm-status.py": (body, None)})
-        self._self_install(body)
+        self._legacy_copy(body)
         (self.d / "_bmad" / "scripts" / "resolve_config.py").write_text("core\n",
                                                                         encoding="utf-8")
         code, out, err = self.run_cli("--apply")
@@ -243,8 +243,8 @@ class TestSelfInstalledCopy(Base):
         self.assertTrue(self.exists("_bmad/scripts/resolve_config.py"))
 
 
-class TestSelfInstalledPackage(Base):
-    """`_bmad/scripts/pm-status/` is the package self-install writes; each file is matched
+class TestLegacyPackage(Base):
+    """`_bmad/scripts/pm-status/` is the package l3io 3.x wrote; each file is matched
     against the manifest entry for the same path under `scripts/pm_status/`."""
 
     def _install(self, files):
@@ -292,7 +292,7 @@ class TestBytecode(Base):
         self.assertFalse(self.exists(".claude/skills/l3io-doctor/scripts"))
         self.assertFalse(self.exists(".claude/skills/l3io-doctor"))
 
-    def test_the_self_installed_package_DIRECTORY_is_gone_not_just_its_files(self):
+    def test_the_legacy_package_DIRECTORY_is_gone_not_just_its_files(self):
         """The reviewer's measurement, reduced: every payload file removed, success
         reported, and the tree still there because bytecode held it open."""
         shipped = {"__main__.py": "main\n", "core/locks.py": "locks\n"}

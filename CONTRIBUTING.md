@@ -124,8 +124,8 @@ step the workflow needs.
 
 `pm_status/__main__.py`'s version marker and every `bmod.toml` module record are
 written from `package.json` by the release hooks. Do not edit them, and never move a version
-backwards — `self-install` refuses to overwrite a strictly newer installed copy, which would
-strand every project already on the higher version.
+backwards — the doctor reports each installed `pm_status` copy's version, and a lowered
+version would make a newer copy read as older there.
 
 ### Documentation changes
 

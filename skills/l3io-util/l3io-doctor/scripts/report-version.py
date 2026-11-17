@@ -23,20 +23,26 @@ Both come from `package.json` at build time and are guarded in CI (`check:manife
 reports STALE on drift; `check:version` asserts the module records agree). This script
 reads them back.
 
-Why it does NOT lead with the installed pm-status.py
-----------------------------------------------------
-`check-pm-status` answers a different question -- is the *self-installed* copy
-(`_INSTALLED_PM_STATUS` below) current -- and that copy is written by
-self-install at skill activation, not by the installer. So immediately after a correct
-upgrade it is still the previous version and `check-pm-status` correctly reports STALE,
-which reads as a failed upgrade. That is a legitimate transient for exactly one
-invocation. This script reports the shipped version as its headline (correct the instant
-the installer finishes) and the self-installed copy only as a secondary, labelled line.
+The declared pm_status copies, and the skew finding
+---------------------------------------------------
+BMad v7 installs `pm_status` once per module that declares it, at
+`_bmad/<module-code>/scripts/pm_status/` (`_DECLARED_PM_STATUS` below): one for `l3io-pm`, one
+for `l3io-util`. Both write the same state tree. The two modules can be set up separately, so
+the copies can carry different versions, and two versions of one writer over one tree is the
+case `--project-root` exists to catch: it is reported as a finding and exits 3, and the
+doctor's health check (Check 25) runs this script for it. A copy that is merely absent, or that
+agrees with its sibling but lags the installed skills, is explained rather than flagged --
+`bmad setup <module-code>` installs or refreshes it.
+
+Each copy's version is read from its `# pm-status-version:` marker rather than by running it:
+this is a reporting path, and spawning `uv` to ask costs a subprocess that can fail for reasons
+unrelated to the version. `check:version` keeps that marker equal to the `PM_STATUS_VERSION`
+`--version` prints, so the two answers cannot differ.
 
 Scope is derived, never enumerated
 ----------------------------------
 Skills are discovered by scanning `--skills-root` for a `payload-manifest.json` whose
-`generated_from` is this package's shared source. A hand-kept skill list would drift from
+`generated_from` is one of this package's two markers. A hand-kept skill list would drift from
 the install -- and a reporter that silently covers fewer skills than are installed is
 worse than none, because it would report agreement over a set that no longer contains the
 disagreement. The four deprecated forwarders ship no payload and so carry no manifest;
@@ -44,7 +50,8 @@ their absence is correct and is not a finding.
 
 Exit codes
 ----------
-0 -- every discovered skill and module record reports the same version
+0 -- every discovered skill and module record reports the same version, and the declared
+     pm_status copies do not disagree with each other
 3 -- they disagree (a partial or interrupted install); the disagreement is printed
 4 -- no l3io skills discovered under --skills-root
 2 -- usage error
@@ -57,8 +64,10 @@ import tomllib
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_GENERATED_FROM = "skills/_shared/"
-_INSTALLED_PM_STATUS = Path("_bmad") / "scripts" / "pm-status" / "__main__.py"
+# Both values are ours: the manifest writer emits `skills/<skill>/`, and an install made before
+# it changed carries `skills/_shared/`. clean-payload.py accepts the same pair.
+_GENERATED_FROM = ("skills/<skill>/", "skills/_shared/")
+_DECLARED_PM_STATUS = ("l3io-pm", "l3io-util")   # module codes whose bmod.toml declares pm_status
 
 
 def _load_yaml(path: Path):
@@ -92,7 +101,7 @@ def discover(skills_root: Path) -> list[dict]:
             rec["errors"].append(f"payload-manifest.json unreadable: {e}")
             found.append(rec)
             continue
-        if data.get("generated_from") != _GENERATED_FROM:
+        if data.get("generated_from") not in _GENERATED_FROM:
             continue                      # not ours
         rec["payload_version"] = data.get("version")
         record = entry / "bmod.toml"
@@ -109,21 +118,38 @@ def discover(skills_root: Path) -> list[dict]:
     return found
 
 
-def installed_pm_status(project_root: Path) -> str | None:
-    """The version marker of the self-installed copy, or None if absent/unreadable.
-
-    Read from the file's marker rather than by executing it: this is a reporting path
-    and spawning the script under `uv` to ask its version costs a subprocess and can
-    fail for reasons that have nothing to do with the version.
-    """
-    p = project_root / _INSTALLED_PM_STATUS
+def _marker(path: Path) -> str | None:
+    """The `# pm-status-version:` marker of a copy on disk; None if absent or unreadable."""
     try:
-        with open(p, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             head = fh.read(4096)
     except OSError:
         return None
     m = re.search(r"^#\s*pm-status-version:\s*(\S+)", head, re.MULTILINE)
     return m.group(1) if m else None
+
+
+def declared_pm_status(project_root: Path) -> dict:
+    """{"copies": [...], "findings": [...]} for the pm_status copies v7 installs.
+
+    One entry per declaring module, present or not, so an absent copy is visible in the
+    report. A finding is two present copies whose versions differ, named with both paths and
+    both versions; one finding per distinct pair.
+    """
+    copies = []
+    for code in _DECLARED_PM_STATUS:
+        rel = f"_bmad/{code}/scripts/pm_status/__main__.py"
+        copies.append({"module": code, "path": rel, "version": _marker(project_root / rel)})
+    present = [c for c in copies if c["version"]]
+    findings = []
+    for i, a in enumerate(present):
+        for b in present[i + 1:]:
+            if a["version"] != b["version"]:
+                findings.append(
+                    f"pm_status version skew: {a['path']} is {a['version']} but {b['path']} is "
+                    f"{b['version']} -- both write one state tree; run bmad setup for the module "
+                    f"whose copy is older")
+    return {"copies": copies, "findings": findings}
 
 
 _BMAD_MANIFEST = Path("_bmad") / "_config" / "manifest.yaml"
@@ -176,7 +202,8 @@ def main(argv=None) -> int:
                     help="directory holding the installed skills "
                          "(default: this skill's parent, i.e. its sibling skills)")
     ap.add_argument("--project-root", default=None,
-                    help="also report the self-installed pm-status.py under this root")
+                    help="also report BMad's version and the declared pm_status copies "
+                         "under this root")
     ap.add_argument("--format", choices=("text", "json"), default="text")
     ap.add_argument("--check-latest", action="store_true",
                     help="also ask the npm registry whether BMad is current (one network "
@@ -186,8 +213,8 @@ def main(argv=None) -> int:
     skills = discover(Path(a.skills_root))
     versions = {r["payload_version"] for r in skills if r["payload_version"]}
     versions |= {r["module_version"] for r in skills if r["module_version"]}
-    pm_installed = (installed_pm_status(Path(a.project_root))
-                    if a.project_root else None)
+    pm = (declared_pm_status(Path(a.project_root)) if a.project_root
+          else {"copies": [], "findings": []})
     bmad_installed = installed_bmad(Path(a.project_root)) if a.project_root else None
     bmad_latest, bmad_err = latest_bmad() if a.check_latest else (None, None)
 
@@ -205,18 +232,19 @@ def main(argv=None) -> int:
         return 4
 
     status = "current" if len(versions) == 1 else "mixed"
+    failed = status != "current" or bool(pm["findings"])
     if a.format == "json":
         json.dump({"status": status,
                    "version": next(iter(versions)) if len(versions) == 1 else None,
                    "versions": sorted(versions),
-                   "installed_pm_status": pm_installed,
+                   "pm_status": pm,
                    "bmad": {"installed": bmad_installed, "latest": bmad_latest,
                             "current": (None if not (bmad_installed and bmad_latest)
                                         else bmad_installed == bmad_latest),
                             "error": bmad_err},
                    "skills": skills}, sys.stdout, indent=2)
         sys.stdout.write("\n")
-        return 0 if status == "current" else 3
+        return 3 if failed else 0
 
     if status == "current":
         sys.stdout.write(f"l3io-extensions {next(iter(versions))} "
@@ -230,14 +258,17 @@ def main(argv=None) -> int:
         for e in r["errors"]:
             sys.stdout.write(f"    ! {e}\n")
     if a.project_root:
-        if pm_installed is None:
-            sys.stdout.write(
-                "\nself-installed pm-status.py: absent -- written by self-install at skill\n"
-                "activation, not by the installer. Normal before the first l3io run.\n")
-        else:
-            note = "" if pm_installed in versions else \
-                   "  (refreshed at the next skill activation, not by the installer)"
-            sys.stdout.write(f"\nself-installed pm-status.py: {pm_installed}{note}\n")
+        sys.stdout.write("\npm_status (declared, installed by bmad setup):\n")
+        for c in pm["copies"]:
+            if c["version"] is None:
+                sys.stdout.write(f"  {c['path']}: absent -- bmad setup {c['module']} "
+                                 f"installs it\n")
+                continue
+            note = "" if not versions or c["version"] in versions else \
+                f"  (behind the installed skills -- run bmad setup {c['module']})"
+            sys.stdout.write(f"  {c['path']}: {c['version']}{note}\n")
+        for f in pm["findings"]:
+            sys.stdout.write(f"pm_status SKEW: {f}\n")
         if bmad_installed:
             line = f"BMad: {bmad_installed}"
             if bmad_latest:
@@ -250,7 +281,7 @@ def main(argv=None) -> int:
             sys.stdout.write(
                 "BMad: version not recorded -- no _bmad/_config/manifest.yaml under "
                 "the given --project-root\n")
-    return 0 if status == "current" else 3
+    return 3 if failed else 0
 
 
 if __name__ == "__main__":

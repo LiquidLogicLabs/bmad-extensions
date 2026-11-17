@@ -7,7 +7,7 @@
 // --pull=false, or manually: docker pull catthehacker/ubuntu:act-latest
 //
 // Known limitation: act's catthehacker/ubuntu:act-latest image lacks `uv`,
-// so the "check-pm-status.py unit tests" step will fail locally. On GitHub's
+// so the Python suite step will fail locally. On GitHub's
 // ubuntu-latest runners, `uv` is pre-installed and that step passes. Use
 // -P ubuntu-latest=catthehacker/ubuntu:full-latest for a closer match (but
 // note the full image is ~17 GB — the medium image is sufficient for most steps).

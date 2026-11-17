@@ -64,13 +64,13 @@ Node.js is **not** needed to use the skills — only to develop this package its
 
 You can install all four modules or only the ones you need — but `l3io-util` is required
 whenever `l3io-pm` is installed (it provides the doctor that PM skills forward to for
-migrations, the progress dashboard, and the `check-pm-status` mode). The marketplace bundle
+migrations, the progress dashboard, and the version report). The marketplace bundle
 ships all four together so a standard install always carries `l3io-util`.
 
 | Module | Install if you want |
 |--------|---------------------|
 | **l3io-pm** | Sprint and epic orchestration |
-| **l3io-util** | **Required with `l3io-pm`.** Project state diagnostics, the progress dashboard, legacy layout migration, and the `check-pm-status` mode. |
+| **l3io-util** | **Required with `l3io-pm`.** Project state diagnostics, the progress dashboard, legacy layout migration, and the version report. |
 | **l3io-sec** | Adversarial security review (standalone or automatic inside l3io-pm closure) |
 | **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
@@ -118,8 +118,8 @@ This installs all five skills and registers the four modules in `.claude-plugin/
 /l3io-doctor
 ```
 
-Run it once, before anything else. With no argument it self-installs the status helper, scans
-the project, and prints a findings table — so a clean report confirms both that the skills
+Run it once, before anything else, after `bmad setup` has installed the status helper. With no
+argument it scans the project and prints a findings table — so a clean report confirms both that the skills
 resolved and that your project state is readable. If the command is not found, the installer
 did not generate a surface for your IDE: re-run the install with the right `--tools` value.
 
@@ -450,7 +450,7 @@ Phase 1/2 (parallel)  █████░░░░░  1/2 epics done
 **Watch it live**, in a second terminal, while a run is in progress:
 
 ```bash
-uv run _bmad/scripts/pm-status/__main__.py report \
+uv run _bmad/l3io-pm/scripts/pm_status/__main__.py report \
   --state-root {implementation_artifacts}/state \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --watch 15

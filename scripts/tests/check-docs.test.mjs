@@ -399,7 +399,7 @@ test("check 4: spec-align names in backticks are not read as pm-status subcomman
 });
 
 // The hand-kept prefix list in the forward arm's fallback (the ^(set|estimate|move|archive|
-// append|list|check|clear|self)- test) judges any hyphenated backtick token in that shape, on
+// append|list|check|clear)- test) judges any hyphenated backtick token in that shape, on
 // any line, even one that names neither pm-status.py nor {pm_status}. `check-deps` (a
 // l3io-doctor mode keyword) and `check-ignore` (git's own subcommand) both start with
 // "check-", so both used to be misjudged as claimed pm-status.py subcommands.
@@ -2977,11 +2977,11 @@ test("prose naming {pm_status} outside code formatting is not an invocation, fla
   write(root, "skills/l3io-util/l3io-doctor/steps/triage.md", [
     "",
     "```",
-    "BLOCKED: {pm_status} not found. Self-install did not complete --flock — check the path.",
+    "BLOCKED: {pm_status} not found. Setup did not complete --flock — check the path.",
     "BLOCKED: {pm_status} is version {found}, but this needs {required} --state-root or newer.",
     "```",
     "",
-    "`{pm_status}` not found. Self-install at activation did not complete.",
+    "`{pm_status}` not found. Setup did not complete.",
     "`{pm_status}` is version {found}, but this migration requires {required} or newer.",
     "Run `{pm_status} ...` once the state root is known.",
     "",
@@ -3816,8 +3816,8 @@ test("check 30: the correct invocation passes", async (t) => {
 test("check 30: a path argument, a test operand and a binding are not invocations", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-util/l3io-doctor/steps/zz-arg.md",
-        "```bash\nuv run {skill-root}/scripts/pm-status.py self-install \\\\\n" +
-        "  --dest {project-root}/_bmad/scripts/pm-status.py\n```\n");
+        "```bash\nuv run {skill-root}/scripts/pm-status.py adr-reserve \\\\\n" +
+        "  --adr-dir {project-root}/docs/pm-status.py\n```\n");
   write(root, "skills/l3io-util/l3io-doctor/steps/zz-test.md",
         "```bash\ntest -f {skill-root}/scripts/pm-status.py\n" +
         "[ -f {project-root}/_bmad/scripts/pm-status/__main__.py ] && echo present\n```\n");
@@ -3827,11 +3827,11 @@ test("check 30: a path argument, a test operand and a binding are not invocation
 });
 
 test("check 30: a sibling script whose name ENDS with a guarded name is not confused for it", async (t) => {
-  // check-pm-status.py contains the substring pm-status.py and takes no subcommand. A plain
+  // report-pm-status.py contains the substring pm-status.py and takes no subcommand. A plain
   // indexOf reported every one of its calls as a subcommand-less pm-status.py call.
   const root = fixture(t);
   write(root, "skills/l3io-util/l3io-doctor/steps/zz-sibling.md",
-        "```bash\nuv run {skill-root}/scripts/check-pm-status.py --project-root {project-root}\n```\n");
+        "```bash\nuv run {skill-root}/scripts/report-pm-status.py --project-root {project-root}\n```\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 30\]/);
 });
 

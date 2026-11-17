@@ -752,7 +752,7 @@ The `md` report regenerates at sprint and epic closure boundaries, not per trans
 | No `events.jsonl` | Falls back to `updated_at`; dwell marked approximate |
 | No plan pointer or dangling snapshot | State hierarchy with `plan: null`, no phase framing |
 | Legacy state layout | Callers short-circuit to the `migrate-state` recommendation |
-| `pm-status.py` not self-installed | `stats` falls back to counts only |
+| `pm_status` not installed (`bmad setup` not yet run) | `stats` falls back to counts only |
 | Unparseable node file | Skipped, recorded as an `unreadable` flag, walk continues |
 
 ## Metrics Contract

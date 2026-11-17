@@ -1,4 +1,4 @@
-// Tests for scripts/check-pm-status-version.mjs.
+// Tests for scripts/check-version.mjs.
 // Run: npm run test:scripts
 // Each test runs the REAL checker (via CHECK_VERSION_ROOT) against a fixture built from an
 // EMPTY tree -- unlike check-docs.test.mjs's fixture(t), this does not copy the repo, because
@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const CHECK = path.join(REPO, "scripts", "check-pm-status-version.mjs");
+const CHECK = path.join(REPO, "scripts", "check-version.mjs");
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-version-"));

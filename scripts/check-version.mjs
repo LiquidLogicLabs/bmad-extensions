@@ -2,25 +2,21 @@
 // pm-status.py's version, and every module record's version, must equal the package release
 // version.
 //
-// Why pm-status.py's part exists: self-install places one runtime copy per project and
-// reports the version it finds. That number used to be maintained by hand, on its own release
-// line, and a hand-maintained invariant drifts. It did, twice -- ten commits changed the
-// script under 2.3.0, and after the bump to 2.4.0 another changed it again under 2.4.0.
-// Projects that installed at either moment kept a stale copy while self-install reported a
-// clean skip, because both copies agreed on the number they printed. One sat 920 lines
-// behind, missing a Critical fix.
+// Why pm-status.py's part exists: BMad v7 installs pm_status once per module that declares it,
+// and the two copies can be set up at different times. The doctor's version report, and the
+// health check's skew finding built on it, read each installed copy's version off its
+// top-of-file `# pm-status-version:` marker without running it, while `--version` and `report`
+// print the PM_STATUS_VERSION constant. If those two disagree, one copy answers two questions
+// differently and the skew finding compares the wrong number. The version is also the
+// package's: postbump writes it from package.json alongside every bmod.toml, because a
+// hand-maintained version on its own release line has drifted here before.
 //
-// Two changes retired that failure. self-install now compares content, so a stale copy heals
-// itself. And the script's version is no longer its own: postbump writes it from
-// package.json, alongside every bmod.toml. Nobody has to remember it.
-//
-// This check asserts the invariant that makes both true:
+// This check asserts the invariant that makes the reported version mean the package release:
 //
 //   marker == PM_STATUS_VERSION == package.json version
 //
 // It holds at every point in the cycle, not just at release -- mid-cycle all three sit at the
-// last released version -- so it is checkable on any commit, which the previous tag-diff
-// heuristic was not.
+// last released version -- so it is checkable on any commit.
 //
 // Why the module-version part exists: sync-bmad-versions.mjs's postbump loop writes every module
 // record's version, and a writer with no reader can drift silently -- the loop could stop
@@ -28,14 +24,14 @@
 // requires one version across every record in a repository. Scope is derived by walking
 // skills/ for every bmod.toml -- never a hand-kept list of module codes.
 //
-// Usage: node scripts/check-pm-status-version.mjs [-v]
+// Usage: node scripts/check-version.mjs [-v]
 import fs from "node:fs";
 import path from "node:path";
 import { writeAllSync } from "./write-all-sync.mjs";
 import { parse as parseToml } from "smol-toml";
 import { bmodFiles, statedVersions } from "./lib/bmod-records.mjs";
 
-// CHECK_VERSION_ROOT points the checker at another tree -- scripts/tests/check-pm-status-version.test.mjs
+// CHECK_VERSION_ROOT points the checker at another tree -- scripts/tests/check-version.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
 const repoRoot = process.env.CHECK_VERSION_ROOT ? path.resolve(process.env.CHECK_VERSION_ROOT) : process.cwd();
 const verbose = process.argv.includes("-v");
@@ -57,7 +53,7 @@ if (!exists(PM)) {
 const text = read(PM);
 const marker = (text.match(/^#\s*pm-status-version:\s*([0-9.]+)/m) || [])[1];
 
-// The marker is `__main__.py`'s by contract -- self-install reads it off the installed copy's
+// The marker is `__main__.py`'s by contract -- the doctor reads it off each installed copy's
 // `__main__.py`. The CONSTANT is not: it travels with whichever module owns it, and it left for
 // core/ when core was extracted. Its file is DERIVED by searching the package rather than named
 // here, so the next move needs no edit; two declarations, or none, is itself a failure, because
@@ -84,16 +80,15 @@ if (konstIn.length > 1) {
   failures.push(
     `${PM_DIR}/: PM_STATUS_VERSION is declared in ${konstIn.length} files (${konstIn.join(", ")})\n` +
       "      It must be declared exactly once. Two copies are two things to keep in sync, and\n" +
-      "      this check cannot tell which one self-install's constant was read from.",
+      "      this check cannot tell which one `--version` prints.",
   );
 }
 
 if (marker && konst && marker !== konst) {
   failures.push(
     `${PM}: marker says ${marker} but PM_STATUS_VERSION says ${konst} (in ${KONST})\n` +
-      `      self-install reads the marker off a copy on disk and compares it against the\n` +
-      `      constant in the running script, so these disagreeing makes it compare a version\n` +
-      `      against a different version.`,
+      `      The doctor reads the marker off each installed copy and --version prints the\n` +
+      `      constant, so these disagreeing makes one copy report two versions.`,
   );
 }
 
@@ -104,8 +99,8 @@ if (marker && konst && marker === konst && marker !== pkg) {
       `      package.json, so a mismatch means either the script was hand-edited or a release\n` +
       `      did not complete. Do not hand-edit the version: run a release, or\n` +
       `      "node scripts/sync-bmad-versions.mjs" to bring it back in line.\n` +
-      `      NEVER set it backwards -- self-install refuses to overwrite a strictly newer\n` +
-      `      installed copy, so a lowered version strands every project already on the higher one.`,
+      `      NEVER set it backwards -- a lowered version makes a newer copy read as older in\n` +
+      `      the doctor's version report and skew finding.`,
   );
 }
 

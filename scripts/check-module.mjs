@@ -77,8 +77,8 @@ function moduleHelp() {
 // 1. pm-status-singleton: at most one pm-status payload copy per module, where "a copy" is
 // EITHER entry in `PM_STATUS_PAYLOADS` below -- the flat `scripts/pm-status.py` that shipped
 // through 3.5.x, or the package's `scripts/pm_status/__main__.py`. pm-status used to ship four
-// times, three of them inside l3io-pm, self-installing identical bytes to one destination; a
-// sync-group edit could bring that back with every other gate green.
+// times, three of them inside l3io-pm, all identical bytes for one runtime; a sync-group edit
+// could bring that back with every other gate green.
 const PM_STATUS_PAYLOADS = ["scripts/pm-status.py", "scripts/pm_status/__main__.py"];
 function checkPmStatusSingleton() {
   const byModule = new Map();

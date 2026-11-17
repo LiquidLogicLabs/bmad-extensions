@@ -12,15 +12,14 @@ const releaseVersion = packageJson.version;
 //
 // This is the whole reason the script's version line was merged into the release line: the
 // marker used to be hand-maintained, and a hand-maintained invariant drifts. It did, twice
-// -- ten commits changed the script under 2.3.0, then another changed it under 2.4.0 -- and
-// self-install, which compared versions, kept reporting a stale copy as current. One project
-// sat 920 lines behind under an identical number. Nobody has to remember this now.
+// -- ten commits changed the script under 2.3.0, then another changed it under 2.4.0 -- and a
+// copy 920 lines behind reported an identical number. Nobody has to remember this now.
 //
 // Runs before sync-shared-scripts.mjs in postbump, so the per-skill payload copies inherit
 // the new version rather than drifting from _shared.
 //
 // The two declarations no longer live in the same file, and neither location is written out
-// here. The MARKER is `__main__.py`'s, by contract -- self-install reads it off the installed
+// here. The MARKER is `__main__.py`'s, by contract -- the doctor reads it off each installed
 // copy's `__main__.py` -- but the CONSTANT travels with whichever module owns it (it left for
 // core/ with the first extraction). Its file is DERIVED by searching the package, so the next
 // move needs no edit here; declaring it twice, or not at all, fails rather than silently
@@ -28,7 +27,7 @@ const releaseVersion = packageJson.version;
 const pmStatusDir = path.join(repoRoot, "skills", "_shared", "pm_status");
 const pmStatusMarkerPath = path.join(pmStatusDir, "__main__.py");
 // Not exported: this file writes on import, so a consumer that wanted the walker would run a
-// release sync to get it. check-pm-status-version.mjs carries its own eight-line copy.
+// release sync to get it. check-version.mjs carries its own eight-line copy.
 function pmStatusVersionFiles(dir) {
   const out = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {

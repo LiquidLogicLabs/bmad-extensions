@@ -13,7 +13,7 @@ module.exports = {
     // and bumped yaml, package-lock.json was never regenerated, and every CI run since
     // 2.5.2 failed at `npm ci` before a single gate step ran — silent red main for a
     // week. Refusing to cut a release without the lock in sync closes that class.
-    prerelease: "node scripts/sync-shared-scripts.mjs --check && node scripts/write-payload-manifest.mjs --check && node scripts/check-docs.mjs && node scripts/check-pm-status-version.mjs && npm ls --package-lock-only --all --depth=0 >/dev/null",
+    prerelease: "node scripts/sync-shared-scripts.mjs --check && node scripts/write-payload-manifest.mjs --check && node scripts/check-docs.mjs && node scripts/check-version.mjs && npm ls --package-lock-only --all --depth=0 >/dev/null",
     // After the bump, payloads legitimately re-sync (version strings are embedded),
     // so regenerate and stage. `-A` (not `-u`) so NEW skill files are included.
     // Manifests are regenerated AFTER the payload re-sync and BEFORE staging: the bump

@@ -8,13 +8,12 @@ Tests for pm-status.py — run with: uv run test-pm-status.py
 Exercises the sharded split-directory layout resolution, key-based node addressing
 (set-status/set-actual/set-estimate/set-field/verify), epic directory moves
 (move-epic/archive-epic), the unconverted --file-based commands (locks,
-append-issue, self-install), comment/order preservation, the events.jsonl
+append-issue), comment/order preservation, the events.jsonl
 transition log, the progress report, and verify exit codes.
 """
 import argparse
 import ast
 import glob
-import hashlib
 import io
 import json
 import os
@@ -23,7 +22,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import UTC, datetime, timedelta
@@ -372,7 +370,7 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
 
 
 class TestSubcommandRegistration(unittest.TestCase):
-    """Every one of the 43 subcommands must still be registered on the parser.
+    """Every one of the 42 subcommands must still be registered on the parser.
 
     A REGRESSION guard, not a TDD driver: `build_parser()` already registered all 43 before
     registration was distributed across the modules, so this passed on the day it was
@@ -393,13 +391,12 @@ class TestSubcommandRegistration(unittest.TestCase):
     is not.
     """
 
-    # The CLI surface at 3.6.x, in registration order. Adding a verb is a deliberate edit
-    # here; the number is also stated in docs/superpowers/specs/
-    # 2026-10-22-pm-status-package-split-design.md §3.
+    # The CLI surface, in registration order. Adding or removing a verb is a deliberate edit
+    # here.
     EXPECTED = (
         "set-status", "sync-story-doc", "story-doc-init", "set-depends-on", "import-node",
         "set-actual", "import-actual", "verify", "list-epics", "list-stories", "show",
-        "report", "dispatch", "self-install", "set-lock", "clear-lock", "check-lock",
+        "report", "dispatch", "set-lock", "clear-lock", "check-lock",
         "set-estimate", "set-field", "add-test-run", "append-issue", "resolve-issue",
         "update-issue", "promote-issue", "schedule-issue", "audit-issues", "repair-issue",
         "list-issues", "move-epic", "archive-epic", "usage", "calibration", "estimate-story",
@@ -437,7 +434,7 @@ class TestSubcommandRegistration(unittest.TestCase):
                 owners.setdefault(verb, name)
         return owners
 
-    def test_build_parser_registers_all_43_subcommands(self):
+    def test_build_parser_registers_all_42_subcommands(self):
         registered = self._registered()
         owners = self._owners()
         missing = [v for v in self.EXPECTED if v not in registered]
@@ -456,480 +453,12 @@ class TestSubcommandRegistration(unittest.TestCase):
             f"build_parser() registers {len(registered)} subcommands, expected "
             f"{len(self.EXPECTED)}.{detail}")
 
-    def test_the_count_is_43(self):
+    def test_the_count_is_42(self):
         """Stated as its own assertion because the number is quoted in the design spec, the
         task briefs and the surface baseline. A set comparison alone reports 'missing one'
         without ever saying what the total is supposed to be."""
-        self.assertEqual(len(self._registered()), 43)
-        self.assertEqual(len(set(self.EXPECTED)), 43, "EXPECTED has a duplicate")
-
-
-def dead_pid() -> int:
-    """A pid that is certainly NOT running: spawn the cheapest process there is and reap it.
-
-    A LITERAL will not do any more. `sweep_stale` now asks whether a suffix's pid is live, so
-    `pm-status.old-1` is init's -- the opposite of the crashed predecessor a fixture using it
-    means -- and a literal like 999 is whatever happens to hold that pid on the box today.
-    """
-    p = subprocess.Popen([sys.executable, "-c", ""])
-    p.wait()
-    return p.pid
-
-
-class TestSelfInstall(Base):
-    """`self-install` installs the package DIRECTORY `pm-status/` beside --dest (spec §4)."""
-
-    def _live(self, dest):
-        return os.path.join(os.path.dirname(dest), "pm-status")
-
-    def _marker(self, dest, text):
-        with open(os.path.join(self._live(dest), "__main__.py"), "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-    def test_package_root_is_the_package_dir_not_a_subpackage(self):
-        """`package_root` resolves from `__file__`, and that file is in the `core/`
-        SUBPACKAGE: one dirname names `core/` and self-install copies a fragment.
-
-        This assertion exists because the obvious pin does not pin it. Every other test
-        here compares tree_digest(installed) against tree_digest(package_root()), and
-        cmd_self_install copies FROM package_root() -- both sides move together, so that
-        comparison passes with either dirname count. A one-dirname mutation is still
-        caught today, but by an incidental FileNotFoundError when the chmod of
-        `__main__.py` misses a core-only copy: an error on an anchor, not a failure on
-        the behaviour. Assert the behaviour.
-        """
-        root = pm.package_root()
-        self.assertTrue(os.path.exists(os.path.join(root, "__main__.py")),
-                        "package_root must be the package dir, not a subpackage")
-        self.assertTrue(os.path.exists(os.path.join(root, "__init__.py")),
-                        "package_root must be the package dir, not a subpackage")
-        self.assertEqual(os.path.basename(os.path.dirname(os.path.abspath(pm.__file__))),
-                         os.path.basename(root),
-                         "package_root must name the directory __main__.py lives in")
-
-    def test_installs_when_absent(self):
-        dest = os.path.join(self.d, "sub", "pm-status.py")
-        code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 0, out)
-        live = self._live(dest)
-        self.assertTrue(os.path.isdir(live))
-        self.assertEqual(pm.tree_digest(live), pm.tree_digest(pm.package_root()))
-        with open(os.path.join(live, "__main__.py"), encoding="utf-8") as fh:
-            self.assertIn("pm-status-version:", fh.read())
-
-    def test_installed_copy_actually_runs(self):
-        """Presence and content do not prove the install is EXECUTABLE. A file-copy of
-        `__main__.py` alone passes both and dies the moment it imports a sibling."""
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        r = subprocess.run([sys.executable, os.path.join(self._live(dest), "__main__.py"),
-                            "--help"], capture_output=True, text=True, cwd=self.d)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("self-install", r.stdout + r.stderr)
-
-    def test_bytecode_does_not_change_the_digest(self):
-        """Running the installed copy writes __pycache__; that must not read as drift."""
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        live = self._live(dest)
-        os.makedirs(os.path.join(live, "__pycache__"))
-        with open(os.path.join(live, "__pycache__", "x.pyc"), "wb") as fh:
-            fh.write(b"\0")
-        code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertIn("already this exact package", out)
-
-    def test_skips_when_same_or_newer(self):
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 0, out)
-        self.assertIn("skipped", out)
-
-    def test_upgrades_older_dest(self):
-        dest = os.path.join(self.d, "pm-status.py")
-        os.makedirs(self._live(dest))
-        self._marker(dest, "# pm-status-version: 0.0.1\nprint('old')\n")
-        code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 0, out)
-        self.assertIn("0.0.1 ->", out)
-        self.assertEqual(pm.tree_digest(self._live(dest)), pm.tree_digest(pm.package_root()))
-
-    def test_force_overwrites(self):
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        code, out = self.run_main(["self-install", "--dest", dest, "--force"])
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("skipped", out)
-
-    def test_reinstalls_same_version_with_different_content(self):
-        """Equal marker, different bytes, skipped forever: the marker is hand-maintained and
-        drifted, leaving a project 920 lines behind. Equal version means "check the bytes"."""
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        main_py = os.path.join(self._live(dest), "__main__.py")
-        with open(main_py, encoding="utf-8") as fh:
-            real = fh.read()
-        truncated = real[: len(real) // 3]
-        self.assertIn("pm-status-version:", truncated,
-                      "premise: the stale copy still carries the SAME marker")
-        self._marker(dest, truncated)
-
-        out_buf, err = io.StringIO(), io.StringIO()
-        try:
-            with redirect_stdout(out_buf), redirect_stderr(err):
-                code = pm.main(["self-install", "--dest", dest])
-        except SystemExit as e:
-            code = e.code
-        out = out_buf.getvalue()
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("skipped", out)
-        self.assertIn("content differs from this copy; reinstalling", err.getvalue())
-        with open(main_py, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), real)
-
-    def test_a_changed_sibling_file_is_reinstalled(self):
-        """The digest covers the whole tree, not just the entry point."""
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        init = os.path.join(self._live(dest), "__init__.py")
-        with open(init, "a", encoding="utf-8") as fh:
-            fh.write("# tampered\n")
-        code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertNotIn("skipped", out)
-        self.assertEqual(pm.tree_digest(self._live(dest)), pm.tree_digest(pm.package_root()))
-
-    def test_refuses_to_downgrade_a_strictly_newer_dest(self):
-        """Version still governs the one thing content cannot express: a real downgrade."""
-        dest = os.path.join(self.d, "pm-status.py")
-        os.makedirs(self._live(dest))
-        self._marker(dest, "# pm-status-version: 99.0.0\nprint('newer')\n")
-        code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 0, out)
-        self.assertIn("refusing to downgrade", out)
-        with open(os.path.join(self._live(dest), "__main__.py"), encoding="utf-8") as fh:
-            self.assertIn("print('newer')", fh.read())
-
-    def test_second_rename_failure_restores_the_old_install(self):
-        dest = os.path.join(self.d, "pm-status.py")
-        os.makedirs(self._live(dest))
-        self._marker(dest, "# pm-status-version: 0.0.1\nprint('old')\n")
-        real_rename, calls = os.rename, []
-
-        def flaky(a, b):
-            calls.append((a, b))
-            if len(calls) == 2:
-                raise OSError("simulated")
-            return real_rename(a, b)
-
-        err = io.StringIO()
-        with mock.patch.object(os, "rename", flaky), redirect_stderr(err):
-            code, _ = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 1)
-        self.assertIn("previous install was restored", err.getvalue())
-        with open(os.path.join(self._live(dest), "__main__.py"), encoding="utf-8") as fh:
-            self.assertIn("print('old')", fh.read())
-        self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"], "no staging/old debris")
-
-    def _install_over_old(self, fail_on):
-        dest = os.path.join(self.d, "pm-status.py")
-        os.makedirs(self._live(dest))
-        self._marker(dest, "# pm-status-version: 0.0.1\nprint('old')\n")
-        real_rename, n = os.rename, [0]
-
-        def flaky(a, b):
-            n[0] += 1
-            if n[0] in fail_on:
-                raise fail_on[n[0]]
-            return real_rename(a, b)
-
-        return dest, flaky
-
-    def test_interrupt_between_the_renames_restores_and_reraises(self):
-        dest, flaky = self._install_over_old({2: KeyboardInterrupt()})
-        with mock.patch.object(os, "rename", flaky), redirect_stderr(io.StringIO()):
-            with self.assertRaises(KeyboardInterrupt):
-                pm.main(["self-install", "--dest", dest])
-        with open(os.path.join(self._live(dest), "__main__.py"), encoding="utf-8") as fh:
-            self.assertIn("print('old')", fh.read())
-
-    def test_failed_rollback_reports_where_the_old_install_is(self):
-        dest, flaky = self._install_over_old({2: OSError("swap"), 3: OSError("rollback")})
-        err = io.StringIO()
-        with mock.patch.object(os, "rename", flaky), redirect_stderr(err):
-            code, _ = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 1)
-        self.assertIn("ROLLBACK FAILED", err.getvalue())
-        self.assertIn("pm-status.old-", err.getvalue())
-
-    def test_every_run_sweeps_a_crashed_predecessor(self):
-        dead = dead_pid()
-        dest = os.path.join(self.d, "pm-status.py")
-        os.makedirs(os.path.join(self.d, f"pm-status.old-{dead}"))
-        os.makedirs(os.path.join(self.d, f"pm-status.staging-{dead}"))
-        self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"])
-
-    def test_sweep_removes_crashed_install_siblings(self):
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, True)
-        dead = dead_pid()
-        names = [f"pm-status.old-{dead}", f"pm-status.staging-{dead}"]
-        for name in names:
-            os.makedirs(os.path.join(d, name))
-        os.makedirs(os.path.join(d, "pm-status"))
-        removed = pm.sweep_stale(d)
-        self.assertEqual(sorted(removed), sorted(names))
-        self.assertTrue(os.path.isdir(os.path.join(d, "pm-status")))
-
-    def test_sweep_leaves_a_live_installers_siblings_alone(self):
-        """THE regression. The sweep deleted every staging/old sibling regardless of pid,
-        including the tree a concurrently-running installer was copying into right then --
-        measured at 5 of 6 simultaneous cold installs dying on a raw traceback. A suffix is
-        the pid that made it; a running pid means an owner, not a corpse."""
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, True)
-        dead, live = dead_pid(), os.getpid()
-        for name in (f"pm-status.old-{dead}", f"pm-status.staging-{dead}",
-                     f"pm-status.old-{live}", f"pm-status.staging-{live}"):
-            os.makedirs(os.path.join(d, name))
-        removed = pm.sweep_stale(d)
-        self.assertEqual(sorted(removed),
-                         sorted([f"pm-status.old-{dead}", f"pm-status.staging-{dead}"]))
-        for name in (f"pm-status.old-{live}", f"pm-status.staging-{live}"):
-            self.assertTrue(os.path.isdir(os.path.join(d, name)),
-                            f"{name} belongs to a RUNNING process and must survive the sweep")
-
-    def test_sweep_removes_a_suffix_that_is_not_a_pid(self):
-        """Liveness cannot be proved for a suffix that is not a number, and something has to
-        collect it: unparseable is swept, which is also the pre-3.5.3 behaviour for every
-        suffix. Without this the new guard could be satisfied by never sweeping anything."""
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, True)
-        for name in ("pm-status.staging-", "pm-status.old-abc"):
-            os.makedirs(os.path.join(d, name))
-        self.assertEqual(sorted(pm.sweep_stale(d)), ["pm-status.old-abc", "pm-status.staging-"])
-
-    def test_pid_liveness_treats_a_foreign_process_as_live(self):
-        """os.kill(pid, 0) on a process we do not own raises PermissionError -- which means
-        it EXISTS. Reading that as 'not live' would delete another user's staging tree."""
-        with mock.patch.object(os, "kill", side_effect=PermissionError):
-            self.assertTrue(pm.core._pid_is_live("4242"))
-        with mock.patch.object(os, "kill", side_effect=ProcessLookupError):
-            self.assertFalse(pm.core._pid_is_live("4242"))
-
-    def test_a_copytree_failure_is_the_designed_FAILED_line_not_a_traceback(self):
-        """copytree and chmod sat OUTSIDE the try, so the failure a concurrent sweep caused
-        escaped as a raw stack trace. step-00-activate.md declares this failure BLOCKED, and
-        a traceback is not something an orchestrator can report."""
-        dest = os.path.join(self.d, "pm-status.py")
-        err = io.StringIO()
-        with mock.patch.object(shutil, "copytree", side_effect=OSError("swept mid-copy")), \
-                redirect_stderr(err):
-            code, _ = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 1)
-        self.assertIn("FAILED self-install", err.getvalue())
-        self.assertIn("swept mid-copy", err.getvalue())
-
-    def test_a_chmod_failure_is_the_designed_FAILED_line_too(self):
-        dest = os.path.join(self.d, "pm-status.py")
-        err = io.StringIO()
-        with mock.patch.object(os, "chmod", side_effect=OSError("staging vanished")), \
-                redirect_stderr(err):
-            code, _ = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 1)
-        self.assertIn("FAILED self-install", err.getvalue())
-
-    def test_a_first_install_failure_never_claims_a_restore(self):
-        """There was no previous install, so 'the previous install was restored' sends the
-        reader looking for a tree that was never made."""
-        dest = os.path.join(self.d, "pm-status.py")
-        err = io.StringIO()
-        with mock.patch.object(os, "rename", side_effect=OSError("boom")), redirect_stderr(err):
-            code, _ = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 1)
-        self.assertIn("no previous install was moved aside", err.getvalue())
-        self.assertNotIn("previous install was restored", err.getvalue())
-        self.assertEqual(os.listdir(self.d), [], "no staging debris")
-
-    def test_a_concurrent_installer_winning_the_rename_is_success(self):
-        """`os.rename` onto a non-empty directory is ENOTEMPTY -- there is no directory
-        os.replace -- so two cold installers racing one dest left the loser at exit 1 on a
-        path every skill runs at activation. An identical tree at `live` IS the goal state."""
-        dest = os.path.join(self.d, "pm-status.py")
-        live = self._live(dest)
-        real_rename = os.rename
-
-        def loser(a, b):
-            if os.path.basename(b) == "pm-status":
-                # The winner lands its identical tree, then our rename hits ENOTEMPTY.
-                shutil.copytree(pm.package_root(), live,
-                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-                raise OSError(39, "Directory not empty")
-            return real_rename(a, b)
-
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(os, "rename", loser), redirect_stdout(out), redirect_stderr(err):
-            code = pm.main(["self-install", "--dest", dest])
-        self.assertEqual(code, 0, err.getvalue())
-        self.assertIn("a concurrent installer wrote this exact package first", out.getvalue())
-        self.assertNotIn("FAILED", err.getvalue())
-        self.assertEqual(pm.tree_digest(live), pm.tree_digest(pm.package_root()))
-        self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"], "no staging/old debris")
-
-    def test_an_interrupt_is_never_swallowed_by_the_concurrency_branch(self):
-        """The `isinstance(e, OSError)` clause in that branch is load-bearing and nothing
-        else sees it. Delete it and `TestSelfInstall` stays 28/28 green while a
-        KeyboardInterrupt during copytree returns 0 -- because `live` already holds an
-        identical tree, which is the branch's own success condition.
-
-        `test_interrupt_between_the_renames_restores_and_reraises` cannot reach this: it
-        fires at rename #2, by which point `live` has been moved aside, so `isdir(live)` is
-        False and the branch is skipped whether the clause is there or not. Reaching it needs
-        `--force` (otherwise the digest fast path returns before the try) and a failure at
-        copytree, while `live` is still the identical tree.
-        """
-        dest = os.path.join(self.d, "pm-status.py")
-        self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(pm.tree_digest(self._live(dest)), pm.tree_digest(pm.package_root()),
-                         "premise: live holds the branch's success condition")
-        with mock.patch.object(shutil, "copytree", side_effect=KeyboardInterrupt), \
-                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
-                self.assertRaises(KeyboardInterrupt):
-            pm.main(["self-install", "--dest", dest, "--force"])
-
-    def test_a_concurrent_installer_writing_a_DIFFERENT_tree_still_fails(self):
-        """The concurrency escape hatch is strict equality. Anything else and the install did
-        not happen, which must stay a failure -- otherwise it swallows every rename error."""
-        dest = os.path.join(self.d, "pm-status.py")
-        live = self._live(dest)
-        real_rename = os.rename
-
-        def loser(a, b):
-            if os.path.basename(b) == "pm-status":
-                os.makedirs(live)
-                with open(os.path.join(live, "__main__.py"), "w", encoding="utf-8") as fh:
-                    fh.write("# pm-status-version: 9.9.9\nprint('someone else')\n")
-                raise OSError(39, "Directory not empty")
-            return real_rename(a, b)
-
-        err = io.StringIO()
-        with mock.patch.object(os, "rename", loser), redirect_stderr(err):
-            code, _ = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 1)
-        self.assertIn("FAILED self-install", err.getvalue())
-
-    def test_six_simultaneous_cold_installs_all_succeed(self):
-        """The regression, end to end, in real processes against one dest -- the shape every
-        skill runs at activation when parallel subagents start together. Six of these on the
-        unfixed code produced five tracebacks; it is a real race, so it is driven by a barrier
-        rather than by hoping six interpreters start at the same moment.
-
-        THREE rounds, because a race test that is green either way is worse than none and one
-        round is not reliably red: measured on the unfixed code, one round caught it in 7 of 8
-        runs, so a single round would have let a reverted fix through one commit in eight.
-        Three independent rounds take that to better than 1 in 500. Every round is a COLD
-        install -- the dest is wiped -- because that is the window `sweep_stale` opened.
-        """
-        n, rounds = 6, 3
-        runner = os.path.join(self.d, "runner.py")
-        with open(runner, "w", encoding="utf-8") as fh:
-            fh.write(
-                "import os, runpy, sys, time\n"
-                "flag, main, dest, ready = sys.argv[1:5]\n"
-                "open(ready, 'w').close()\n"
-                "while not os.path.exists(flag):\n"
-                "    time.sleep(0.0005)\n"
-                "sys.argv = [main, 'self-install', '--dest', dest]\n"
-                "runpy.run_path(main, run_name='__main__')\n")
-        for rnd in range(rounds):
-            sub = os.path.join(self.d, f"round-{rnd}")
-            os.makedirs(sub)
-            dest, go = os.path.join(sub, "pm-status.py"), os.path.join(sub, "go")
-            procs = []
-            for i in range(n):
-                ready = os.path.join(sub, f"ready-{i}")
-                procs.append((ready, subprocess.Popen(
-                    [sys.executable, runner, go, SCRIPT, dest, ready],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)))
-            deadline = time.monotonic() + 60
-            while not all(os.path.exists(r) for r, _ in procs):
-                self.assertLess(time.monotonic(), deadline, "installers never reached the barrier")
-                time.sleep(0.01)
-            open(go, "w").close()
-            results = []
-            for _, p in procs:
-                out, err = p.communicate(timeout=120)   # BEFORE reading returncode, which
-                results.append((p.returncode, out, err))  # is None until the process exits
-
-            for i, (rc, out, err) in enumerate(results):
-                self.assertNotIn("Traceback", err,
-                                 f"round {rnd} installer {i} died on a raw traceback:\n{err}")
-                self.assertEqual(rc, 0,
-                                 f"round {rnd} installer {i} exited {rc}\n{out}\n{err}")
-            self.assertEqual(pm.tree_digest(self._live(dest)),
-                             pm.tree_digest(pm.package_root()), f"round {rnd}")
-            self.assertEqual(sorted(os.listdir(sub)),
-                             ["go", "pm-status"] + sorted(f"ready-{i}" for i in range(n)),
-                             f"round {rnd}: a staging/old tree survived the race")
-
-    def test_shipped_shas_count_is_54_and_both_prose_numbers_say_so(self):
-        """The comment beside the constant said 'all 93' and its noqa said '53 digests'; the
-        set holds 54. 93 is the TAG count -- most tags did not change the file -- so the two
-        numbers describe different things and only one describes this set. docs/upgrading.md
-        says 54, so the code contradicted the doc it is the source for.
-
-        Asserting the length alone would NOT have caught that: the length was always 54. The
-        two regexes below read the numbers the file PRINTS beside the constant and compare
-        them to the measured one, which is the only way prose that claims a measurement gets
-        checked. They pin the wording `N DISTINCT digests` and `N digests`; keep both true.
-        """
-        n = len(pm.core._SHIPPED_SHAS)
-        self.assertEqual(n, 54)
-        src = Path(pm.core.__file__).read_text(encoding="utf-8")
-        head, _, tail = src.partition("_SHIPPED_SHAS = frozenset(")
-        for pattern, text, where in (
-                (r"(\d+) DISTINCT digests", head, "the comment above _SHIPPED_SHAS"),
-                (r"(\d+) digests", tail.split("\n\n")[0], "the noqa beside _SHIPPED_SHAS")):
-            m = re.search(pattern, text)
-            self.assertIsNotNone(m, f"{where} must state the digest count as `{pattern}`")
-            self.assertEqual(int(m.group(1)), n,
-                             f"{where} says {m.group(1)}; the set holds {n}")
-
-    def test_tree_digest_changes_with_any_file(self):
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, True)
-        os.makedirs(os.path.join(d, "sub"))
-        for rel in ("a.py", os.path.join("sub", "b.py")):
-            with open(os.path.join(d, rel), "w") as fh:
-                fh.write("x")
-        base = pm.tree_digest(d)
-        for rel in ("a.py", os.path.join("sub", "b.py")):
-            with open(os.path.join(d, rel), "w") as fh:
-                fh.write("y")
-            self.assertNotEqual(pm.tree_digest(d), base, rel)
-            with open(os.path.join(d, rel), "w") as fh:
-                fh.write("x")
-        self.assertEqual(pm.tree_digest(d), base)
-
-    def test_legacy_file_removed_only_when_it_matches_a_shipped_version(self):
-        dest = os.path.join(self.d, "pm-status.py")
-        body = "# a shipped copy\n"
-        sha = hashlib.sha256(body.encode()).hexdigest()
-        for text, shipped in ((body, True), (body + "# patched\n", False)):
-            with open(dest, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            err = io.StringIO()
-            with mock.patch.object(pm.core, "_SHIPPED_SHAS", frozenset({sha})), redirect_stderr(err):
-                code, _ = self.run_main(["self-install", "--dest", dest, "--force"])
-            self.assertEqual(code, 0)
-            self.assertEqual(os.path.exists(dest), not shipped)
-            self.assertEqual("left" in err.getvalue(), not shipped)
-            if not shipped:
-                os.unlink(dest)
-
-    def test_last_tagged_release_counts_as_shipped(self):
-        self.assertGreater(len(pm.core._SHIPPED_SHAS), 40)
-        self.assertTrue(all(len(h) == 64 for h in pm.core._SHIPPED_SHAS))
+        self.assertEqual(len(self._registered()), 42)
+        self.assertEqual(len(set(self.EXPECTED)), 42, "EXPECTED has a duplicate")
 
 
 class TestLockCommands(Base):
@@ -3293,15 +2822,6 @@ class TestEpicMoves(TestLayoutResolution):
         code, out = self.run_main(["archive-epic", "--state-root", self.root, "--epic", "E001"])
         self.assertEqual(code, 0, out)
         self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
-
-    def test_version_constant_and_marker_agree(self):
-        """self-install parses the `# pm-status-version:` marker off a copy on disk and
-        compares it to PM_STATUS_VERSION. If the two ever diverge, propagation breaks
-        silently — so assert the invariant rather than pinning a literal that has to be
-        edited on every release."""
-        marker = pm._parse_version_line(SCRIPT)
-        self.assertIsNotNone(marker, "top-of-file pm-status-version marker not found")
-        self.assertEqual(marker, tuple(int(x) for x in pm.PM_STATUS_VERSION.split(".")))
 
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
