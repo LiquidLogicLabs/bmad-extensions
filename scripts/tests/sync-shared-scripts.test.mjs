@@ -19,7 +19,10 @@ const DECLARERS = ["skills/l3io-pm/l3io-execute", "skills/l3io-util/l3io-doctor"
 const EXTRAS = {
   "skills/l3io-pm/l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/facts/spec-sync.md",
     "scripts/spec-align.py"],
-  "skills/l3io-util/l3io-doctor": [],
+  // l3io-pm's migration-1.toml (`bmad migrate`) runs the 3.x -> 4.x engine from here.
+  "skills/l3io-util/l3io-doctor": ["scripts/migrate-engine.py", "scripts/read-l3io-flat.py",
+    "scripts/read-per-epic.py", "scripts/read-sharded.py", "scripts/read-split.py",
+    "scripts/state-record.py"],
 };
 // A skill that ships no pm_status copy and still declares a file a hook names: it declares
 // that file alone, never the package it does not carry.
