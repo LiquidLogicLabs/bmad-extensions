@@ -1,4 +1,4 @@
-"""pm_status.build -- `build-open` and `build-close`: measurement around every v7 build.
+"""pm_status.bracket -- `build-open` and `build-close`: measurement around every v7 build.
 
 BMad v7's `bmad-build` and `bmad-build-auto` run l3io's hooks (wired by `/l3io-doctor wire`,
 ADR-0020): `activation_steps_prepend` runs `build-open`, `on_complete` runs `build-close`.

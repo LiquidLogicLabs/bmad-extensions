@@ -15,7 +15,7 @@ Requires uv on PATH: the Python helpers run via `uv run`."""
 scripts = [
   "scripts/pm_status/__init__.py",
   "scripts/pm_status/__main__.py",
-  "scripts/pm_status/build/__init__.py",
+  "scripts/pm_status/bracket/__init__.py",
   "scripts/pm_status/core/__init__.py",
   "scripts/pm_status/instructions/__init__.py",
   "scripts/pm_status/issues/__init__.py",

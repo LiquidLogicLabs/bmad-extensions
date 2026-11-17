@@ -764,5 +764,3 @@ _bmad/
 # The Python template above ignores every lib/; the check tooling's shared modules live in one.
 !scripts/lib/
 
-# ...and every build/; pm_status has a module of that name, in its source and its payload copies.
-!skills/**/pm_status/build/

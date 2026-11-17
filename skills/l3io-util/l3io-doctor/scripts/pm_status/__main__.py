@@ -442,11 +442,13 @@ if not __package__ and __name__ == "__main__":
 # `register` adds `sidecar-reconcile`, and `main` asks its `route` which handler a parsed
 # command line runs.
 #
-# `build` is the ninth: `build-open` and `build-close`, the measurement bracket v7's
+# `bracket` is the ninth: `build-open` and `build-close`, the measurement bracket v7's
 # `bmad-build` and `bmad-build-auto` run through their hooks. It sits above `sidecar.verbs`
-# and `metrics`, and nothing imports it but `build_parser`.
+# and `metrics`, and nothing imports it but `build_parser`. It is not named `build/`
+# because a consumer's `.gitignore` commonly ignores every `build/`, which would drop it
+# from a committed `_bmad/`.
 from . import (
-    build,
+    bracket,
     core,  # noqa: F401 -- re-export only
     instructions,
     issues,
@@ -663,7 +665,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.register(sub)
     instructions.register(sub)
     sidecar_verbs.register(sub)
-    build.register(sub)
+    bracket.register(sub)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

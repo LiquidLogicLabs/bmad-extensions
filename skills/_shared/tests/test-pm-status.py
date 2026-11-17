@@ -424,7 +424,7 @@ class TestSubcommandRegistration(unittest.TestCase):
         on its own."""
         owners = {}
         for name in ("core", "instructions", "issues", "metrics", "nodes", "plan", "verbs",
-                     "sidecar_verbs", "build"):
+                     "sidecar_verbs", "bracket"):
             mod = getattr(pm, name, None)
             register = getattr(mod, "register", None)
             if register is None:
