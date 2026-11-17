@@ -7,7 +7,8 @@ required_skills = [
 ]
 pre_install_message = ""
 post_install_message = """l3io-sec is installed.
-Use /l3io-sec-redteam for red team analysis at sprint, epic, or solution scope. The agent builds its research cache over time for faster platform best practices lookups.
+Run /l3io-doctor wire to add the five threat lenses and the AI-poisoning lens to bmad-review and every thorough code review.
+Use /l3io-sec-redteam for a full red team session at epic or solution scope. The agent builds its research cache over time for faster platform best practices lookups.
 Ensure WebSearch is enabled in your agent's permissions for live platform research."""
 
 [[bmod.config_questions]]

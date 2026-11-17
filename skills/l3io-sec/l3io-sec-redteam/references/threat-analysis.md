@@ -11,63 +11,25 @@ Findings across all applicable lenses, each with:
 
 A clean report on non-trivial scope is a failure of analysis. If no Critical or High findings surface, re-examine with a fresh angle before declaring the scope clean.
 
-## The Five Lenses
+## The Five Lenses and the AI Poisoning Cross-cut
 
-### 1 — External Attacker
+Each viewpoint has one source, a lens file under `scripts/lenses/`. The same files run inside
+BMad's own review once `/l3io-doctor wire` has added them to `bmad-review` and the thorough
+review of `bmad-code-review`, `bmad-build` and `bmad-build-auto`; this session walks them all,
+in depth, across the whole scope.
 
-Adversary with no privileged access, attacking from outside. Check:
-- Injection points: SQL, command, LDAP, template, path traversal, deserialization
-- Authentication bypass: weak tokens, predictable resets, missing auth on sensitive routes
-- Authorization gaps: IDOR, missing ownership checks, horizontal/vertical privilege escalation
-- Data exfiltration: verbose errors revealing internals, unprotected sensitive fields, improper export controls
-- API abuse: undocumented endpoints, rate limit bypass, parameter tampering, mass assignment
-- Client-side: XSS, CSRF, open redirects, insecure storage in browser/local state
+| Lens | File |
+|---|---|
+| 1 — External attacker | `scripts/lenses/l3io-threat-external.md` |
+| 2 — Malicious insider | `scripts/lenses/l3io-threat-insider.md` |
+| 3 — Chaos engineer | `scripts/lenses/l3io-threat-chaos.md` |
+| 4 — Abusive legitimate user | `scripts/lenses/l3io-threat-abuse.md` |
+| 5 — Design and architecture red team | `scripts/lenses/l3io-threat-design.md` |
+| AI poisoning cross-cut, over the findings of all five | `scripts/lenses/l3io-ai-poisoning.md` |
 
-**AI poisoning cross-cut:** Prompt injection from external input → model manipulation. Indirect injection via content the model processes (documents, emails, web pages). Output handling vulnerabilities — where model output reaches code execution or privileged operations.
-
-### 2 — Malicious Insider
-
-Adversary with legitimate but limited access, attacking from inside. Check:
-- Privilege abuse: accessing data beyond their role; using elevated permissions for unauthorized purposes
-- Out-of-scope data access: querying other tenants' or users' data; abusing bulk export or reporting features
-- Audit gap exploitation: operations that succeed without leaving audit trails; log tampering; bypassing monitoring
-- Corruption and deletion: overwriting others' data; injecting malicious content into shared state
-- Supply chain injection: inserting malicious code or data via legitimate contribution paths
-
-**AI poisoning cross-cut:** Training data poisoning via insider write access to data pipelines. Backdoors planted in model training or fine-tuning workflows. Exfiltration of proprietary prompts, training data, or model artifacts.
-
-### 3 — Chaos Engineer
-
-Adversary who doesn't attack the happy path — they attack failure modes. Check:
-- Failure propagation: what happens when a downstream service fails mid-transaction? Does the system leave partial state?
-- Partial-write corruption: failed writes that commit some changes but not others; orphaned records; inconsistent state
-- Race conditions and TOCTOU: check-then-act patterns; concurrent modifications to shared state; non-atomic operations
-- Resource exhaustion: unbounded loops, large input processing, memory leaks under load, connection pool exhaustion
-- Non-idempotent retries: operations that succeed twice causing double-charges, duplicate records, or repeated side effects
-- Recovery path security: does error handling restore security invariants? Does cleanup code skip access checks?
-
-**AI poisoning cross-cut:** Model degradation under adversarial input distribution shift. Inference behavior under resource pressure. Recovery behavior when the AI component fails mid-request.
-
-### 4 — Abusive Legitimate User
-
-Adversary who uses the system exactly as designed, but in ways designers didn't intend. Check:
-- Feature misuse: scraping, automated bulk operations, feature chaining to escalate access
-- Logic flaws: operating steps out of expected order; triggering transitions the state machine allows but shouldn't
-- Edge inputs: zero values, null/empty, maximum values, negative numbers, unicode edge cases, encoding attacks
-- Shared state corruption: inputs that corrupt other users' experiences; per-tenant resource consumption affecting other tenants
-- Boundary conditions: behavior at exact limits (max file size, max items, expiry boundaries)
-
-**AI poisoning cross-cut:** Adversarial prompts crafted by legitimate users. Jailbreaking through legitimate-looking inputs. Systematic probing of model behavior to identify exploitable patterns.
-
-### 5 — Design and Architecture Red Team
-
-System-level weaknesses not visible at the code level. Check:
-- Missing controls: security controls specified in architecture but absent in implementation
-- Trust boundary violations: components communicating over boundaries without authentication or validation
-- Defense-in-depth gaps: single points of failure in security controls; no fallback if one layer fails
-- Observability gaps: security-relevant events that aren't logged; no alerting on anomalous patterns
-- Recovery capability: what happens after a breach? Are there kill switches, revocation mechanisms, audit trails adequate for forensics?
-- Secrets exposure: hardcoded credentials, keys in config, secrets in version control or logs
+Load each file and apply its **Viewpoint** and **Check**, then run the AI poisoning cross-cut
+over what the five found. Report in this session's own shape (`references/findings-report.md`,
+with severity), not the lens files' canonical-field contract, which is the host review's.
 
 ## HALT Conditions
 

@@ -52,6 +52,28 @@ Behavior:
 
 After any interactive session, the agent writes a session log to `sessions/YYYY-MM-DD.md` and updates the sanctum with anything learned.
 
+## Lenses inside BMad's review
+
+Each viewpoint below, and the AI poisoning cross-cut, is one lens file under the skill's
+`scripts/lenses/`, declared in `bmod.toml` and installed by `bmad setup l3io-sec` at
+`{project-root}/_bmad/l3io-sec/scripts/lenses/` (ADR-0017). `/l3io-doctor wire` adds them to
+`bmad-review`'s `lenses` and to the `thorough_lenses` of `bmad-code-review`, `bmad-build` and
+`bmad-build-auto`, so they run in every thorough review whether or not anybody invokes the agent:
+
+| Lens code | Viewpoint |
+|---|---|
+| `l3io-threat-external` | External attacker (EXT) |
+| `l3io-threat-insider` | Malicious insider (INS) |
+| `l3io-threat-chaos` | Chaos engineer (CHA) |
+| `l3io-threat-abuse` | Abusive legitimate user (ABU) |
+| `l3io-threat-design` | Design and architecture red team (DAR) |
+| `l3io-ai-poisoning` | AI poisoning (AIP); in `bmad-review` it runs `after` `l3io-threat-external` and receives its findings |
+
+Each threat lens carries a `when`, so it joins a default review only when the content has the
+surface it attacks. Inside the host review the lenses return the host's canonical fields with
+no severity; the agent's own session reports with severity, as below. The lens files are the
+single source of each viewpoint; the lists below summarize them.
+
 ## The Five Threat Lenses
 
 Analysis always covers all applicable lenses. Each finding must include a title, attack path, impact, recommendation, and lens code.
