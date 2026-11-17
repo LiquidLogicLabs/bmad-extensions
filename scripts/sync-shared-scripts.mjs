@@ -144,8 +144,8 @@ const moduleHomeFiles = [
 ];
 
 // status-files.md ALONE, for a skill that needs the state-layout contract but not the metrics
-// or calibration ones. l3io-doctor is that skill: migrate-state, health-check and stats all
-// decide what a correct state tree looks like, and
+// or calibration ones. l3io-doctor is that skill: health-check and stats both
+// read the layout it describes, and
 // six of its runtime directives -- SKILL.md:186 among them, calling it "the canonical
 // contract" -- told the reader to open `references/status-files.md` in a skill that did not
 // ship it. Shipping it is the fix rather than repointing, because a doctor install does not

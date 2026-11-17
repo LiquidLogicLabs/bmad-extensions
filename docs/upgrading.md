@@ -187,8 +187,14 @@ The sprint level goes from estimation and calibration too: an epic's estimate is
 tickets plus the epic closure and orchestration bands.
 
 **The backlog is v7's `backlog/` folder; l3io keeps no issues ledger.** `issues.yaml`,
-`issues-resolved.yaml` and the eight `pm-status.py` verbs over them are removed; the CLI is now 22
-verbs, spec §4.5's set with `import-node`/`import-actual` kept until a later release.
+`issues-resolved.yaml` and the eight `pm-status.py` verbs over them are removed.
+
+**`pm-status.py` has no 3.x address any more; the CLI is 18 verbs.** `import-node`,
+`import-actual`, `estimate-story`, `estimate-rollup` and `calibration redrive` are removed —
+`estimate-entries` is the estimators' v7 address. `set-estimate`, `set-actual`, `add-test-run`
+and `verify` take only `--project-root` plus a v7 address (`--ticket-dir DIR --entry ID`, or
+`--plan-file PATH`); `--state-root` with node keys, `set-actual --block orchestration`,
+`--no-calibrate`, `--flock` and the range and `--time-hours*` flags of `set-estimate` are gone.
 Removed: `append-issue`, `update-issue`, `promote-issue`, `schedule-issue`, `resolve-issue`, `list-issues`, `audit-issues`, `repair-issue`, and spec-align's `check-stale`.
 
 | Removed | Replaced by |

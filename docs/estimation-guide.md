@@ -53,11 +53,11 @@ Tokens are captured **exactly** from the session transcript. Use the `pm-status.
 ```bash
 # Read the token counts for a story's own dispatch window
 uv run {pm_status} usage \
-  --state-root {pm_state_root} --story {story_key} --model {model}
+  --state-root {l3io_state_root} --story {story_key} --model {model}
 
 # For an epic or an explicit time window (--since/--until)
 uv run {pm_status} usage \
-  --state-root {pm_state_root} --epic {epic_key} --model {model}
+  --state-root {l3io_state_root} --epic {epic_key} --model {model}
 ```
 
 The helper prints the four per-class totals and the exact `--tokens-*` flags to paste into `set-actual`. **Do not sum the raw transcript by hand** — a streaming transcript holds multiple records per message (inflating by ~2.6×), carries `cache_creation_input_tokens` in two forms (double-counting if both are summed), and omits subagent turns (which live in separate sidechain files). The helper avoids all three traps.
@@ -113,8 +113,8 @@ plus the closure.
 A calibration sample is taken only when the ticket carried an estimate **before** the build: an
 estimate made afterwards is not a prediction.
 
-The examples below write an actual directly with `set-actual`, on a 3.x tree or by hand; on a v7
-ticket, `--project-root P --plan-file F` takes the place of `--state-root` and the node keys.
+The examples below write a ticket's actual directly with `set-actual`, by hand; `{plan}` is the
+ticket's `<stem>-plan.md`, and the actual lands in `<stem>-plan.l3io.toml` beside it.
 
 ## Writing actuals: set-actual examples
 
@@ -123,13 +123,13 @@ ticket, `--project-root P --plan-file F` takes the place of `--state-root` and t
 ```bash
 # 1. Get the token counts from the session transcript
 uv run {pm_status} usage \
-  --state-root {pm_state_root} --story E001-S01-003 --model {model}
+  --state-root {l3io_state_root} --story E001-S01-003 --model {model}
 # Prints: --tokens-input 122 --tokens-output 41 --tokens-cache-write 244 --tokens-cache-read 405
 
 # 2. Write the actual (paste the --tokens-* flags from usage output)
 uv run {pm_status} set-actual \
-  --state-root {pm_state_root} \
-  --node story --story E001-S01-003 \
+  --project-root {project-root} \
+  --plan-file {plan} \
   --runtime claude \
   --elapsed-hours 3.2 --man-hours 15 --hitl-hours 1.8 \
   --tokens-input 122 --tokens-output 41 --tokens-cache-write 244 --tokens-cache-read 405 \
@@ -137,7 +137,7 @@ uv run {pm_status} set-actual \
 
 # 3. Verify
 uv run {pm_status} verify \
-  --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime claude
+  --project-root {project-root} --plan-file {plan} --runtime claude
 ```
 
 ### Codex
@@ -145,8 +145,8 @@ uv run {pm_status} verify \
 ```bash
 # Sum token_count events from rollout-*.jsonl, then:
 uv run {pm_status} set-actual \
-  --state-root {pm_state_root} \
-  --node story --story E001-S01-003 \
+  --project-root {project-root} \
+  --plan-file {plan} \
   --runtime codex \
   --elapsed-hours 2.5 --man-hours 10 --hitl-hours 0.6 \
   --tokens-input 100 --tokens-output 20 --tokens-cache-read 300 \
@@ -154,7 +154,7 @@ uv run {pm_status} set-actual \
 
 # verify
 uv run {pm_status} verify \
-  --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime codex
+  --project-root {project-root} --plan-file {plan} --runtime codex
 ```
 
 Note: `--tokens-cache-write` is omitted — the CLI defaults it to `0`. Passing it explicitly as `0` is also correct.
@@ -164,15 +164,15 @@ Note: `--tokens-cache-write` is omitted — the CLI defaults it to `0`. Passing 
 ```bash
 # Sum prompt_tokens / completion_tokens from API responses in the dispatch window, then:
 uv run {pm_status} set-actual \
-  --state-root {pm_state_root} \
-  --node story --story E001-S01-003 \
+  --project-root {project-root} \
+  --plan-file {plan} \
   --runtime copilot \
   --elapsed-hours 1.8 --man-hours 8 --hitl-hours 0.5 \
   --tokens-input 150 --tokens-output 50
 
 # verify (cost=N/A and scalar tokens_k are expected and valid here)
 uv run {pm_status} verify \
-  --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime copilot
+  --project-root {project-root} --plan-file {plan} --runtime copilot
 ```
 
 Note: no `--model` flag — Copilot stores `cost: N/A` so no pricing is needed.
@@ -181,32 +181,20 @@ Note: no `--model` flag — Copilot stores `cost: N/A` so no pricing is needed.
 
 ```bash
 uv run {pm_status} set-actual \
-  --state-root {pm_state_root} \
-  --node story --story E001-S01-003 \
+  --project-root {project-root} \
+  --plan-file {plan} \
   --runtime other \
   --elapsed-hours 2.0 --man-hours 6 --hitl-hours 0.3 \
   --tokens-na
 
 uv run {pm_status} verify \
-  --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime other
+  --project-root {project-root} --plan-file {plan} --runtime other
 ```
 
-### Epic orchestration block
+### Epic orchestration and closure
 
-The orchestrator's own coordination overhead (dispatching subagents, waiting on them) goes into a separate `--block orchestration` on the epic node — not on a story.
-
-```bash
-uv run {pm_status} set-actual \
-  --state-root {pm_state_root} \
-  --node epic --epic E001 \
-  --block orchestration \
-  --runtime claude \
-  --elapsed-hours 0.6 --man-hours 0 --hitl-hours 0.1 \
-  --tokens-input 14 --tokens-output 5 --tokens-cache-write 27 --tokens-cache-read 44 \
-  --model {model}
-```
-
-`--man-hours 0` is always correct for the orchestration block — it is AI-only overhead with no human-developer counterfactual.
+An epic's own overhead is not written by hand: `epic-close`, the On Complete hook `wire` gives
+`bmad-retrospective`, records the closure run and the epic's actual in its `l3io.toml`.
 
 ---
 
@@ -232,7 +220,7 @@ An **absent** field is not the same as N/A. Absence fails `verify`; an explicit 
 
 ## Cost derivation
 
-Cost is derived inside `set-actual`, `build-close`, `epic-close`, `estimate-entries`, `estimate-story` and `estimate-rollup` from `tokens_k × the per-model, per-class rate table`. It is never entered directly.
+Cost is derived inside `set-actual`, `build-close`, `epic-close`, and `estimate-entries` from `tokens_k × the per-model, per-class rate table`. It is never entered directly.
 
 The rate table (`TOKEN_RATES` in `pm-status.py`) holds per-class USD-per-million-token rates for Anthropic Claude models and OpenAI Codex/GPT models. To inspect what is in force for your project:
 
@@ -268,11 +256,11 @@ Neither blocks the write or changes the outcome — both are informational.
 
 ```
 WARN: scope calibration contains mixed-model samples — ratios may be unreliable.
-Consider `calibration redrive` after settling on one model:
+Consider settling on one model before relying on them:
   standard/elapsed_hours (claude-opus-5, gpt-5.6-terra)
 ```
 
-If a project switches runtimes mid-stream, run `calibration redrive` once the new runtime is established to rebuild scope and fix ratios from 3.x story nodes — closure and token_mix are unaffected by redrive.
+If a project switches runtimes mid-stream, the mixed samples age out under the decay weighting as the new runtime's accumulate; the 3.x `calibration redrive` that rebuilt them from story nodes retired with that tree.
 
 **`man_hours` and `hitl_hours` calibrate normally on every runtime** and are not affected by model mismatch.
 
@@ -292,7 +280,7 @@ Four components are learned, each per metric:
 The calibration file is committed and shared across parallel subagents; every write takes a file lock. To inspect current calibration state:
 
 ```bash
-uv run {pm_status} calibration show --state-root {pm_state_root}
+uv run {pm_status} calibration show --state-root {l3io_state_root}
 ```
 
 **Full calibration model:** `references/calibration-model.md`

@@ -136,12 +136,13 @@ the class purely in terms of queue depth, which is the frame this case escapes.
 `scripts/check-types.mjs` runs mypy over every `.py` under `skills/_shared/pm_status/` and fails on two
 classes only. Its header carries the full argument; three things to know before touching it:
 
-- **It is not clean-file enforcement and should not become it.** 47 findings stand ungated
+- **It is not clean-file enforcement and should not become it.** 23 findings stand ungated
   today; `npm run check:types -v` prints the current tally, which moves with every extraction.
   A gate that works today beats a total one that is always one refactor away.
 - **"Fail on any `[operator]` finding" is the obvious narrow cut and it does not work** — the
-  package carries 4 pre-existing `[operator]` errors (`Unsupported operand types for +`), so
-  that gate would fail on an unmodified tree. The cut has to be the message, `not callable`.
+  package carried 4 pre-existing `[operator]` errors (`Unsupported operand types for +`) until
+  Phase 6 deleted the 3.x code holding them, and any such finding returning would fail an
+  otherwise sound tree. The cut has to be the message, `not callable`.
 - **The `[name-defined]` arm is not a bonus, it is the load-bearing half.** Delete a
   `if TYPE_CHECKING` import from the module that owns the annotated code and the annotations
   resolve to `Any`, the first arm matches nothing, and the gate reports success over the exact
