@@ -31,6 +31,10 @@ and the next `bmad-build-auto`, which refuses a dirty tree.
 Output: one JSON line per entry written, then one for the epic's roll-up. Exit 0; 2 on
 usage (a missing or unknown class included); 3 for an `--entry` the folder does not list;
 1 when the commit failed.
+
+`--check` is the readiness check wired into Sofia's validate (`workflow.checks.set`): it
+writes nothing, prints one line per entry with neither an estimate of ours nor a hand-set
+one, and exits 1 when there is any, 0 when every entry is estimated.
 """
 from __future__ import annotations
 
@@ -111,13 +115,31 @@ def _epic_name(folder: str) -> str:
             if os.path.basename(folder) == nodes.V7_TICKETS else os.path.basename(folder))
 
 
+def _check(folder: str, entries: dict) -> int:
+    """`--check`: the entries with no estimate, one line each; reads, never writes."""
+    ours = sidecar.plain(sidecar.load(nodes.entry_sidecar(folder))).get("entry", {})
+    missing = [i for i, e in entries.items()
+               if not _hand_set_estimate(e) and not ours.get(i, {}).get("estimate")]
+    for entry_id in missing:
+        sys.stdout.write(f"entry {entry_id} ({entries[entry_id].get('title', '')!s}): "
+                         f"no estimate\n")
+    if missing:
+        return 1
+    sys.stdout.write(f"OK every entry of {_epic_name(folder)} is estimated ({len(entries)})\n")
+    return 0
+
+
 def cmd_estimate_entries(args) -> int:
-    state_root = nodes.project_state_root(args.project_root)
     folder = nodes.v7_tickets_folder(args.ticket_dir)
     toml = os.path.join(folder, "tickets.toml")
     if not os.path.isfile(toml):
         _die_usage(f"--ticket-dir: {toml} does not exist")
     entries = sidecar.read_entries(toml)
+    if args.check:
+        if args.entry or args.classes or args.force:
+            _die_usage("--check writes nothing, so it takes no --entry, --class or --force")
+        return _check(folder, entries)
+    state_root = nodes.project_state_root(args.project_root)
     named = {str(e) for e in args.entry or []}
     for entry_id in sorted(named - set(entries)):
         _die_notfound(f"entry {entry_id} in {toml}")
@@ -219,6 +241,8 @@ def register(sub):
                          "with none recorded; repeatable")
     ee.add_argument("--force", action="store_true",
                     help="re-estimate every entry without a hand-set estimate")
+    ee.add_argument("--check", action="store_true",
+                    help="write nothing; list the entries with no estimate (exit 1 if any)")
     ee.add_argument("--model", default="",
                     help="model the token estimate is priced at "
                          "(modules.l3io-pm.default_model)")

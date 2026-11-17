@@ -63,7 +63,7 @@ resolves; each module's declared `pm_status` (`l3io-pm`, `l3io-util`) is install
 `_bmad/<module-code>/scripts/`, every file its `bmod.toml` lists, and `uv run` of its `__main__.py
 --help` exits 0; the installed doctor's `report-version.py` finds the two copies agreeing, and
 with one copy's version marker changed exits 3 with one finding naming both paths (the copy is
-restored after); a hand-written initiative under the project's `core.output_folder` reads byte-identically through v7's own `tickets.py status` before and after `set-estimate`/`set-actual` with v7 addressing, with the sidecars and `{output_folder}/l3io/events.jsonl` written beside it; after the doctor's `wire`, v7's `render_skill.py` renders `bmad-build` and `bmad-build-auto` with the `build-open`/`build-close` hook commands in place, `unwire` restores both team files byte for byte, and a team `on_complete` planted first makes `wire` exit 3 and stay untouched; a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
+restored after); a hand-written initiative under the project's `core.output_folder` reads byte-identically through v7's own `tickets.py status` before and after `set-estimate`/`set-actual` with v7 addressing, with the sidecars and `{output_folder}/l3io/events.jsonl` written beside it; after the doctor's `wire`, v7's `render_skill.py` renders `bmad-build` and `bmad-build-auto` with the `build-open`/`build-close` hook commands in place, `unwire` restores both team files byte for byte, and a team `on_complete` planted first makes `wire` exit 3 and stay untouched; with Sofia wired, `spec-align.py` and `facts/ac-dimensions.md` are installed under `_bmad/l3io-pm/scripts/`, her rendered `validate-checks.md` holds our Ticket and Set checks and her session facts our fact file, and `check-pointers --story-file` and `estimate-entries --check` run from the installed paths; a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
 the older single file) is gone after setup runs again, while BMad's own `setup.py` there stays;
 with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
 it with `--skill`, and following that hint against this checkout satisfies it. Setup's update
@@ -288,7 +288,9 @@ version strings inside payload files, so every hash moves).
 
 `sync-shared-scripts.mjs` also **writes `[skill] scripts`** into the `bmod.toml` of every skill a
 `pm_status` file is delivered to (`l3io-execute`, `l3io-doctor`): every `.py` of the package,
-POSIX paths relative to the skill, sorted. v7's setup installs exactly that list into
+plus that skill's fixed `DECLARED_EXTRAS` (`l3io-execute`: `scripts/spec-align.py` and
+`scripts/facts/ac-dimensions.md`, the files Sofia's readiness hooks name), POSIX paths relative
+to the skill, sorted. An extra the payload does not contain fails `--check` by name. v7's setup installs exactly that list into
 `_bmad/<module-code>/scripts/`, so a module missing from it is not installed and its first
 import fails on the user's machine. `--check` fails with an `UNDECLARED:` line naming the
 `bmod.toml` and the script for each difference. Never hand-edit the list.

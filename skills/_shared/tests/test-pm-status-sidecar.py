@@ -488,6 +488,21 @@ class TestEstimateEntries(Project):
             self.assertGreater(v["estimate"]["cost"], 0)
             self.assertIn("scope_ratios", v["estimate"])
 
+    def test_check_reports_unestimated_entries_and_writes_nothing(self):
+        before, tree = self.snapshot(), self.tree()
+        r, _ = self.est("--check", check=False)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len([x for x in r.stdout.splitlines() if x.startswith("entry ")]), 3)
+        self.assertEqual((self.snapshot(), self.tree()), (before, tree))
+        self.est(*self.CLASSES)
+        r, _ = self.est("--check")
+        self.assertIn("OK", r.stdout)
+
+    def test_check_refuses_the_flags_that_write(self):
+        for extra in (("--class", "1=simple"), ("--entry", "1"), ("--force",)):
+            r, _ = self.est("--check", *extra, check=False)
+            self.assertEqual(r.returncode, 2, extra)
+
     def test_changed_entry_is_reestimated_unchanged_is_not(self):
         self.est(*self.CLASSES)
         first = self.side()["entry"]

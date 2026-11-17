@@ -14,6 +14,12 @@ import { parse as parseToml } from "smol-toml";
 
 const repo = path.resolve(import.meta.dirname, "..", "..");
 const DECLARERS = ["skills/l3io-pm/l3io-execute", "skills/l3io-util/l3io-doctor"];
+// Files beside the pm_status tree that a declarer also declares: a hook value can name only a
+// path under `_bmad/<module>/scripts/`, so whatever a hook runs or reads must be declared.
+const EXTRAS = {
+  "skills/l3io-pm/l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/spec-align.py"],
+  "skills/l3io-util/l3io-doctor": [],
+};
 
 // A runnable copy: sync `git add`s what it writes, so the copy is a work tree of its own.
 function copyRepo(t) {
@@ -36,20 +42,48 @@ const sync = (root, ...args) => spawnSync(process.execPath,
 const declared = (root, skill) =>
   parseToml(fs.readFileSync(path.join(root, skill, "bmod.toml"), "utf8")).skill?.scripts;
 
-test("each pm_status shipper declares every .py of its payload copy, sorted", () => {
+test("each pm_status shipper declares every .py of its payload copy and its extras, sorted", () => {
   for (const skill of DECLARERS) {
     const pkg = path.join(repo, skill, "scripts", "pm_status");
     const onDisk = fs.readdirSync(pkg, { recursive: true })
       .map((p) => p.split(path.sep).join("/"))
       .filter((p) => p.endsWith(".py") && !p.includes("__pycache__"))
-      .map((p) => `scripts/pm_status/${p}`)
-      .sort();
+      .map((p) => `scripts/pm_status/${p}`);
     assert.ok(onDisk.includes("scripts/pm_status/__main__.py"), `${skill}: walk found no entry point`);
-    assert.deepEqual(declared(repo, skill), onDisk, `${skill}/bmod.toml`);
+    for (const extra of EXTRAS[skill]) {
+      assert.ok(fs.existsSync(path.join(repo, skill, extra)), `${skill}: ${extra} is not in the payload`);
+    }
+    assert.deepEqual(declared(repo, skill), [...onDisk, ...EXTRAS[skill]].sort(), `${skill}/bmod.toml`);
   }
 });
 
-test("no other skill declares scripts: only pm_status needs a path shared between skills", () => {
+test("declared extras are generated: one missing from the payload or the list fails --check, naming it", (t) => {
+  const root = copyRepo(t);
+  const skill = DECLARERS[0];
+  const fact = "scripts/facts/ac-dimensions.md";
+
+  fs.rmSync(path.join(root, skill, fact));
+  const gone = sync(root, "--check");
+  assert.equal(gone.status, 1, gone.stdout);
+  assert.match(gone.stderr, new RegExp(
+    `UNDECLARED: ${skill}/bmod\\.toml \\[skill\\] scripts declares ${fact}, which the payload does not contain`));
+  assert.equal(sync(root).status, 0, "sync restores the payload copy");
+
+  const bmod = path.join(root, skill, "bmod.toml");
+  fs.writeFileSync(bmod, fs.readFileSync(bmod, "utf8").replace(`  "${fact}",\n`, ""));
+  assert.ok(!declared(root, skill).includes(fact), "the planted removal took");
+  const undeclared = sync(root, "--check");
+  assert.equal(undeclared.status, 1, undeclared.stdout);
+  assert.match(undeclared.stderr, new RegExp(
+    `UNDECLARED: ${skill}/bmod\\.toml \\[skill\\] scripts lacks ${fact}`));
+
+  assert.equal(sync(root).status, 0);
+  assert.ok(declared(root, skill).includes(fact), "sync declares it again");
+  const again = sync(root, "--check");
+  assert.equal(again.status, 0, again.stderr);
+});
+
+test("no other skill declares scripts: only a module's pm_status shipper does", () => {
   const out = spawnSync("git", ["ls-files", "skills/**/bmod.toml"], { cwd: repo, encoding: "utf8" });
   for (const rel of out.stdout.split("\n").filter(Boolean)) {
     if (DECLARERS.includes(path.dirname(rel))) continue;

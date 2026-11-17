@@ -201,3 +201,54 @@ requires = "l3io-pm"
 code = "l3io-estimate"
 description = "l3io estimates for an initiative's or an epic's entries, and the epic roll-up"
 prompt = "Run the l3io-plan skill in estimate mode on the folder the user names, or the active initiative."
+
+# --------------------------------------------------------------------------------------------
+# Readiness on Sofia's validate. Both checks are entries in her `workflow.checks.*` lists,
+# which append and render inside the very sections her check subagents run
+# (validate-checks.md:30-47), so their findings are sorted with hers as fix, suggest or ask
+# (validate.md:15). `validate_after` is not used: it is one slot a team's own hook would make
+# wire refuse. Both commands only read. The fact file makes REFINE write the dimensions the
+# ticket check enforces; it is declared by l3io-execute, so `bmad setup` installs it.
+# --------------------------------------------------------------------------------------------
+
+[[entry]]
+id = "l3io-check-technical-ac"
+skill = "bmad-agent-po"
+kind = "list"
+path = "workflow.checks.ticket"
+requires = "l3io-pm"
+value = """
+l3io readiness (l3io-pm): every leaf ticket with a file carries the acceptance criteria in `{project-root}/_bmad/l3io-pm/scripts/facts/ac-dimensions.md`. That means a `## Business acceptance criteria` section (Outcome, Non-goals) above a `## Technical acceptance criteria` section with all six dimensions, each satisfied or marked `N/A — <reason>`, and each applicable one ending in a resolving `Spec: <path>#<anchor>` line or `Spec: none — <reason>`. Check each leaf file with:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/spec-align.py --project-root {project-root} check-pointers --story-file <leaf file> --work-type <work type>
+```
+
+- `<work type>`: `CODE`, `DOCS`, `CONFIG` or `MIXED`, for what the ticket changes. The command reads the project's `business_ac_required` policy to decide whether a missing business section fails.
+- Exit 0: the ticket is ready. Exit 2: each line it printed on stderr is a finding for this ticket. Containers are not checked. An entry with no leaf file is a finding too: it is not ready until it is pulled and refined.
+- The command only reads."""
+
+[[entry]]
+id = "l3io-check-estimate-present"
+skill = "bmad-agent-po"
+kind = "list"
+path = "workflow.checks.set"
+requires = "l3io-pm"
+value = """
+l3io readiness (l3io-pm): every entry in the epic's `tickets.toml` has an l3io estimate. Check with:
+
+```bash
+uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py estimate-entries --project-root {project-root} --ticket-dir <epic folder> --check
+```
+
+- `<epic folder>`: the epic's folder, `<initiative>/tickets/epic-<slug>`.
+- Exit 0: every entry is estimated, by l3io or by hand. Exit 1: each line it printed names an entry with no estimate, and is a finding. The fix is the `l3io-estimate` menu item, never an estimate written into a ticket.
+- The command only reads."""
+
+[[entry]]
+id = "l3io-fact-ac-dimensions"
+skill = "bmad-agent-po"
+kind = "list"
+path = "agent.persistent_facts"
+requires = "l3io-pm"
+value = "file:{project-root}/_bmad/l3io-pm/scripts/facts/ac-dimensions.md"

@@ -598,6 +598,177 @@ class TestBusinessGate(Project):
         self.assertIn("INFO pre-business", r.stdout)
 
 
+# -- v7 leaves (check-pointers --story-file) ------------------------------------------------ #
+# A BMad v7 leaf is a ticket file in Sofia's tree: YAML frontmatter with its `type`, then the
+# ticket body. The specs it points at are the tickets above it and their sources and
+# companions, which live beside the tree rather than under a planning folder, so a pointer
+# resolves against any markdown file under the project root unless --planning-root or
+# --spec-paths narrows the catalog. The business-AC policy is read from the project's own
+# config (modules.l3io-pm.business_ac_required) instead of being passed in.
+
+V7_EPIC = "_bmad-output/initiative-shop/tickets/epic-cart"
+V7_EPIC_FILE = f"{V7_EPIC}/epic-cart.md"
+V7_LEAF_REL = f"{V7_EPIC}/tickets/story-basket.md"
+V7_EPIC_TEXT = ("---\ntype: epic\nafter: []\n---\n\n# Cart\n\n## Outcome\n\nShoppers keep a "
+                "basket.\n\n## Requirements\n\nR1 (prd FR-2): a basket survives a reload.\n")
+V7_FRONT = ('---\nid: 1\ntype: {type}\ntitle: "Basket"\nparent: epic-cart\n'
+            "refined: true\nhitl: false\nrisk: low\n---\n\n")
+
+FAKE_RESOLVE_CONFIG = """\
+import json, sys
+values = json.loads({values!r})
+keys = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a in ("--key", "-k")]
+print(json.dumps({{k: values[k] for k in keys if k in values}}))
+"""
+
+
+def v7_leaf(business=None, kind="story", **tac):
+    """A refined v7 story: frontmatter, then both AC sections pointing at its epic's file."""
+    tac = {k: v for k, v in tac.items()}
+    dims = {d: f"Content for {d}.\nSpec: {V7_EPIC_FILE}#requirements" for d in DIMS}
+    for k, v in tac.items():
+        dims[k.replace("_", " ")] = v
+    head = "# Basket\n\n## Description\n\nA basket that survives a reload.\n"
+    body = story(dims, head=head)
+    bus = (business_block({"Outcome": f"Shoppers keep a basket.\nSpec: {V7_EPIC_FILE}#outcome",
+                           "Non-goals": "No saved-for-later list."})
+           if business is None else business)
+    return V7_FRONT.format(type=kind) + body.replace(head, head + "\n" + bus + "\n", 1)
+
+
+class TestV7Leaf(Project):
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+        self.write(V7_EPIC_FILE, V7_EPIC_TEXT)
+
+    def config(self, **values):
+        """BMad core's resolver, as `bmad setup` installs it, answering from `values`."""
+        self.write("_bmad/scripts/resolve_config.py",
+                   FAKE_RESOLVE_CONFIG.format(values=json.dumps(values)))
+
+    def sa7(self, text, *extra, rel=V7_LEAF_REL, globals_=()):
+        self.write(rel, text)
+        return subprocess.run([sys.executable, SCRIPT, "--project-root", self.root, *globals_,
+                               "check-pointers", "--story-file", self.path(rel), *extra],
+                              capture_output=True, text=True,
+                              env={**os.environ, **GIT_ENV}, cwd=self.root)
+
+    def test_check_pointers_on_v7_leaf(self):
+        with self.subTest("resolving: the epic's own file and an architecture section"):
+            r = self.sa7(v7_leaf(Interface_contracts=(
+                f"POST /basket.\nSpec: {V7_EPIC_FILE}#requirements\nSpec: {ARCH_REL}#order-api")))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("OK check-pointers", r.stdout)
+        with self.subTest("unresolving: an anchor the epic file does not have"):
+            r = self.sa7(v7_leaf(Interface_contracts=f"x\nSpec: {V7_EPIC_FILE}#no-such-anchor"))
+            self.assertEqual(r.returncode, 2)
+            self.assertIn(f"{V7_EPIC_FILE} has no anchor #no-such-anchor", r.stderr)
+            self.assertIn("story-basket.md", r.stderr)
+        with self.subTest("unresolving: a file that does not exist"):
+            r = self.sa7(v7_leaf(Interface_contracts="x\nSpec: docs/nowhere.md#a"))
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("docs/nowhere.md does not exist under the project root", r.stderr)
+        with self.subTest("Spec: none -- reason"):
+            r = self.sa7(v7_leaf(
+                Observability_requirements="Log each basket.\nSpec: none — no observability spec"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+        with self.subTest("Spec: none with no reason"):
+            r = self.sa7(v7_leaf(Observability_requirements="Log it.\nSpec: none"))
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("needs a reason", r.stderr)
+
+    def test_missing_dimension_and_thin_leaf_block(self):
+        dims = {d: f"x\nSpec: {V7_EPIC_FILE}#requirements" for d in DIMS if d != DIMS[5]}
+        text = V7_FRONT.format(type="story") + story(dims)
+        r = self.sa7(text, "--business", "advisory")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Existing-library check: missing dimension", r.stderr)
+        r = self.sa7(V7_FRONT.format(type="story") + "# Basket\n\n## Requirements\n\n"
+                     "Verify: reload keeps the basket.\n")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("pre-provenance", r.stderr)
+
+    def test_frontmatter_is_not_read_as_a_heading(self):
+        r = self.sa7(v7_leaf())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_container_is_refused(self):
+        r = self.sa7(v7_leaf(kind="epic"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("container", r.stderr)
+
+    def test_a_pointer_outside_the_project_does_not_resolve(self):
+        outside = os.path.join(os.path.dirname(self.root), "outside.md")
+        with open(outside, "w", encoding="utf-8") as fh:
+            fh.write("# Out\n\n## Here\n\nx\n")
+        self.addCleanup(os.remove, outside)
+        r = self.sa7(v7_leaf(Interface_contracts="x\nSpec: ../outside.md#here"))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_planning_root_narrows_the_catalog(self):
+        r = self.sa7(v7_leaf(), globals_=("--planning-root", self.planning))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(f"{V7_EPIC_FILE} is not in the spec index", r.stderr)
+
+    def test_business_policy_defaults_to_code_and_mixed(self):
+        no_business = v7_leaf(business="")
+        with self.subTest("no resolver installed: the default, and a CODE ticket requires it"):
+            r = self.sa7(no_business)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("no '## Business acceptance criteria' section", r.stderr)
+        with self.subTest("a DOCS ticket under the default is advisory"):
+            r = self.sa7(no_business, "--work-type", "DOCS")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("INFO ", r.stderr)
+
+    def test_business_policy_reads_the_project_config(self):
+        no_business = v7_leaf(business="")
+        self.config(**{"modules.l3io-pm.business_ac_required": " docs , config "})
+        with self.subTest("CODE is not in the configured set"):
+            r = self.sa7(no_business)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        with self.subTest("CONFIG is, case and whitespace ignored"):
+            r = self.sa7(no_business, "--work-type", "CONFIG")
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("Business acceptance criteria", r.stderr)
+        with self.subTest("an explicit --business wins over the config"):
+            r = self.sa7(no_business, "--work-type", "CONFIG", "--business", "advisory")
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_business_policy_with_an_unknown_work_type_halts(self):
+        self.config(**{"modules.l3io-pm.business_ac_required": "CODE,BOGUS"})
+        r = self.sa7(v7_leaf())
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("BOGUS", r.stderr)
+        self.assertIn("CODE, DOCS, CONFIG, MIXED", r.stderr)
+
+    def test_work_type_belongs_to_story_file_only(self):
+        self.write(STORY_REL, full_story())
+        r = self.sa("check-pointers", "--story", self.path(STORY_REL), "--work-type", "DOCS")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--work-type", r.stderr)
+
+    def test_the_check_writes_nothing(self):
+        self.config(**{"modules.l3io-pm.business_ac_required": "CODE"})
+        self.write(V7_LEAF_REL, v7_leaf())
+
+        def snapshot():
+            out = {}
+            for d, dirs, files in os.walk(self.root):
+                dirs[:] = [x for x in dirs if x != "__pycache__"]
+                for f in files:
+                    p = os.path.join(d, f)
+                    with open(p, "rb") as fh:
+                        out[os.path.relpath(p, self.root)] = fh.read()
+            return out
+        before = snapshot()
+        for text in (v7_leaf(), v7_leaf(business=""), v7_leaf(Interface_contracts="x")):
+            self.sa7(text)
+            self.write(V7_LEAF_REL, v7_leaf())
+        self.assertEqual(snapshot(), before)
+
+
 REVIEW = """# Arch drift review
 
 2 sentences of summary.

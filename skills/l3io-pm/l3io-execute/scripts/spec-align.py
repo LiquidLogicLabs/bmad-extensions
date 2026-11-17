@@ -21,6 +21,12 @@ first, and the result decides whether an agent is dispatched at all.
 Global flags come before the subcommand: --project-root (required), --planning-root,
 --impl-root, --state-root (default <impl-root>/state), --pm-status, --spec-paths JSON.
 
+On BMad v7, `check-pointers --story-file` checks Sofia's leaf tickets: it needs only
+--project-root, resolves each pointer against the markdown file it names under the project
+root (unless --planning-root or --spec-paths narrows the catalog), and reads the business-AC
+policy from modules.l3io-pm.business_ac_required through BMad core's resolve_config.py. It
+writes nothing; it runs inside Sofia's validate checks.
+
 Exit codes: 0 ok; 1 a report-mode check found problems; 2 a gate refused, or bad input;
 5 the spec-sync lease is held by another owner.
 
@@ -35,6 +41,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -320,27 +327,29 @@ def discover(ctx):
     return sorted(found.items())
 
 
-def load_catalog(ctx):
-    """{rel: {"kind", "sections", "anchors", "error", "sha"}} for every discovered spec."""
-    cat = {}
-    for rel, kind in discover(ctx):
-        e = {"kind": kind, "sections": [], "anchors": {}, "error": None, "sha": ""}
+def catalog_entry(ctx, rel, kind):
+    """{"kind", "sections", "anchors", "error", "sha"} for one spec file."""
+    e = {"kind": kind, "sections": [], "anchors": {}, "error": None, "sha": ""}
+    try:
+        with open(ctx.abs(rel), "rb") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        e["error"], e["sha"] = f"unreadable: {exc.strerror or exc}", "unreadable"
+    else:
+        e["sha"] = hashlib.sha256(raw).hexdigest()
         try:
-            with open(ctx.abs(rel), "rb") as fh:
-                raw = fh.read()
-        except OSError as exc:
-            e["error"], e["sha"] = f"unreadable: {exc.strerror or exc}", "unreadable"
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            e["error"] = "not UTF-8"
         else:
-            e["sha"] = hashlib.sha256(raw).hexdigest()
-            try:
-                text = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                e["error"] = "not UTF-8"
-            else:
-                e["sections"] = parse_sections(text)
-                e["anchors"] = {s.anchor: s for s in e["sections"]}
-        cat[rel] = e
-    return cat
+            e["sections"] = parse_sections(text)
+            e["anchors"] = {s.anchor: s for s in e["sections"]}
+    return e
+
+
+def load_catalog(ctx):
+    """{rel: catalog_entry} for every discovered spec."""
+    return {rel: catalog_entry(ctx, rel, kind) for rel, kind in discover(ctx)}
 
 
 def inputs_hash(ctx, cat):
@@ -486,7 +495,7 @@ def resolve_pointer(cat, value):
     path, anchor = m.groups()
     e = cat.get(path)
     if e is None:
-        return None, f"{path} is not in the spec index"
+        return None, f"{path} {getattr(cat, 'missing', 'is not in the spec index')}"
     if e["error"]:
         return None, f"{path} is unreadable ({e['error']})"
     s = e["anchors"].get(anchor)
@@ -560,9 +569,108 @@ def all_story_files(ctx):
     return sorted(glob.glob(os.path.join(ctx.impl, "epic-*", "sprint-*", "stories", "*.md")))
 
 
+# -- v7 leaves ------------------------------------------------------------------------------ #
+
+# A BMad v7 ticket's frontmatter `type`. A container's acceptance criteria are its children's,
+# so only a leaf is checked.
+V7_CONTAINER_TYPES = frozenset({"initiative", "epic"})
+_FM_TYPE_RE = re.compile(r"""^type:\s*["']?([A-Za-z-]+)""")
+# The work types modules.l3io-pm.business_ac_required names (config-resolution.md).
+WORK_TYPES = ("CODE", "DOCS", "CONFIG", "MIXED")
+BUSINESS_AC_KEY = "modules.l3io-pm.business_ac_required"
+BUSINESS_AC_DEFAULT = "CODE,MIXED"
+
+
+def leaf_type(text):
+    """The `type` in a leading YAML frontmatter block, lower-cased, or None."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if _FM_CLOSE.match(line):
+            return None
+        m = _FM_TYPE_RE.match(line)
+        if m:
+            return m.group(1).lower()
+    return None
+
+
+class _PointedCatalog(dict):
+    """The catalog of a v7 leaf's own pointer targets. A v7 project's specs are its tickets
+    and their sources and companions, which sit beside the ticket tree and under no one
+    planning folder, so a pointer's file is looked up where it says it is."""
+
+    missing = "does not exist under the project root"
+
+
+def pointed_catalog(ctx, texts):
+    """Every markdown file under the project root that a `Spec:` line in `texts` names."""
+    cat = _PointedCatalog()
+    for text in texts:
+        for _n, _dim, value in story_pointers(text):
+            m = PTR_RE.match(value.strip().strip("`"))
+            if not m or m.group(1) in cat or os.path.isabs(m.group(1)):
+                continue
+            full = os.path.normpath(os.path.join(ctx.project, m.group(1)))
+            if _under(full, ctx.project) and os.path.isfile(full):
+                cat[m.group(1)] = catalog_entry(ctx, m.group(1), _kind_for_path(full) or "other")
+    return cat
+
+
+def resolve_config_key(ctx, key):
+    """One key from BMad core's resolver at `{project-root}/_bmad/scripts/resolve_config.py`,
+    or None when the resolver is not installed or does not set the key."""
+    script = os.path.join(ctx.project, "_bmad", "scripts", "resolve_config.py")
+    if not os.path.isfile(script):
+        return None
+    runner = (["uv", "run", "--quiet", "--no-project"] if shutil.which("uv")
+              else [sys.executable])
+    r = subprocess.run([*runner, script, "--project-root", ctx.project, "--key", key],
+                       capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        raise SAError(2, f"{ctx.rel(script)} failed resolving {key}: "
+                         f"{(r.stderr or r.stdout).strip()}")
+    try:
+        return json.loads(r.stdout).get(key)
+    except (ValueError, AttributeError):
+        raise SAError(2, f"{ctx.rel(script)} printed no JSON object for {key}")
+
+
+def business_policy(ctx, a):
+    """`required` or `advisory` for a v7 leaf of work type `--work-type`. An explicit
+    `--business` wins; otherwise the work type is looked up in business_ac_required."""
+    if a.business:
+        return a.business
+    raw = resolve_config_key(ctx, BUSINESS_AC_KEY)
+    raw = BUSINESS_AC_DEFAULT if raw is None else raw
+    if not isinstance(raw, str):
+        raise SAError(2, f"{BUSINESS_AC_KEY} must be a comma-separated string, got {raw!r}")
+    types = [t.strip().upper() for t in raw.split(",") if t.strip()]
+    bad = [t for t in types if t not in WORK_TYPES]
+    if bad:
+        raise SAError(2, f"{BUSINESS_AC_KEY} = {raw!r}: {', '.join(bad)} is not a work type; "
+                         f"the legal set is {', '.join(WORK_TYPES)}")
+    return "required" if (a.work_type or "CODE") in types else "advisory"
+
+
 def cmd_check_pointers(ctx, a):
-    cat = load_catalog(ctx)
-    stories = all_story_files(ctx) if a.all else [ctx.abs(s) for s in a.story]
+    if a.work_type and not a.story_file:
+        raise SAError(2, "--work-type applies to --story-file only")
+    if a.story_file:
+        stories = [ctx.abs(s) for s in a.story_file]
+        texts = []
+        for s in stories:
+            try:
+                texts.append(read_text(s))
+            except (OSError, UnicodeDecodeError):
+                continue
+        business_mode = business_policy(ctx, a)
+        cat = (load_catalog(ctx) if ctx.planning or ctx.spec_paths_arg is not None
+               else pointed_catalog(ctx, texts))
+    else:
+        stories = all_story_files(ctx) if a.all else [ctx.abs(s) for s in a.story]
+        business_mode = a.business or "advisory"
+        cat = load_catalog(ctx)
     broken, pre, pre_business = 0, [], []
     for s in stories:
         rel = ctx.rel(s)
@@ -570,6 +678,11 @@ def cmd_check_pointers(ctx, a):
             text = read_text(s)
         except (OSError, UnicodeDecodeError) as e:
             sys.stderr.write(f"{rel}: unreadable ({e})\n")
+            broken += 1
+            continue
+        if a.story_file and leaf_type(text) in V7_CONTAINER_TYPES:
+            sys.stderr.write(f"{rel}: a v7 {leaf_type(text)} is a container; its leaves carry "
+                             f"the acceptance criteria, so check those\n")
             broken += 1
             continue
         technical, business = check_story(cat, text)
@@ -585,7 +698,7 @@ def cmd_check_pointers(ctx, a):
             pre_business.append(rel)
             msg = (f"{rel}: no '## {BAC_HEADING}' section -- "
                    f"state the outcome this story serves and its non-goals\n")
-            if a.business == "required" and not a.all:
+            if business_mode == "required" and not a.all:
                 sys.stderr.write(msg)
                 broken += 1
                 continue
@@ -1695,9 +1808,16 @@ def build_parser():
     g.add_argument("--story", nargs="+", help="gate mode: exit 2 on any problem")
     g.add_argument("--all", action="store_true",
                    help="report mode over every story: exit 1 on broken pointers")
-    cp.add_argument("--business", choices=("required", "advisory"), default="advisory",
+    g.add_argument("--story-file", nargs="+",
+                   help="gate mode over BMad v7 leaf tickets: exit 2 on any problem; pointers "
+                        "resolve against any markdown file under the project root")
+    cp.add_argument("--business", choices=("required", "advisory"), default=None,
                     help="required: a missing business AC section is an error (gate mode); "
-                         "advisory: reported on stderr only")
+                         "advisory: reported on stderr only. Default: advisory, except under "
+                         "--story-file, where modules.l3io-pm.business_ac_required decides")
+    cp.add_argument("--work-type", choices=WORK_TYPES, default=None,
+                    help="--story-file only: the leaf's work type, looked up in "
+                         "business_ac_required (default CODE)")
     cp.set_defaults(func=cmd_check_pointers)
 
     se = sub.add_parser("sections", help="the stories' pointers as de-duplicated line ranges")

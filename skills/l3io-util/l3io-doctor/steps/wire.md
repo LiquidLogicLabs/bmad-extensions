@@ -27,12 +27,16 @@ What it adds (`assets/wire-in.toml`):
 | `l3io-estimate-on-refine` | `bmad-agent-po.toml` | `workflow.refine_after` | re-estimates the entry just refined |
 | `l3io-reestimate-on-replan` | `bmad-agent-po.toml` | `workflow.replan_after` | repoints l3io's files after a move (`sidecar-reconcile`), then re-estimates each epic the replan touched |
 | `l3io-menu-estimate` | `bmad-agent-po.toml` | `agent.menu` (code `l3io-estimate`) | a Sofia menu item running `l3io-plan` in estimate mode |
+| `l3io-check-technical-ac` | `bmad-agent-po.toml` | `workflow.checks.ticket` | a Ticket check in Sofia's validate: business and six-dimension technical ACs with resolving `Spec:` lines (`spec-align.py check-pointers --story-file`) |
+| `l3io-check-estimate-present` | `bmad-agent-po.toml` | `workflow.checks.set` | a Set check: every entry has an l3io estimate (`estimate-entries --check`) |
+| `l3io-fact-ac-dimensions` | `bmad-agent-po.toml` | `agent.persistent_facts` | the AC dimension reference as a session fact, so REFINE writes what the Ticket check enforces |
 
-Each hook calls `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py`, which
-`bmad setup l3io-pm` installs, and carries `requires = "l3io-pm"`: while that file is
-absent the entry is `skipped` and nothing is written for it. The menu item needs
-`l3io-pm` the same way. Every hook commits the l3io files it writes and nothing else, so the
-next `bmad-build-auto` still starts on a clean tree.
+Each hook calls a script under `{project-root}/_bmad/l3io-pm/scripts/` (`pm_status/__main__.py`,
+`spec-align.py`, or the fact file `facts/ac-dimensions.md`), which `bmad setup l3io-pm`
+installs, and carries `requires = "l3io-pm"`: while `pm_status/__main__.py` is absent the
+entry is `skipped` and nothing is written for it. The menu item needs `l3io-pm` the same way.
+Every hook that writes commits the l3io files it wrote and nothing else, so the next
+`bmad-build-auto` still starts on a clean tree; the two checks only read.
 
 ## 2. Report
 

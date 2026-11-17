@@ -771,6 +771,17 @@ because they run after Sofia's own commit and before the next `bmad-build-auto`,
 refuses a dirty tree. `set-estimate`, `set-actual` and `add-test-run` are not hooks and
 commit nothing.
 
+**Readiness runs inside Sofia's validate.** `/l3io-doctor wire` appends one entry to her
+`workflow.checks.ticket` list and one to `workflow.checks.set`, so her own check subagents run
+them and her findings sort ours. The Ticket check runs `spec-align.py check-pointers
+--story-file <leaf>` from `{project-root}/_bmad/l3io-pm/scripts/`: the business and six
+technical AC dimensions, each with a resolving `Spec:` line, a pointer resolving against the
+markdown file it names under the project root, and the business section required per
+`modules.l3io-pm.business_ac_required` for the `--work-type` given. The Set check runs
+`estimate-entries --check`, which lists every entry with neither our estimate nor a hand-set
+one. Both only read. A `persistent_facts` entry names the installed
+`facts/ac-dimensions.md`, so REFINE writes the dimensions the Ticket check enforces.
+
 **Every build is measured through its own hooks.** `/l3io-doctor wire` gives `bmad-build` and
 `bmad-build-auto` a prepend that runs `build-open` and an On Complete that runs `build-close`.
 `build-open` writes only `{state_root}/.inflight/<key>.json`; the spool holds a `.gitignore`

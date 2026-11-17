@@ -305,6 +305,51 @@ check "it estimated all three entries and rolled the epic up" \
 tstatus > "$work/tickets-after-estimate.json"
 check "tickets.py status prints byte-identical JSON after estimate-entries" \
   "cmp -s '$work/tickets-before.json' '$work/tickets-after-estimate.json'"
+
+echo "== readiness checks on Sofia's validate (Phase 4 Task 4.4) =="
+# The same wire attached two check-list entries and a persistent_facts file to Sofia. Setup must
+# have installed the two files they name; her rendered validate-checks.md must carry our Ticket
+# and Set lines and her workflow our fact; spec-align.py must run from where setup put it.
+spec_align="$proj/_bmad/l3io-pm/scripts/spec-align.py"
+fact="$proj/_bmad/l3io-pm/scripts/facts/ac-dimensions.md"
+check "setup installed _bmad/l3io-pm/scripts/spec-align.py and facts/ac-dimensions.md" \
+  "[ -f '$spec_align' ] && [ -f '$fact' ]"
+check "the installed fact file is the canonical AC dimension reference" \
+  "cmp -s '$fact' '$pkg/skills/_shared/ac-dimensions.md'"
+vchecks="$(find "$po_render" -name validate-checks.md -type f | head -n 1)"
+check "the rendered validate-checks.md holds our Ticket check (spec-align.py check-pointers --story-file)" \
+  "[ -n '$vchecks' ] && sed -n '/^## Ticket/,/^## Set/p' '$vchecks' | grep -q 'spec-align.py --project-root {project-root} check-pointers --story-file'"
+check "the rendered validate-checks.md holds our Set check (estimate-entries --check)" \
+  "sed -n '/^## Set/,/^## Tree/p' '$vchecks' | grep -q 'estimate-entries .*--check'"
+check "Sofia's rendered session facts name the installed ac-dimensions.md" \
+  "grep -q 'file:{project-root}/_bmad/l3io-pm/scripts/facts/ac-dimensions.md' '$work/render-po.md' \
+     || grep -rq 'file:{project-root}/_bmad/l3io-pm/scripts/facts/ac-dimensions.md' '$po_render'"
+leaf="$epic_t/story-1.md"
+{ printf -- '---\nid: 1\ntype: story\ntitle: "Story 1"\nparent: epic-smoke\nrefined: true\n---\n\n# Story 1\n\n'
+  printf '## Business acceptance criteria\n\n### Outcome\n\nSmoke passes.\nSpec: none — smoke fixture\n\n'
+  printf '### Non-goals\n\nNothing else.\n\n## Technical acceptance criteria\n\n'
+  for d in "Interface contracts" "Error and edge case handling" "Observability requirements" \
+           "Security considerations" "Testability approach" "Existing-library check"; do
+    printf '### %s\n\nN/A — smoke fixture\n\n' "$d"
+  done; } > "$leaf"
+code=0
+(cd "$proj" && uv run --quiet "$spec_align" --project-root . check-pointers --story-file "$leaf" \
+   --work-type CODE > "$work/check-pointers.txt" 2>&1) || code=$?
+check "spec-align.py check-pointers --story-file passes a ready leaf from the installed path" "[ '$code' = 0 ]"
+printf -- '---\nid: 1\ntype: story\ntitle: "Story 1"\n---\n\n# Story 1\n' > "$leaf"
+code=0
+(cd "$proj" && uv run --quiet "$spec_align" --project-root . check-pointers --story-file "$leaf" \
+   > "$work/check-pointers-thin.txt" 2>&1) || code=$?
+check "... and finds a thin one (exit 2)" "[ '$code' = 2 ]"
+rm -f "$leaf"
+code=0
+(cd "$proj" && uv run --quiet "$pm_main" estimate-entries --project-root . --ticket-dir "$epic_t" \
+   --check > "$work/estimate-check.txt") || code=$?
+check "estimate-entries --check passes the estimated epic from the installed copy" "[ '$code' = 0 ]"
+tstatus > "$work/tickets-after-checks.json"
+check "tickets.py status prints byte-identical JSON after the checks" \
+  "cmp -s '$work/tickets-before.json' '$work/tickets-after-checks.json'"
+
 (cd "$proj" && uv run --quiet "$wire_py" unwire --project-root . >/dev/null) || true
 if [ -e "$work/po-before.absent" ]; then
   check "unwire removes the bmad-agent-po team file wire created (R15)" "[ ! -e '$po_team' ]"

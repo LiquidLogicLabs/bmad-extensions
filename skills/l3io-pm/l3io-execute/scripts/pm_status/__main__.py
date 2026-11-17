@@ -317,7 +317,8 @@ Subcommands
                 changed as `chore(l3io): reconcile sidecars`; exit 0, 2 on usage, 1 when
                 the commit failed)
   estimate-entries  --project-root P  --ticket-dir D  [--entry ID ...]
-                [--class ID=CLASS ...]  [--force]  [--model M]  [--token-rates JSON]
+                [--class ID=CLASS ...]  [--force]  [--check]  [--model M]
+                [--token-rates JSON]
                 (v7 estimation, run by Sofia's slice/refine/replan hooks and `l3io-plan
                 estimate`: writes [entry.<id>] in D's l3io.toml -- class, fingerprint,
                 estimated_at, and the estimate estimate-story would compute -- for each
@@ -328,7 +329,9 @@ Subcommands
                 sprint term. An entry to write with no class is exit 2, nothing written.
                 One JSON line per entry written and one for the epic; commits l3io.toml as
                 `chore(l3io): estimates <epic>`; exit 3 for an unknown --entry, 1 when the
-                commit failed)
+                commit failed. --check is Sofia's validate Set check: it writes nothing,
+                prints one line per entry with no estimate of ours or by hand, and exits
+                1 when there is any; it takes no --entry, --class or --force)
   build-open    --project-root P  --agent {bmad-build,bmad-build-auto}  [--plan-file F]
                 [--session-id ID]
                 (v7 build hook, activation_steps_prepend: opens the build's measurement

@@ -15,7 +15,11 @@
 //   inside one module.
 //   spec-align.py → scripts/ in l3io-execute (arch gate, story prep, closures) and
 //   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
-//   it has two consumers (ADR-0001), run from each skill's own copy, never declared
+//   it has two consumers (ADR-0001). l3io-execute also DECLARES it (DECLARED_EXTRAS), so v7
+//   installs it at _bmad/l3io-pm/scripts/spec-align.py for the readiness check wired into
+//   Sofia's validate; l3io-doctor runs its own skill copy and does not declare it
+//   ac-dimensions.md → references/ in l3io-plan and l3io-execute, and as a declared fact at
+//   scripts/facts/ in l3io-execute, which Sofia's persistent_facts names
 //   status-files.md / metrics-contract.md → references/ in PM skills
 //   auto-remediation.md → references/ in l3io-execute, l3io-plan
 //   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
@@ -101,6 +105,13 @@ const specAlignFiles = [
 
 // The canonical story AC dimension reference, shipped to the two skills that enrich stories.
 const acDimensionFiles = [{ src: path.join(sharedDir, "ac-dimensions.md"), rel: "references/ac-dimensions.md" }];
+
+// The same reference as a declared fact: a Sofia `persistent_facts` entry can only name a file
+// under `{project-root}/_bmad/l3io-pm/scripts/`, so REFINE writes to the dimensions the
+// readiness check enforces.
+const acDimensionFactFiles = [
+  { src: path.join(sharedDir, "ac-dimensions.md"), rel: path.join("scripts", "facts", "ac-dimensions.md") },
+];
 
 // The auto-remediation contract: delivered to the skills carrying
 // steps/shared/step-00-activate.md, whose halts it governs.
@@ -268,6 +279,8 @@ const syncGroups = [
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
   // the canonical AC dimension reference into the two skills that enrich stories
   { files: acDimensionFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
+  // ... and as l3io-pm's declared fact file, for Sofia's persistent_facts
+  { files: acDimensionFactFiles, dirs: pmStatusShipperDirs },
   // the auto-remediation contract into the skills whose halts it classifies
   { files: autoRemediationFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   // the agent instruction block body, into each module's home only
@@ -366,13 +379,24 @@ function pmStatusDeclarers() {
     if (!files.some(({ rel }) => rel.startsWith(pkgPrefix))) continue;
     for (const dir of targets) if (!(skipMissing && !fs.existsSync(dir))) dirs.add(dir);
   }
+  for (const name of Object.keys(DECLARED_EXTRAS)) dirs.add(skillDir(name));
   return [...dirs].sort();
 }
 
-function declaredScripts() {
-  return walkPy(path.join(sharedDir, PM_STATUS_PKG))
-    .map((relPy) => ["scripts", PM_STATUS_PKG, ...relPy.split(path.sep)].join("/"))
-    .sort();
+// Files a declarer declares beside its pm_status tree, keyed by skill name. A hook value can
+// name only a path under `{project-root}/_bmad/<module>/scripts/` (in a hook, `{skill-root}` is
+// the HOST's), so whatever a wire-in entry runs or reads is declared here. Each must also be
+// delivered to that skill by a sync group; --check fails on one the payload does not contain.
+const DECLARED_EXTRAS = {
+  "l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/spec-align.py"],
+};
+
+function declaredScripts(dir) {
+  return [
+    ...walkPy(path.join(sharedDir, PM_STATUS_PKG))
+      .map((relPy) => ["scripts", PM_STATUS_PKG, ...relPy.split(path.sep)].join("/")),
+    ...(DECLARED_EXTRAS[path.basename(dir)] ?? []),
+  ].sort();
 }
 
 // The generated form, one entry per line so a new module is a one-line diff. Written as the last
@@ -406,7 +430,10 @@ function declarationFindings(dir, list) {
   const findings = [
     ...list.filter((s) => !got.includes(s)).map((s) => `UNDECLARED: ${rel} [skill] scripts lacks ${s}`),
     ...got.filter((s) => !list.includes(s))
-      .map((s) => `UNDECLARED: ${rel} [skill] scripts declares ${s}, which pm_status/ does not contain`),
+      .map((s) => `UNDECLARED: ${rel} [skill] scripts declares ${s}, which is neither in pm_status/ ` +
+        `nor a declared extra`),
+    ...list.filter((s) => !fs.existsSync(path.join(dir, ...s.split("/"))))
+      .map((s) => `UNDECLARED: ${rel} [skill] scripts declares ${s}, which the payload does not contain`),
   ];
   if (findings.length === 0 && text !== withDeclaredScripts(text, list)) {
     findings.push(`UNDECLARED: ${rel} [skill] scripts is not in its generated form (order or layout)`);
@@ -497,9 +524,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
 
-  const declared = declaredScripts();
   let undeclared = 0;
   for (const dir of pmStatusDeclarers()) {
+    const declared = declaredScripts(dir);
     if (check) {
       const findings = declarationFindings(dir, declared);
       undeclared += findings.length;
@@ -513,7 +540,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     fs.writeFileSync(file, next);
     execFileSync("git", ["add", file], { cwd: repoRoot, stdio: "ignore" });
     written += 1;
-    writeAllSync(1, `Declared ${declared.length} pm_status script(s) in ${path.relative(repoRoot, file)}\n`);
+    writeAllSync(1, `Declared ${declared.length} script(s) in ${path.relative(repoRoot, file)}\n`);
   }
 
   const orphans = [...findOrphans(), ...findStalePackageFiles()];

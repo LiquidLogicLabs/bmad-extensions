@@ -2,6 +2,7 @@
 bmod = "bmod-l3io-pm"
 source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-pm"
 scripts = [
+  "scripts/facts/ac-dimensions.md",
   "scripts/pm_status/__init__.py",
   "scripts/pm_status/__main__.py",
   "scripts/pm_status/bracket/__init__.py",
@@ -28,4 +29,5 @@ scripts = [
   "scripts/pm_status/sidecar/reconcile.py",
   "scripts/pm_status/sidecar/verbs.py",
   "scripts/pm_status/verbs/__init__.py",
+  "scripts/spec-align.py",
 ]
