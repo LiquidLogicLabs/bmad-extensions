@@ -82,6 +82,18 @@
 
 ### Task 3.2: Declare `pm_status`; every caller uses the declared copy
 
+> **Done 2026-11-16** — `3014660`. The generated list has 20 entries per declarer. `--check`
+> fails with `UNDECLARED: <bmod.toml> [skill] scripts lacks <script>`. It also fails on an extra
+> entry and on the list being out of order. The tests are in `scripts/tests/sync-shared-scripts.test.mjs`.
+> The grep does not reach zero. Seven lines still name `_bmad/scripts/pm-status`: self-install's
+> `--dest` (shared activation, synced twice, plus `l3io-doctor`'s), and the `clean-payload.py` and
+> `check-pm-status.py` constants. Self-install stays until Task 3.3, so each of those lines
+> carries `check-39: legacy-path -- <reason>`, and check 39 exempts only a line with that marker
+> and a reason. 3.3 deletes them. The legacy `clean-payload.py` constants may keep theirs for
+> Review Focus 4. Activation still self-installs, but no step calls that copy. Check 36 scans
+> only `skills/_shared/steps`, so the `l3io-doctor` halt in its `SKILL.md` has no table row.
+> smoke:install passes, and both copies run `--help`.
+
 **Files:**
 - Modify: `scripts/sync-shared-scripts.mjs`. It writes `[skill] scripts` into the `bmod.toml` of each skill that carries a `pm_status` payload: every `.py` under `scripts/pm_status/`, sorted, with paths relative to the skill. Its `--check` fails on any difference, naming the file.
 - Modify: `skills/l3io-pm/l3io-execute/bmod.toml` and `skills/l3io-util/l3io-doctor/bmod.toml` (generated).
@@ -89,13 +101,13 @@
 - Modify: `tests/fixtures/v7/` smoke (`scripts/smoke-install*`). After setup, assert that both declared copies exist and that `uv run <copy> --help` exits 0.
 - Test: `scripts/tests/sync-shared-scripts*.test.mjs` (or the existing sync test file).
 
-- [ ] **Step 1: Failing test (Review Focus 1).** On a fixture tree, add `scripts/pm_status/new_mod.py` without regenerating. `sync-shared-scripts.mjs --check` exits non-zero and names `new_mod.py` and the `bmod.toml`. After `sync:scripts`, the list contains it.
-- [ ] **Step 2:** Generate the lists. Then `check:bmod` must pass, since v7's validator reads `skill.scripts`.
-- [ ] **Step 3: Rebind every caller.** `git grep -n "_bmad/scripts/pm-status"` over `skills/` must reach zero. Then add check 39's third arm (the old path), with its failing fixture test written first.
-- [ ] **Step 4: Review Focus 2.** Before the first `{pm_status}` call, `step-00-activate.md` tests whether the declared copy exists. If it is absent, it halts with exactly `BLOCKED: _bmad/l3io-pm/scripts/pm_status is not installed — run bmad setup l3io-pm`. `l3io-doctor` does the same with `l3io-util`. Classify the new `BLOCKED:` site in `auto-remediation.md`'s `Halts` table, because check 36 requires it.
-- [ ] **Step 5: Verify on the fixture.** Run `npm run smoke:install` (network, about 20 s). Both copies are present and `--help` runs.
-- [ ] **Step 6:** Run every gate in `checks.yml` and both suites.
-- [ ] **Step 7: Commit.** `feat(infra)!: declare pm_status in bmod.toml; v7 installs it per module`.
+- [x] **Step 1: Failing test (Review Focus 1).** On a fixture tree, add `scripts/pm_status/new_mod.py` without regenerating. `sync-shared-scripts.mjs --check` exits non-zero and names `new_mod.py` and the `bmod.toml`. After `sync:scripts`, the list contains it.
+- [x] **Step 2:** Generate the lists. Then `check:bmod` must pass, since v7's validator reads `skill.scripts`.
+- [x] **Step 3: Rebind every caller.** `git grep -n "_bmad/scripts/pm-status"` over `skills/` must reach zero. Then add check 39's third arm (the old path), with its failing fixture test written first.
+- [x] **Step 4: Review Focus 2.** Before the first `{pm_status}` call, `step-00-activate.md` tests whether the declared copy exists. If it is absent, it halts with exactly `BLOCKED: _bmad/l3io-pm/scripts/pm_status is not installed — run bmad setup l3io-pm`. `l3io-doctor` does the same with `l3io-util`. Classify the new `BLOCKED:` site in `auto-remediation.md`'s `Halts` table, because check 36 requires it.
+- [x] **Step 5: Verify on the fixture.** Run `npm run smoke:install` (network, about 20 s). Both copies are present and `--help` runs.
+- [x] **Step 6:** Run every gate in `checks.yml` and both suites.
+- [x] **Step 7: Commit.** `feat(infra)!: declare pm_status in bmod.toml; v7 installs it per module`.
 
 ### Task 3.3: Delete self-install
 
