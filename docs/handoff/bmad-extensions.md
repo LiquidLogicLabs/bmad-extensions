@@ -1,5 +1,7 @@
 # Handoff — bmad-extensions
 
+> **Historical (3.x era).** Written for the l3io 3.x line on BMad 6.x; many verbs and modes it names were removed in 4.0.0 — see [Upgrading](../upgrading.md#3x--400-moving-to-bmad-v7).
+
 **Resume line:** *"You are `bmad extensions - agent 1`. Read your handoff note, then continue."*
 
 > **This file is the SLOW half of a deliberate pair.** It carries the durable, repo-shaped

@@ -1,5 +1,7 @@
 # Outstanding work — full assessment
 
+> **Historical (3.x era).** A 2026-09-26 snapshot of the 3.x line; many verbs and modes it names were removed in 4.0.0 — see [Upgrading](upgrading.md#3x--400-moving-to-bmad-v7).
+
 **Date:** 2026-09-26 · **Tree:** `main` at 3.1.0 + the check-27 scoping fix, CI green
 
 Every open item in this repository, measured against the tree rather than recalled, sorted by
