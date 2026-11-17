@@ -156,6 +156,21 @@ Rules the hooks live under:
 
 ### Task 4.2: Measurement on every build (item 2, R13)
 
+**Done 2026-11-17** (`fcce5c5a`). New module `pm_status/build/` (`build-open`, `build-close`); `requires` and the `skipped` status in `wire-in.py`; four entries in `assets/wire-in.toml`; `check:bmod`'s wire-in arm over six pinned host `customize.toml` files; `tests/l3io-pm/test-build-hooks.py` (6 tests); `smoke:install` renders both build skills after `wire` and checks `unwire` and the refusal. CLI is 45 subcommands.
+
+- Ruling: the spool ignores itself (`.inflight/.gitignore` holding `*`, written by `_ensure_lock_ignore`), rather than a line in `{state_root}/.gitignore` — why: on a first build that `.gitignore` is itself an untracked file, so writing it at open dirties the tree `bmad-build-auto` checks at step 1 — cost if wrong: none; the state root's `.gitignore` still gets `*.lock` and is committed by the close.
+- Ruling: `build-open` appends no event; the bracket's `dispatch_open` is written by the close with the open's timestamp, and an abandoned bracket's pair likewise at the next close — why: an event is a tracked write, and the open runs before the clean-tree check — cost if wrong: `report --stall-minutes` cannot see an in-flight build until Task 4.5's v7 report source reads `.inflight/`.
+- Ruling: the bracket key is `--session-id`, else `CLAUDE_CODE_SESSION_ID`, else the agent plus a hash of the worktree — why: the prepend runs before any plan exists, so neither verb can be told the other's name — cost if wrong: two concurrent non-Claude builds by one agent in one worktree share a key, which the clean-tree rule already forbids.
+- Ruling: `[actual]` is the sum of the plan sidecar's `dispatch` list, one record per closed bracket — why: `bmad-build-auto` runs On Complete on `blocked` too, so a blocked-then-resumed ticket has two brackets and its spend is both — cost if wrong: re-building a built ticket adds to its actual.
+- Ruling: the calibration sample is taken once per ticket (`calibration_sampled_at`), only when the plan reads `built` or `done` and `[entry.<id>].estimate` exists — why: a blocked run's partial spend is not a size measurement, and an after-the-fact estimate is not a prediction — cost if wrong: a ticket that ends blocked never calibrates.
+- Ruling: `fix_iterations` is the plan's `review_loop_iteration` — why: it is v7's own count of review loopbacks — cost if wrong: the fix cohort follows v7's meaning of the counter.
+- Ruling: under `codex`/`copilot`/`other` the close records tokens `N/A`, though `set-actual` refuses `--tokens-na` for codex and copilot — why: the close cannot read those runtimes' usage, and guessing is forbidden — cost if wrong: those runtimes' tickets carry no tokens until a reader exists.
+- Ruling: the hook commands carry slots `<runtime>`, `<man_hours>`, `<hitl_hours>`, `<verification command>`, `<exit code>` (bmad-build-auto's has `--hitl-hours 0` fixed); the R13 test fills them beside `{project-root}`/`{plan_file}` and fails on any unfilled slot — cost if wrong: none.
+- Ruling: `.gitignore` gains `!skills/**/pm_status/build/`, keeping the plan's module name — why: the repository's Python template ignores every `build/` — cost if wrong: a consumer whose own `.gitignore` ignores `build/` and who commits `_bmad/` loses `pm_status/build/` from git, and a clone or worktree of theirs cannot import `pm_status`. Task 4.7 Step 1 should measure this alongside whether a worktree carries `_bmad/`.
+- Ruling: a failed commit (a user's commit hook, say) exits 1 and says the tree is dirty; hooks are never skipped — cost if wrong: the next `bmad-build-auto` HALTs `dirty tree` with our message already on screen.
+- Ruling: `requires` names a module from a fixed map (`l3io-pm` → `_bmad/l3io-pm/scripts/pm_status/__main__.py`); any other value is exit 2 — cost if wrong: one map entry per module that grows hooks.
+- In a linked worktree the state root is the main checkout's, outside the worktree, so the close commits only the plan sidecar there; the main checkout's events and calibration stay uncommitted until Task 4.7 commits them at epic closure or merge.
+
 **Files:**
 - Create: `skills/_shared/pm_status/build/__init__.py`, holding the `build-open` and `build-close` verbs.
 - Modify: `skills/l3io-util/l3io-doctor/scripts/wire-in.py` (the `requires` field and the `skipped` status) and `assets/wire-in.toml` (four entries).
@@ -188,7 +203,7 @@ Rules the hooks live under:
   - pass every `## Verification` command it ran, with its exit code;
   - **never** call `mark`.
 
-- [ ] **Step 1: Failing tests.**
+- [x] **Step 1: Failing tests.**
   - **`test_bmad_build_alone_records_actuals` (R13).** It reads the two `bmad-build` entries from `wire-in.toml`, extracts their commands, substitutes `{project-root}` and `{plan_file}`, and runs them against a git-initialised fixture project. The fixture holds a v7 epic, a plan file, an estimate in `l3io.toml`, and a synthetic Claude transcript. It asserts:
     - one `dispatch_open`/`dispatch_close` pair;
     - all five actual metrics in canonical order, with `cost` derived;
@@ -198,13 +213,13 @@ Rules the hooks live under:
     A second case, with no estimate, asserts actuals and no sample.
   - In `test-wire-in.py`: `test_requires_absent_module_skips`.
   - In the check-bmod test: a planted entry with path `workflow.interactive` on `bmad-build-auto` fails, naming the key (Review Focus 1).
-- [ ] **Step 2:** Implement `build/`, `requires`, the four entries and the check-bmod arm.
-- [ ] **Step 3: On the fixture** (`smoke:install`).
+- [x] **Step 2:** Implement `build/`, `requires`, the four entries and the check-bmod arm.
+- [x] **Step 3: On the fixture** (`smoke:install`).
   - Run `/l3io-doctor wire`'s script, then `uv run _bmad/scripts/render_skill.py --project-root . --skill .claude/skills/bmad-build`, and the same for `bmad-build-auto`. Each exits 0 and its output contains the `l3io-build` command lines.
   - Unwire, then assert both team files are byte-identical to before (R15).
   - Plant a team `on_complete` and assert wire exits 3 and changes nothing.
-- [ ] **Step 4:** Doctor `steps/wire.md` lists the new entries. Sync, regenerate manifests, then run the gate run.
-- [ ] **Step 5: Commit.** `feat(l3io-pm): measure every bmad-build run through its own hooks (R13)`.
+- [x] **Step 4:** Doctor `steps/wire.md` lists the new entries. Sync, regenerate manifests, then run the gate run.
+- [x] **Step 5: Commit.** `feat(l3io-pm): measure every bmad-build run through its own hooks (R13)`.
 
 ### Task 4.3: Estimation on Sofia (item 3)
 
