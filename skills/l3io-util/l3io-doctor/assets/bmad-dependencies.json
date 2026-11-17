@@ -41,7 +41,7 @@
     { "name": "bmad-loop-setup", "status": "related", "module": "bmad-loop",
       "note": "bmad-loop's setup skill; presence implies bmad-loop is installed on this project." },
     { "name": "bmad-loop-sweep", "status": "related", "module": "bmad-loop",
-      "note": "bmad-loop's deferred-work sweep; unrelated to our own issues.yaml / triage flow." },
+      "note": "bmad-loop's deferred-work sweep; unrelated to our own triage of v7's backlog." },
     { "name": "bmad-loop-resolve", "status": "related", "module": "bmad-loop",
       "note": "bmad-loop's interactive escalation resolver for its CRITICAL halts." },
 

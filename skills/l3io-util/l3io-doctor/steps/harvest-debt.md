@@ -1,10 +1,12 @@
 ## Harvest Debt Mode
 
 Invoked with `harvest-debt` argument. Sweeps the source tree for `bmad-defer:` deferred-shortcut
-markers and harvests them into the consolidated `backlog:` list so intentional simplifications stay
-visible instead of rotting into "later means never." Report-only by default; the backlog merge is a
-separate confirmed step. All [Safety Rules](`SKILL.md` § Safety Rules) apply — dry-run first, never overwrite,
-never guess. Re-runnable: a marker already harvested is not added twice.
+markers and proposes each new one as a candidate `bug-<slug>` ticket for v7's backlog, so
+intentional simplifications stay visible instead of rotting into "later means never." **It
+writes no file**: on 4.x the backlog is `{output_folder}/backlog/`, Sofia's (`bmad-agent-po`),
+and a leaf there is created only by her TICKETS or REFINE procedure. The mode hands her the
+candidates. All [Safety Rules](`SKILL.md` § Safety Rules) apply. Re-runnable: a marker
+already in the backlog is not proposed twice.
 
 ### The deferral marker contract (the shared source of truth)
 
@@ -130,24 +132,13 @@ harvest-debt` still offering to write the examples into the backlog.
 
 ### Steps
 
-**Step H1 — Load config and resolve the backlog file**
+**Step H1 — Load config**
 
 Load config (as under On Activation in `SKILL.md`). Also resolve:
 - `harvest_exclude_dirs` — from the `l3io-util` section; default `[]`. Additional directories to exclude from the sweep on top of the built-in exclusion list. Each entry is passed as an additional `--exclude-dir` argument in the [Grep contract](#grep-contract).
 
-Bind `{status_backlog}` = `{pm_issues_file}` (`{pm_state_root}/issues.yaml`) — the single flat
-deferred-issue list of the current layout. Then check for a legacy layout using the same
-three-way count the health check's Check 2 uses, and refuse to write past one:
-
-1. If a legacy layout is present (legacy flat `sprint-status*.yaml`, or legacy per-epic
-   `_bmad/state/`) and `{pm_state_root}` does not exist → print:
-   ```
-   State is still on a legacy layout — harvest-debt writes to {pm_issues_file}, which does
-   not exist yet. Run /l3io-doctor migrate-state first, then re-run harvest-debt.
-   ```
-   and exit (never write into a legacy file).
-2. Else → `{status_backlog}` is the target. It is created lazily in Step H6 if absent,
-   containing only a top-level `backlog:` list (the shape `append-issue` writes).
+Bind `{backlog_dir}` = `{output_folder}/backlog` — v7's standalone-ticket folder. It may not
+exist yet; Sofia creates it with the first ticket filed there.
 
 **Step H2 — Sweep and parse**
 
@@ -176,36 +167,22 @@ found nothing.
 
 **Step H3 — Dedupe against the existing backlog**
 
-Read both issue lists with `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json` (if `{pm_status}` is absent, read the `backlog:` list from `{status_backlog}` and treat the resolved list as empty). A marker is
-**already harvested** when an existing item matches on **file path plus normalised marker
-text**. Normalise both sides the same way before comparing: strip the comment leader and the
-`bmad-defer:` keyword, collapse internal whitespace, casefold. Match against the item's
-`source` **and** its title, since the text is what survives.
+Read every leaf in `{backlog_dir}/` and in each epic's `tickets/` folder under
+`{output_folder}` (the files named `bug-*.md`, `story-*.md`, `spike-*.md` — a candidate Sofia
+moved into an epic is still harvested). A marker is **already harvested** when a leaf cites
+the same file in a `code-marker ({file}:{line})` reference **and** carries the same normalised
+marker text in its title or body. Normalise both sides the same way before comparing: strip
+the comment leader and the `bmad-defer:` keyword, collapse internal whitespace, casefold.
 
-**The line number is metadata, not identity.** Where an existing item's `source` carries a
-stale line, refresh it to the swept one rather than filing a second item.
+**The line number is metadata, not identity.** An edit above a marker moves its line, and a
+marker keyed on its line would be proposed again as new after every such edit. Path plus text
+matches it wherever it now sits.
 
-*Identity used to be `code-marker ({file}:{line})`, so any edit ABOVE a marker changed its
-identity and the next sweep re-filed it as new. Observed: a marker harvested at line 120,
-reported at 123 three days later, already queued to duplicate. A line number is the one part
-of a marker's location guaranteed to drift.*
-
-**Back-compat is the acceptance criterion, not a nicety.** The two formats already in the wild
-must still match, or every previously-harvested item orphans and re-files on the next sweep —
-which is the bug, inverted and applied to the whole backlog at once:
-- `code-marker ({file}:{line})` — written by `harvest-debt` itself
-- `clean-release (code-marker {file}:{line})` — written by sprint closure Step 9
-
-Both carry the path, so path-plus-text matches them with the line ignored. A third shape has
-been seen in the field (`harvest-debt (bmad-defer: {file}:{line})`), authored outside this tool
-and matching neither documented format; path-plus-text absorbs it too, which is the point of
-keying on content rather than on a source string's exact spelling. Dedupe is matched on the
-`source`/title content, not by key — so legacy `DEBT-NN` keyed entries from prior runs are also
-correctly deduped. Partition the swept markers:
-- `existing` — matches an open item, or a resolved item whose `resolution` is not `fixed`
-  (skip; do not duplicate or re-key).
-- `new` — matches nothing, **or matches only resolved `fixed` items**: the shortcut came back
-  after it was fixed. H6 passes it to `append-issue`, which records it as a recurrence.
+A leaf whose plan reads `done` still counts as harvested **unless** the marker is back in the
+source after it was closed: that is a recurrence, and it is proposed again with
+`Recurrence of {ticket}` in its Notes. Partition the swept markers:
+- `existing` — matches a leaf (skip).
+- `new` — matches nothing, or only a `done` leaf (a recurrence).
 
 **Step H4 — Dry-run ledger**
 
@@ -221,82 +198,51 @@ DEBT HARVEST DRY RUN — bmad-defer: markers
 ...
 ================================================================
 Markers found: {total}  ·  new: {new_count}  ·  already harvested: {existing_count}  ·  no-trigger: {no_trigger_count}
-Backlog target: {status_backlog}
+Backlog: {backlog_dir} (Sofia's — nothing is written here)
 ```
 
-If `{new_count}` is 0: print `All {total} marker(s) already harvested — backlog is current.` and exit.
+If `{new_count}` is 0: print `All {total} marker(s) already in the backlog.` and exit.
 
-**Step H5 — Confirm merge**
+**Step H5 — Candidate tickets for Sofia**
 
-Ask: "Harvest {new_count} new marker(s) into the backlog at {status_backlog}? Existing entries are untouched."
+For each `new` marker, print one candidate in the shape of v7's bug template
+(`bmad-agent-po/assets/bug-template.md`), for Sofia's TICKETS (or REFINE) to file in
+`{backlog_dir}/`:
 
-If no: print `Harvest cancelled — report only, no changes made.` and exit.
-
-**Step H6 — Merge into the backlog**
-
-Append one item per `new` marker to the top-level `backlog:` list of `{status_backlog}`, following
-the consolidated backlog schema (`references/status-files.md` is the schema source of
-truth).
-
-**When `{pm_status}` is present, use it — this is the only correct
-path when it is available.** Call `append-issue` **without `--key`**:
-
-```bash
-uv run {pm_status} append-issue --file {pm_issues_file} \
-  --epic 000 --title "{what}" \
-  --source "code-marker ({file}:{line})" --severity {Low|Medium} \
-  --description "{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger})."
+```
+bug-{slug}                     (slug: the marker's {what}, kebab-case, at most 6 words)
+  title:     "{what}"
+  severity:  P3                (P2 for a no-trigger marker — it has no escape from rotting)
+  risk:      low
+  parent:    none              (a standalone bug in backlog/)
+  Description: {what}. Ceiling: {ceiling | none}. Upgrade: {upgrade | NONE — no revisit trigger}.
+  References:
+    - code-marker ({file}:{line})
 ```
 
-The `BL-E000-{nnn}` number is **allocated by the command itself**, under an exclusive flock, from
-the highest existing suffix it finds — that lock is what makes `issues.yaml` safe as the one
-shared-append target across every epic and every parallel caller. Do not choose or pass a number:
-a hand-picked `{nnn}` is exactly the failure this command exists to close off, since two callers
-inventing a number from the same directory listing can both succeed and silently overwrite one
-another. Severity rule: a marker that names an `upgrade:` trigger is `Low`; a `no-trigger` marker
-is `Medium` (it has no built-in escape from rotting, so it earns a higher gate). Never invent a
-ceiling or upgrade the comment did not state — pass `none`/`NONE`.
+The `code-marker ({file}:{line})` reference is the contract: `/l3io-doctor triage` reads it to
+tell whether the marker is still in the source, and the next harvest reads it to dedupe.
+Never invent a ceiling or upgrade the comment did not state — write `none`/`NONE`.
 
-**Fallback — only when `pm-status.py` is absent.** Hand-write the item into `{status_backlog}`'s
-`backlog:` list, deriving the key by continuing the highest existing `BL-E000-{nnn}` suffix (check
-existing items with `epic: '000'`; also check for any legacy `DEBT-NN` or narrower-padded
-`BL-E00-NN` items to avoid gap collisions, parsing sequence numbers numerically):
+**Do not create the files yourself, and do not run `tickets.py`.** Ask instead:
+`Hand these {new_count} candidate(s) to Sofia now? (y/n)`. On yes, invoke `bmad-agent-po`
+with the candidate list as its input and the request to file them as standalone bugs in
+`backlog/`; she drafts, asks the user to approve each, and commits as her procedures do. On no,
+print `Report only — no tickets filed.` and leave the list on screen.
 
-```yaml
-- key: BL-E000-001                     # BL-E000-{nnn} — repo-global, not epic-scoped
-  epic: '000'                          # '000' = repo-global marker
-  sprint: ''
-  title: {what}                        # first clause of the marker, trimmed
-  source: 'code-marker ({file}:{line})'
-  severity: Low                        # Medium when no_trigger — a deferral with no revisit trigger rots silently
-  status: backlog
-  description: '{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger}).'
-```
-
-This manual derivation **cannot be made collision-safe** — there is no lock protecting a
-hand-edited YAML file — so it is for single-agent, non-parallel use only, when no other process
-could be appending to the same backlog at the same time. As soon as `pm-status.py` becomes
-available, use it instead.
-
-**Step H7 — Verify**
-
-Re-parse `{status_backlog}` as YAML. If parsing fails, restore the pre-merge content and print:
-```
-FAILED — Written backlog is not valid YAML. Original restored. Parse error: {error}
-```
-
-**Step H8 — Report**
+**Step H6 — Report**
 
 ```
 DONE — Debt harvest complete.
   Markers swept:     {total}
-  Harvested (new):   {new_count}  (Low: {low_count}, Medium/no-trigger: {no_trigger_count})
-  Already harvested: {existing_count}
-  Backlog:           {status_backlog}
+  New candidates:    {new_count}  (P3: {p3_count}, P2/no-trigger: {no_trigger_count})
+  Already in backlog: {existing_count}
+  Handed to Sofia:   {yes | no}
 ```
 
-Markers stay in the source until the developer removes them when the shortcut is upgraded; harvest
-records them, it never edits source. A future run re-sweeps and dedupes, so removing a marker simply
-stops it reappearing (the backlog item it created persists until triaged like any other).
+Markers stay in the source until the developer removes them when the shortcut is upgraded;
+harvest records them, it never edits source. A later run re-sweeps and dedupes, so removing a
+marker simply stops it reappearing — the ticket it became is closed through Sofia like any
+other, and `triage` proposes that closing once the marker is gone.
 
 ---

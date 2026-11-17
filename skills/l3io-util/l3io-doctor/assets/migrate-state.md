@@ -91,11 +91,8 @@ If `{project-root}/_bmad/pm-calibration.yaml` exists, move it to
 `{pm_state_root}/pm-calibration.yaml` with `git mv`. It is the only file that moves rather
 than being rewritten.
 
-Record anything the user should know about as a backlog item:
-
-```bash
-uv run {pm_status} append-issue --state-root {pm_state_root} --epic {epic_key} \
-  --severity Low --source migrate-state --description "{what was odd}"
-```
+List anything the user should know about in the final report. Where one needs follow-up
+work, offer it as a candidate bug for Sofia (`bmad-agent-po`) to file in v7's `backlog/` —
+the migration writes no ticket itself.
 
 ---

@@ -4,6 +4,8 @@
 - **Date:** 2026-09-11
 - **Deciders:** Package maintainer (brainstorming 2026-09-11)
 - **Principle(s) in tension:** keeping specs true to the code vs. keeping product intent under human control
+- **Amended 2026-11-17 (Task 4.9):** the confirm/reject mechanics below rode the issues ledger.
+  Removed in 4.0.0: `spec-align.py` `sync-plan`, `propose`, `commit`, `reject`, `check-stale`, and `pm-status.py` `resolve-issue`. See the Amendment at the end.
 
 ## Context
 
@@ -31,7 +33,7 @@ Option C. `spec-align.py disposition` refuses `spec-updated` on any section whos
 `docs(spec): {epic} {finding} — {title}` commit, made only after a scope guard (the diff stays
 inside the pointed-to section) and an anchor guard (no pointed-to anchor silently vanishes).
 Each commit opens a `spec-change` backlog item. Doctor `triage` confirms it
-(`resolve-issue --resolution fixed`) or rejects it (`spec-align.py reject`: `git revert`,
+(`resolve-issue --resolution fixed`) or rejects it (spec-align's `reject`, removed in 4.0.0: `git revert`,
 `wontfix`, and a new defect so the drift becomes a code fix again). PRD, UX and epic changes
 become `spec-proposal` items, backed by a proposal file.
 
@@ -44,3 +46,12 @@ become `spec-proposal` items, backed by a proposal file.
   exactly that case.
 - Revisit if: proposals accumulate unconfirmed across several epics (people are not acting on
   them), or rejected spec changes become common (the agents' edits are not trustworthy).
+
+## Amendment (2026-11-17, Task 4.9)
+
+The epic-closure spec sync filed each edit as a `spec-change` or `spec-proposal` item in the
+issues ledger, and `/l3io-doctor triage` confirmed or rejected it there. The ledger is gone on
+BMad v7 (ADR-0002's amendment), and with it the `spec-align.py` subcommands that wrote and read
+those items were removed in 4.0.0. The decision stands — agents edit architecture specs only,
+and an edit is confirmed after it lands — and Phase 5 re-homes the spec sync beside
+`bmad-retrospective`'s decision records, where the confirmation is recorded next.

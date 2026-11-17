@@ -18,10 +18,10 @@ One-time migrations
 
 Ongoing maintenance (safe to repeat)
   redrive            Rebuild calibration scope/fix samples from the story nodes on disk
-  triage             Audit the issues backlog and resolve findings already fixed
+  triage             Audit v7's backlog; propose to Sofia what to close or move
 
 Source & external sync
-  harvest-debt       Sweep source for bmad-defer: markers and harvest into backlog
+  harvest-debt       Sweep source for bmad-defer: markers; candidate bugs for Sofia
   update-ai-rules    Update AI instruction files that name a legacy state layout
 
 Setup & housekeeping

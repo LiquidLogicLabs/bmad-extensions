@@ -2,10 +2,12 @@
 // Run: npm run test:scripts
 //
 // Each test runs the REAL checker (via CHECK_TYPES_ROOT) against a fixture holding a COPY of
-// the real pm-status.py, mutated. Copying the real file rather than writing a toy one is
-// load-bearing: an annotated property DOES flag the bad call in five lines of Python and does
-// NOT in pm-status.py, because that file imports ruamel lazily and the annotation degrades to
-// `Any`. A fixture without the lazy import would pass while the real gate was blind.
+// the real pm_status package, mutated. The accessors the gate was written for (`IssueStore`'s
+// `backlog`/`resolved` properties) went with the issues verbs in Task 4.9, so the fixture
+// plants a two-module probe in the package's own shape: ruamel imported lazily inside the
+// function, `CommentedSeq` in scope only under TYPE_CHECKING, and the two properties read
+// from a second module. That shape is load-bearing: without the TYPE_CHECKING import the
+// annotation degrades to `Any` and the bad call is not flagged.
 //
 // These spawn mypy through uv and so are slower than the rest of the suite. That is the cost
 // of testing the gate rather than a model of it.
@@ -26,6 +28,52 @@ const REL = path.join(PKG_REL, "__main__.py");
 const PKG = path.join(REPO, PKG_REL);
 
 const ACCESSOR_LOOP = "for lst in (store.backlog, store.resolved):";
+const PROBE = {
+  "__init__.py": "",
+  "store.py": [
+    "from __future__ import annotations",
+    "",
+    "from typing import TYPE_CHECKING",
+    "",
+    "if TYPE_CHECKING:",
+    "    from ruamel.yaml.comments import CommentedSeq",
+    "",
+    "",
+    "class Store:",
+    "    def __init__(self) -> None:",
+    "        from ruamel.yaml.comments import CommentedSeq as _Seq",
+    "        self._backlog = _Seq()",
+    "        self._resolved = _Seq()",
+    "",
+    "    @property",
+    "    def backlog(self) -> CommentedSeq:",
+    "        return self._backlog",
+    "",
+    "    @property",
+    "    def resolved(self) -> CommentedSeq:",
+    "        return self._resolved",
+    "",
+    "    def highest_suffix(self) -> int:",
+    "        n = 0",
+    "        for item in list(self.backlog) + list(self.resolved):",
+    "            n += len(str(item))",
+    "        return n",
+    "",
+  ].join("\n"),
+  "audit.py": [
+    "from __future__ import annotations",
+    "",
+    "from .store import Store",
+    "",
+    "",
+    "def normalize(store: Store) -> int:",
+    "    n = 0",
+    "    for lst in (store.backlog, store.resolved):",
+    "        n += len(lst)",
+    "    return n",
+    "",
+  ].join("\n"),
+};
 const TC_IMPORT = "if TYPE_CHECKING:\n    from ruamel.yaml.comments import CommentedSeq\n";
 
 const IDENTITY = (s) => s;
@@ -49,11 +97,13 @@ function fixture(t, mutate = IDENTITY) {
   const dest = path.join(dir, PKG_REL);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.cpSync(PKG, dest, { recursive: true, filter: (s) => !s.includes("__pycache__") });
+  const probe = path.join(dest, "probe");
+  fs.mkdirSync(probe);
+  for (const [name, text] of Object.entries(PROBE)) fs.writeFileSync(path.join(probe, name), text);
   // The mutation applies to EVERY .py in the copy, and WHICH file it lands in is derived.
   // It used to be spliced into `__main__.py` alone, which was right while both anchors
-  // lived there and wrong the moment the package grew: the `issues` extraction moved the
-  // TYPE_CHECKING import into `issues/store.py` (with `IssueStore`, which is what the
-  // annotations are on) and one of the two accessor call sites into `issues/audit.py`.
+  // lived there and wrong the moment the package grew: an extraction moved the
+  // TYPE_CHECKING import and one of the two accessor call sites into other modules.
   // Three tests here failed on that, and the two that mattered -- the pair proving the
   // [name-defined] arm keeps the "not callable" arm honest -- failed by not finding their
   // anchor rather than by measuring anything. Deriving the file means no later extraction
@@ -99,17 +149,16 @@ test("a @property read as a method fails", (t) => {
   assert.match(r.stderr, /runtime TypeError/);
 });
 
-// The second accessor site this test used to mutate, `_rewrite_references`, went with
-// `reparent-story` in 4.x. `IssueStore.highest_suffix` in issues/store.py reads the same two
-// properties, in a DIFFERENT module from `_normalize_keys` (issues/audit.py), so it keeps both
-// properties of the test: two sites, and reach across modules.
+// The probe's `Store.highest_suffix` (probe/store.py) reads the same two properties as
+// `normalize` (probe/audit.py), in a DIFFERENT module, so the test keeps both of its
+// properties: two sites, and reach across modules.
 const STORE_ACCESSOR = "for item in list(self.backlog) + list(self.resolved):";
 
 test("BOTH accessor call sites are reported, not just the first", (t) => {
   // A checker that sees one of two is one you will trust past the one it cannot see. The
-  // two sites are `_normalize_keys` (issues/audit.py) and `highest_suffix` (issues/store.py),
-  // so this also asserts the gate reaches ACROSS modules.
-  const sources = pyFiles(PKG).map((f) => fs.readFileSync(f, "utf8"));
+  // two sites are `normalize` (probe/audit.py) and `highest_suffix` (probe/store.py), so
+  // this also asserts the gate reaches ACROSS modules.
+  const sources = Object.values(PROBE);
   for (const anchor of [ACCESSOR_LOOP, STORE_ACCESSOR]) {
     assert.equal(sources.filter((src) => src.includes(anchor)).length, 1,
       `expected exactly one package file holding ${JSON.stringify(anchor)} -- re-anchor`);

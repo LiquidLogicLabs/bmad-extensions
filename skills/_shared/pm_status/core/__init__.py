@@ -51,27 +51,6 @@ VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "review", "done"}
 VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
 
-# Story transitions. Enforced per-story only; sprints and epics keep their looser enum-only
-# check because they compose from their children. See
-# docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §3.
-#
-# The table gates two invariants: the blocked lifecycle (entered only from `in-progress` or
-# `review` -- a never-picked-up story is not blocked, just not ready, and its impediment
-# belongs in state/issues.yaml -- and exited only back to work or done-with-resolution) and
-# the terminality of `done`. Free movement between other statuses stays allowed: existing
-# consumers move a story backwards after a fix, and gating that would be scope creep.
-VALID_STORY_TRANSITIONS = {
-    "backlog":       {"ready-for-dev", "in-progress", "review", "done"},
-    "ready-for-dev": {"backlog", "in-progress", "review", "done"},
-    "in-progress":   {"backlog", "ready-for-dev", "review", "done", "blocked"},
-    "review":        {"backlog", "ready-for-dev", "in-progress", "done", "blocked"},
-    "blocked":       {"in-progress", "done"},   # done requires --resolution
-    # done is "operationally reopenable" -- reopen paths and an idempotent second-done
-    # move a done story to another non-blocked status. The one thing we still forbid is done -> blocked, so a story
-    # reopened for more work goes through in-progress before it can block, which keeps
-    # `blocked` entered only from active work rather than from history.
-    "done":          {"backlog", "ready-for-dev", "in-progress", "review", "done"},
-}
 METRIC_FIELDS = ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost")
 
 # The subset of METRIC_FIELDS whose SCOPE ratio is learned. `cost` is derived
@@ -142,13 +121,9 @@ def _norm_num(v, width: int) -> str:
 def canonical_epic_key(v) -> str:
     """'3'/'03'/'003'/'E3'/'e003' -> 'E003'. The KEY form, for files that store keys.
 
-    Two canonical forms exist on purpose and the difference is per-file, not arbitrary:
-    `issues.yaml` stores bare digits ('003') because `canonical_bl_key` slices them straight
-    out of `BL-E003-007`, and `events.jsonl` stores key form ('E003') because its story
-    records already derive `epic` from `parse_story_key`, which yields 'E001'. Forcing one
-    form everywhere would either churn every existing backlog record or make a dispatch
-    event disagree with the story event beside it. So: normalise to the form the file
-    already uses, and never store the caller's spelling.
+    `events.jsonl` stores key form ('E003') because its story records derive `epic` from
+    `parse_story_key`, which yields 'E001'. Normalise to the form the file already uses, and
+    never store the caller's spelling.
     """
     return "E" + _norm_num(v, 3)
 
@@ -539,11 +514,9 @@ def _file_lock(lock_path: str, depth_state: dict, state_root: str | None = None)
     a calibration hold and an ADR-register hold never share depth counting.
 
     `state_root` is the root whose .gitignore gets `*.lock` (_ensure_lock_ignore). The
-    calibration, ADR and epic families pass theirs, and issues_lock passes the issues file's
-    directory whenever that path came from a state root. Without one -- only a bare
-    `append-issue --file X` -- the lock's own directory is used only if it holds a status
-    folder: X's directory might be the repo root, where `*.lock` would silently ignore
-    uv.lock, yarn.lock and Cargo.lock repo-wide.
+    calibration, ADR and epic families pass theirs. Without one, the lock's own directory is
+    used only if it holds a status folder: it might be the repo root, where `*.lock` would
+    silently ignore uv.lock, yarn.lock and Cargo.lock repo-wide.
     """
     if depth_state["depth"] > 0:               # already held by this process
         depth_state["depth"] += 1
@@ -642,34 +615,6 @@ def agent_instructions_lock(project_root: str):
         yield
 
 
-_ISSUES_LOCK = {"depth": 0, "fh": None}
-
-
-@contextlib.contextmanager
-def issues_lock(file_path: str, bare_file: bool = False):
-    """Hold an exclusive lock over a whole issues.yaml read-modify-write cycle.
-
-    Same reasoning as calibration_lock/adr_register_lock: load -> allocate a key
-    -> dedupe-check -> mutate -> save is not atomic, and `issues.yaml` is a shared
-    append target across every epic and every parallel subagent -- exactly what
-    ADR numbers needed a register for after two parallel agents both read the
-    same near-empty directory and chose the same number. The lock file is keyed off
-    the OPEN issues file's path: `issues_paths(state_root)[0]` for every issue verb,
-    which all address the files through `--state-root` (status-files.md §7), or
-    `append-issue`'s compatibility `--file`, which must equal that path when
-    `--state-root` is also given -- so both addressing forms contend on one lock. The
-    resolved file lives beside it and is covered by the same hold (IssueStore loads
-    both issue files under it).
-
-    `bare_file` is True only for `append-issue --file` given without --state-root. Every
-    other path is `issues_paths(state_root)[0]`, so its directory IS the state root and is
-    passed on as one; a bare --file's directory is not trusted to be one (_file_lock).
-    """
-    with _file_lock(file_path + ".lock", _ISSUES_LOCK,
-                    None if bare_file else os.path.dirname(os.path.abspath(file_path))):
-        yield
-
-
 _EPIC_NODE_LOCK = {"depth": 0, "fh": None, "path": None}
 
 
@@ -690,10 +635,9 @@ def epic_lock_path(state_root: str, epic_key: str) -> str:
 def epic_node_lock(state_root: str, epic_key: str):
     """Hold an exclusive lock over one epic's epic.yaml read-modify-write cycle.
 
-    Same reasoning as calibration_lock/adr_register_lock/issues_lock: load -> decide -> save
+    Same reasoning as calibration_lock/adr_register_lock: load -> decide -> save
     is not atomic. Every epic.yaml writer needs it so a concurrent holder cannot overwrite
-    its change with a stale copy -- promote's roll-up once restored a `_lock` that an
-    unlocked writer had just removed. `_atomic_dump`
+    its change with a stale copy. `_atomic_dump`
     refuses an epic.yaml write made without it (`_require_epic_lock`). Each epic is its own
     contention domain, so the lock is per epic (epic_lock_path), not per state root.
 
@@ -703,22 +647,20 @@ def epic_node_lock(state_root: str, epic_key: str):
 
     ONE EPIC AT A TIME. The re-entrancy counter is per lock family, not per epic, so a nested
     acquire of a SECOND epic's lock would skip its flock silently; it raises instead.
-    Re-entry on the same epic (promote -> rollup_parent_estimate) nests on the one flock.
+    Re-entry on the same epic nests on the one flock.
 
-    LOCK ORDER, enforced: the epic lock is taken first, never under issues_lock or
-    calibration_lock. promote holds epic -> issues and set-actual holds epic -> calibration;
-    a FRESH epic lock taken inside either would invert that order and can deadlock against
-    them, so it raises. A same-epic re-entry is not fresh -- promote's roll-up re-enters its
-    epic under issues_lock -- and is allowed."""
+    LOCK ORDER, enforced: the epic lock is taken first, never under calibration_lock.
+    set-actual holds epic -> calibration; a FRESH epic lock taken inside it would invert
+    that order and can deadlock against it, so it raises. A same-epic re-entry is not fresh
+    and is allowed."""
     lock_path = epic_lock_path(state_root, epic_key)
     held = _EPIC_NODE_LOCK["path"]
     if held is not None and held != lock_path:
         raise RuntimeError(f"epic_node_lock: {lock_path} requested while {held} is held -- "
                            f"one epic lock at a time")
-    if held is None and (_ISSUES_LOCK["depth"] or _CAL_LOCK["depth"]):
-        under = "issues_lock" if _ISSUES_LOCK["depth"] else "calibration_lock"
-        raise RuntimeError(f"epic_node_lock: lock order -- {lock_path} requested under {under}; "
-                           f"the epic lock is taken first, never under issues_lock or "
+    if held is None and _CAL_LOCK["depth"]:
+        raise RuntimeError(f"epic_node_lock: lock order -- {lock_path} requested under "
+                           f"calibration_lock; the epic lock is taken first, never under "
                            f"calibration_lock")
     with _file_lock(lock_path, _EPIC_NODE_LOCK, state_root):
         _EPIC_NODE_LOCK["path"] = lock_path
@@ -761,15 +703,6 @@ def _parse_iso(ts):
         return datetime.fromisoformat(str(ts).strip())
     except (TypeError, ValueError):
         return None
-
-
-def _lock_age_minutes(claimed, now=None) -> float:
-    """Minutes elapsed since `claimed` (an aware datetime, e.g. from `_parse_iso`).
-
-    Shared by cmd_check_lock and cmd_set_lock so their TTL arithmetic cannot diverge
-    into two independently-wrong implementations.
-    """
-    return ((now or datetime.now(UTC)) - claimed).total_seconds() / 60.0
 
 
 def _hashable_field(v):

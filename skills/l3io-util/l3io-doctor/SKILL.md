@@ -1,6 +1,6 @@
 ---
 name: l3io-doctor
-description: Diagnostics and housekeeping for l3io projects on BMad v7. Use when the user wants a health check of the project (it scans for every known problem and proposes the fixes in order), a progress dashboard over BMad v7 initiatives with stalled-build flags, the issues backlog, to triage the backlog (audit and close what is already fixed), to harvest deferred-shortcut code markers into the backlog, to verify BMad dependencies or the installed l3io version, to install, upgrade or uninstall the extension, to wire l3io's hooks into BMad's skills or unwire them, to migrate a legacy l3io state layout, to move ADRs to docs/adr/, to rebuild poisoned calibration samples, to update AI instruction files, or to remove migration backups. Run without arguments for an auto-diagnostic.
+description: Diagnostics and housekeeping for l3io projects on BMad v7. Use when the user wants a health check of the project (it scans for every known problem and proposes the fixes in order), a progress dashboard over BMad v7 initiatives with stalled-build flags, v7's backlog, to triage the backlog (audit it and propose to Sofia what to close), to harvest deferred-shortcut code markers as candidate bug tickets, to verify BMad dependencies or the installed l3io version, to install, upgrade or uninstall the extension, to wire l3io's hooks into BMad's skills or unwire them, to migrate a legacy l3io state layout, to move ADRs to docs/adr/, to rebuild poisoned calibration samples, to update AI instruction files, or to remove migration backups. Run without arguments for an auto-diagnostic.
 ---
 
 # l3io-doctor — Project State Diagnostics & Utilities
@@ -50,7 +50,7 @@ Modes (pass as argument to skip directly to that mode):
 
 **Diagnostic (read-only)**
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes. The full set of findings, their severities, and their remedies is defined in `steps/health-check.md`, not repeated here.
-- **`stats`** (aliases **`backlog`**, **`issues`**): Progress dashboard over BMad v7's work-item tree — each initiative's epics and tickets, estimates, actuals and stalled builds (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_issues_file}` grouped by severity, and calibration state. Scope it by naming an initiative; with none it reports every initiative under `{output_folder}`. No files changed.
+- **`stats`** (aliases **`backlog`**, **`issues`**): Progress dashboard over BMad v7's work-item tree — each initiative's epics and tickets, estimates, actuals and stalled builds (via `pm-status.py report`), plus v7's backlog (`{output_folder}/backlog/`) counted by type and state with its open tickets listed, and calibration state. Scope it by naming an initiative; with none it reports every initiative under `{output_folder}`. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
 - **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?". With `--project-root` it also lists the two declared `pm_status` copies (`_bmad/l3io-pm/…`, `_bmad/l3io-util/…`) and reports them disagreeing as a finding, which the health check's Check 18 surfaces. No files changed.
 - **`install`** (aliases **`upgrade`**, **`uninstall`**): Runs the right BMad command for the intent and refuses the wrong one. `upgrade` uses `--action quick-update`, which derives the module set and IDE list off the existing install and deletes nothing; `install` is first-install only and refuses an existing install, because its `--modules`/`--tools` are authoritative and BMad deletes every module and IDE tree they do not name without confirming; `clean` removes only this extension's payload, decided by SHA-256 against each skill's `payload-manifest.json`, keeping any file a user has edited and never touching project state. Confirms before every action; `clean` is a dry run until `--apply`.
@@ -61,10 +61,10 @@ Modes (pass as argument to skip directly to that mode):
 
 **Ongoing maintenance (safe to repeat)**
 - **`redrive`:** Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect where `fix_iterations` was once stored as a string and misclassified as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly — it derives fresh from the same nodes each time.
-- **`triage`:** Audits the issues backlog — integrity (`audit-issues`), mechanical evidence (`scripts/audit-backlog.py`), and an optional agent review — and resolves what is already fixed, with evidence, only on confirmation.
+- **`triage`:** Audits v7's backlog — findings 1a–1l re-expressed over v7's tree and marker evidence (`scripts/audit-tree.py`, read-only), plus an optional agent review — and hands Sofia (`bmad-agent-po`) the proposals: what to close, move or refine. It writes only l3io's own sidecars (`sidecar-reconcile`), on confirmation.
 
 **Source & external sync**
-- **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
+- **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers leave when they take an intentional simplification) and proposes each new one as a candidate `bug-<slug>` ticket for Sofia to file in v7's `backlog/` — it writes no leaf itself. Language-generic. Re-runnable: dedupes against the backlog's `code-marker` references. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Safe to run repeatedly.
 
 **Setup & housekeeping**
@@ -109,7 +109,7 @@ running a migration or a repair *without* the diagnosis that decides whether it 
 | `install`, `upgrade` or `uninstall` | `steps/install.md` | registered | runs BMad's installer (`upgrade`/`install`) or deletes this extension's payload (`clean`) — every path confirms first; `clean` reports before it changes anything |
 | `harvest-debt` | `steps/harvest-debt.md` | health-check |  |
 | `redrive` | `steps/redrive.md` | health-check | rebuild calibration `scope`/`fix` from story nodes |
-| `triage` | `steps/triage.md` | health-check | audit the backlog and resolve findings already fixed — confirms every write |
+| `triage` | `steps/triage.md` | health-check | audit v7's backlog and propose to Sofia what to close — confirms every write |
 | `migrate-adrs` | `steps/migrate-adrs.md` | health-check | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
 | `update-ai-rules` | `steps/update-ai-rules.md` | health-check |  |
 | `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
@@ -164,9 +164,7 @@ Then bind the state paths every mode below uses:
   event log, calibration, the ADR register, the build spool
 - `{tickets_py}` = `{project-root}/_bmad/method/scripts/tickets.py` — v7's own reader of the
   work-item tree, installed with Sofia (`bmad-agent-po`)
-- `{pm_state_root}` = `{implementation_artifacts}/state` — the 3.x tree, and the home of the
-  issues backlog
-- `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
+- `{pm_state_root}` = `{implementation_artifacts}/state` — the 3.x tree `migrate-state` reads
 - `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml` — the 3.x calibration file
   `redrive` rebuilds
 
@@ -174,7 +172,7 @@ Then bind the state paths every mode below uses:
 keyword exits above without a project scan or any config resolve). This skill declares the
 `pm_status` package for the `l3io-util` module in its `bmod.toml` (`[skill] scripts`), and BMad
 v7's `bmad setup l3io-util` installs it at `{project-root}/_bmad/l3io-util/scripts/pm_status/`,
-rebuilding that tree on every setup. Seven of the mode files below invoke `{pm_status}`; run
+rebuilding that tree on every setup. Five of the mode files below invoke `{pm_status}`; run
 before setup, a missing copy would fail inside `uv run` with a traceback that names nothing the
 user can act on. Check first:
 
@@ -191,14 +189,15 @@ Bind `{pm_status}` = `{project-root}/_bmad/l3io-util/scripts/pm_status/__main__.
 all mode files below.
 
 Bind `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {pm_state_root} --pm-status {pm_status}`
-for health Checks 10–14, triage's spec pass and `migrate-adrs`. It passes no `--spec-paths`,
+for health Checks 10–14 and `migrate-adrs`. It passes no `--spec-paths`,
 so it checks the spec set the project's spec index recorded (pm-execute's `spec_paths`).
 
 **Which tree a mode reads.** On BMad v7 the work-item tree — initiatives, epics, tickets — is
 v7's and Sofia's; l3io writes only TOML sidecars beside it and its project-wide files under
 `{l3io_state_root}`, all through `pm-status.py`. `stats` and the health check read that tree
-through `report`. The 3.x tree under `{pm_state_root}` is read only by `migrate-state`; the
-backlog verbs (`triage`, `harvest-debt`) and `redrive` still use `{pm_state_root}`.
+through `report`, and the backlog — v7's `{output_folder}/backlog/` — `triage` and
+`harvest-debt` read and hand to Sofia. The 3.x tree under `{pm_state_root}` is read only by
+`migrate-state` and `redrive`.
 
 ## Safety Rules
 
@@ -217,8 +216,9 @@ On BMad v7, l3io keeps three kinds of file, none of them hand-edited:
   the leaf files and the plans; `pm-status.py` never writes them.
 - **Project-wide files under `{l3io_state_root}`**: `events.jsonl`, `pm-calibration.yaml`,
   `adr-register.yaml`, and the gitignored `.inflight/` build spool.
-- **The issues backlog** under `{pm_state_root}`: `issues.yaml` and `issues-resolved.yaml`,
-  changed only through the `pm-status.py` issue verbs.
+
+The backlog is v7's own `{output_folder}/backlog/`, Sofia's to write; l3io keeps no ledger of
+its own.
 
 The layout is `references/status-files.md`'s. Older layouts — the 3.x sharded tree under
 `{pm_state_root}`, a flat `sprint-status*.yaml`, or a per-epic `_bmad/state/` tree — are read

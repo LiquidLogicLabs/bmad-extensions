@@ -19,7 +19,7 @@ passed one.
 check:docs check 16 asserts the step files agree with the inventory, but CI has no BMad
 install (_bmad/ is gitignored). This script is the other half: it compares the same inventory
 against a real install. Single consumer (l3io-doctor), so it ships in doctor's own
-scripts/ per ADR-0001, like audit-backlog.py, with no sync group.
+scripts/ per ADR-0001, like audit-tree.py, with no sync group.
 
 Usage
 -----

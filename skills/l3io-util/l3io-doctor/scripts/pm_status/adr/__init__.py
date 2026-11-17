@@ -1,4 +1,4 @@
-"""pm_status.issues.adr -- the ADR number allocator (`adr-reserve`, ADR-0005).
+"""pm_status.adr -- the ADR number allocator (`adr-reserve`, ADR-0005).
 
 Hands out sequential ADR numbers from `state/adr-register.yaml` under a flock, so two
 parallel arch-gate agents cannot both claim ADR-0007. The first number handed out is the
@@ -6,9 +6,8 @@ larger of the register's `next` and the highest ADR already on disk, plus one --
 that disk scan is impossible (not in a git work tree and no `--adr-dir`) it REFUSES rather
 than printing a number derived from a home it never read.
 
-Standalone within `issues`: it shares the bucket because the register is issue-lifecycle
-state, not because it depends on the store. Nothing here imports `store`, `promote` or
-`audit`; `audit` imports `load_adr_register` from here for finding 1k.
+A bucket of its own: it depends on `core` only, and nothing in the package imports it but
+`build_parser` (through `register`) and the `__main__` facade.
 
 `adr_register_path` and `adr_register_lock` are in `core`, not here -- check 26 requires
 state-path assembly to live with the resolver, and the lock is a core primitive.
@@ -174,3 +173,18 @@ def cmd_adr_reserve(args) -> int:
         core._atomic_dump(yaml, reg, adr_register_path(args.state_root))
     sys.stdout.write("\n".join(f"{n:04d}" for n in numbers) + "\n")
     return 0
+
+
+# --------------------------------------------------------------------------- #
+# CLI registration -- this bucket's one verb (the contract is in core's register section).
+# --------------------------------------------------------------------------- #
+def register(sub):
+    ar = sub.add_parser("adr-reserve",
+                        help="reserve N sequential ADR numbers under a lock, before dispatch")
+    ar.add_argument("--state-root", required=True)
+    ar.add_argument("--epic", required=True)
+    ar.add_argument("--slug", required=True)
+    ar.add_argument("--count", type=int, default=1)
+    ar.add_argument("--adr-dir", dest="adr_dir", default="",
+                    help="the one ADR home to scan (default: <git top-level>/docs/adr)")
+    ar.set_defaults(func=cmd_adr_reserve)

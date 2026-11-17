@@ -8,8 +8,13 @@ activation. `pm-status.py` outranks it, since it enforces these rules mechanical
 **On BMad v7 (4.x) the contract is §12**: v7 owns the work-item tree, and l3io writes only
 sidecars beside it plus the project-wide files under `{output_folder}/l3io/`. **§1–§11 describe
 the 3.x sharded state tree**, which nothing in 4.x writes any more: it is read by
-`/l3io-doctor migrate-state` (until Phase 6 moves a 3.x project onto v7's tree) and by the
-issues verbs over `issues.yaml` (until Task 4.9 moves the backlog into v7's).
+`/l3io-doctor migrate-state` (until Phase 6 moves a 3.x project onto v7's tree).
+
+**4.x: v7 backlog.** l3io keeps no issues ledger. A 3.x tree's `issues.yaml` and
+`issues-resolved.yaml` have no reader or writer in 4.x: deferred work is a ticket in v7's
+`{output_folder}/backlog/` (`bug-<slug>.md` and the like), filed and closed by Sofia
+(`bmad-agent-po`). `/l3io-doctor triage` audits that backlog read-only and `harvest-debt`
+proposes candidate bugs; neither writes a leaf.
 
 State is addressed through `pm-status.py` by **key**, never by hand-built path. No skill or
 step file should construct a state path itself — see "Addressing" below.
@@ -44,8 +49,7 @@ co-located with the artifacts it describes. Nothing state-related lives under
 │   │   └── epic-004/…
 │   ├── archived/
 │   │   └── epic-002/…                       ← done; keeps its full tree
-│   ├── issues.yaml                          ← open BL items + `next:` key allocator
-│   ├── issues-resolved.yaml                 ← resolved BL items, with resolution
+│   ├── issues.yaml                          ← 3.x backlog; no 4.x reader or writer
 │   ├── events.jsonl                         ← append-only transition log
 │   ├── pm-calibration.yaml
 │   └── adr-register.yaml                    ← ADR number allocator (`next`, `reserved`)
@@ -110,20 +114,6 @@ Two asymmetries follow, both correct:
 - Sprint key: `S{nn}` (2-digit zero-padded string, e.g. `"S01"`) → directory `sprint-{nn}`
 - Story key: `E{nnn}-S{nn}-{nnn}` (globally unique, e.g. `"E001-S02-003"`) → file
   `E{nnn}-S{nn}-{nnn}.yaml` inside that sprint's directory
-- Backlog item key: `BL-E{nnn}-{nnn}` (e.g. `"BL-E001-001"`; `BL-E000-{nnn}` for repo-global).
-  The trailing `{nnn}` is **allocated by `append-issue` itself, under a lock — never chosen
-  by the caller.** No step file, reference, or digest binds this number anywhere else; a
-  caller that invented it was the exact defect this replaces (two agents inventing the same
-  next number simultaneously, the same collision class production ADR numbers hit before
-  `adr-reserve` existed). Pass `--key` only to name an existing item explicitly — an
-  explicit key that already exists is refused (exit 2), not silently reassigned.
-  Allocation is `max(next[epic], highest suffix in either issues.yaml or
-  issues-resolved.yaml + 1)` — the per-epic `next:` map in `issues.yaml` is a
-  high-water mark that never decreases, so a deleted or resolved key is never reused.
-  Allocating past `BL-E{nnn}-999` is refused (exit 2, nothing written) — a three-digit
-  suffix cannot name a higher number, and keys are never reused, so an epic that exhausts
-  its range needs a new epic id.
-
 Node fields use `key:` (not `id:`) in every file.
 
 ## 4. Per-file schema
@@ -269,45 +259,6 @@ actual:
   model: claude-opus-5
 ```
 
-```yaml
-# state/issues.yaml — open items only
-next: {'001': 5}                          # per-epic high-water; pm-status.py only; never decreases
-backlog:
-- key: BL-E001-004
-  epic: '001'
-  sprint: '02'                            # '' for an epic-level item
-  title: 'Issue title'
-  source: 'code-review (E001-S02-003)'    # derived when written structurally
-  source_phase: 'code-review'             # present only when --source-phase was used
-  source_ref: 'E001-S02-003'              # absent = legacy item, `source` must be parsed
-  severity: Low
-  status: backlog                         # backlog (untriaged) | scheduled
-  description: 'See …/closure/review-E001-S02-003.md'
-- key: BL-E003-007
-  …
-  kind: spec-change                       # absent = defect | spec-change | spec-proposal
-  ref: 3f9c2a1                            # spec kinds only: the docs(spec) commit, or the proposal path
-- key: BL-E001-002
-  …
-  status: scheduled
-  story: E003-S02-004                     # the story whose `done` resolves it
-  scheduled_at: '2026-09-10T14:02:11Z'
-```
-
-```yaml
-# state/issues-resolved.yaml — resolved items, moved whole
-resolved:
-- key: BL-E001-003
-  …                                       # every original field
-  status: resolved
-  resolution: fixed                       # fixed | wontfix | duplicate | obsolete
-  resolved_at: '2026-09-10T15:40:00Z'
-  ref: E003-S02-004                       # story key, commit SHA, or the surviving BL key
-  note: '…'                               # required for wontfix and obsolete
-```
-
-A story node created by `promote-issue` carries `resolves: [BL-E001-002]`.
-
 `_lock` (epic files only) is 3.x machine metadata, the first key when present — see §6.
 
 ## 5. Placement rule
@@ -320,10 +271,8 @@ them as they are.
 ## 6. Ownership lock
 
 A 3.x run claimed an epic by writing a `_lock` block (`session_id`, `claimed_at`,
-`ttl_minutes`) as the first key of its `epic.yaml`. Nothing writes one in 4.x. `promote-issue`
-still refuses to write into an epic whose `_lock` is held by another session within its TTL
-(exit `5`), or whose lock it cannot evaluate; an abandoned lock is dropped by deleting the
-`_lock` block.
+`ttl_minutes`) as the first key of its `epic.yaml`. Nothing writes or reads one in 4.x; the
+migration carries it as data.
 
 ## 7. Addressing
 
@@ -347,27 +296,6 @@ uv run {pm_status} import-node --state-root {pm_state_root} --story E001-S01-003
 the three status folders (`active` first, as the hottest path). The same resolution applies
 to `--epic`/`--sprint` pairs. No caller ever supplies a raw path for a node.
 
-**Issue verbs address the issue files through `--state-root`**, like every node verb; the
-two files have no node key of their own. `append-issue` still accepts `--file` for
-compatibility (it must equal `<state-root>/issues.yaml`):
-
-```bash
-uv run {pm_status} append-issue --file {pm_issues_file} \
-  --epic 001 --title "..." --severity Medium \
-  --source-phase code-review --source-ref E001-S02-003 \
-  --description "See <the file and line where the finding is recorded>"
-```
-
-`--key` is omitted here deliberately — it is optional, and when omitted `append-issue`
-allocates the next `BL-E001-{nnn}` itself (see §3). Pass `--key` only when you mean to name
-an existing item; an explicit key that already exists is refused (exit 2), not renumbered.
-
-`append-issue` always runs its whole load → allocate-key → dedupe-check → mutate → save
-cycle under one exclusive lock (it is the last remaining shared-append target — see
-"Concurrency" below); this is automatic, not a flag. A content duplicate — the same
-normalized title, epic, sprint, and source as an existing item — is skipped (exit 0,
-nothing written) unless `--allow-duplicate` is passed.
-
 Subcommand summary (see `pm-status.py --help` for full flags):
 
 | Subcommand | Addressing |
@@ -377,13 +305,6 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `set-actual` extra | `--node {story,epic}`; `--block {actual,orchestration}` (default `actual`); `orchestration` writes the orchestrator's own overhead and is valid on an epic only, never a story |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex} [--confidence ...] [--model ID] [--token-rates JSON]` — computes and writes a story's estimate block from `BASE_BANDS` × calibrated scope ratio × fix factor, per metric, then prices `cost` from the estimated `tokens_k` |
 | `estimate-rollup` | `--state-root --epic ID [--model ID] [--token-rates JSON]` — sums every story estimate under the epic (no sprint level between them, ADR-0016) and writes the epic's range-form estimate, widened by the calibrated (or cold-start) closure band and the calibrated (or unseeded) orchestration band, then prices `cost` from the rolled-up `tokens_k` range |
-| `append-issue` | `--state-root` (preferred) or `--file` (compatibility) |
-| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. `--kind {defect,spec-change,spec-proposal}` filters by kind (no `kind` = defect). |
-| `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. |
-| `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). A key in neither issue file exits 3 naming both (`{key} is in neither {open_path} nor {resolved_path}`); a resolved key exits 2. Setting it to the severity it already has is a no-op: prints `OK update-issue {key} severity {S} unchanged` — plus ` (note not recorded)` when `--note` was given, since the note lives only in the event a no-op does not write — writes nothing, appends no event. |
-| `promote-issue` | `--state-root --artifacts-root A --key K [--key K2…] --epic E --sprint S --classification C` + optional `--title` (required with several keys; a key repeated in one call is refused with exit 2 rather than deduped, since collapsing it would skip that requirement — `schedule-issue` still dedups, because nothing downstream of it reads the key count), `--model`, `--token-rates`, `--session-id`, `--cause`. Refuses archived epics, sprints not in `backlog`, a retry that would resume an interrupted promotion into a different epic/sprint than the one it partly completed (exit 2, naming the epic/sprint to retry with), and a foreign epic lock — live (exit 5) or one it cannot evaluate (not a mapping, no `session_id` — a whitespace-only id also reads as absent, so it is never mistaken for a padded match of the caller's own — a `claimed_at` that is missing, unparseable, or has no timezone, or a non-integer `ttl_minutes`; exit 5, naming the `_lock` block to delete for an abandoned lock). Also refuses (exit 2), before any write: a resumable claimant's story node with a malformed `key:`, or any story node it walks that fails to parse, is not a mapping, or is not valid UTF-8. A claim by a story under `archived/` that is not `done` is ignored — a dead claim is never resumed, so a re-promotion mints a new story. |
-| `audit-issues` | `--state-root [--format {text,json}]` — read-only integrity findings 1a–1l (key in both files, broken scheduling, missed done hook, unlinked promotion, stale `next`, bad status, archived undone story, double claim, duplicate/non-canonical key, fixed-but-reverted, unknown `kind` or a spec item with no `ref`, story key left behind by a re-key); a key with a resolved entry is not evaluated for 1b/1c/1d/1f/1g — its stale open copy shows as 1a, and 1h and 1j still apply — and a key duplicated within one file (1i) is not evaluated for 1b/1c/1d/1f/1g either; 1d/1h ignore a dead claim (a story under `archived/` that is not `done`); 1j fires only when the ref story's `resolves:` lists the key; exit 4 when any is found, and on a malformed issue file, or a story node that fails to parse, is not a mapping, or is not valid UTF-8, `--format json` prints `{"findings": [], "error": MSG}` (same channel, no new finding id). `1e` covers the stale canonical `next[epic]`, any non-canonical alias key (allocate reads only the canonical key), and any value above the BL key space (1000); an alias above 1000 reports both, each with the hand-fix `repair` (`report only -- fix it by hand; reseed refuses a value above 1000`), since `reseed` refuses it. `1k` covers a `kind` outside `defect`/`spec-change`/`spec-proposal`, or a `spec-change`/`spec-proposal` item with no `ref`. `1l` covers a `story` or `ref` field holding a story key that no story carries any more **and** that at least one story records in `previous_keys` — the residue of a 3.x re-key; it names the heir when exactly one story records it, and is report-only when several do. A scheduled item with an heir is `1l`, **not** `1b`, because repointing restores the scheduling that `unschedule` discards; a dangling key no story records is `1b` only, since there `unschedule` is the right answer. |
-| `repair-issue` | `--state-root --key K --action {unschedule,link,repoint,reseed,reopen}` + `--story` for link — structural repairs, each refused (exit 2) unless its `audit-issues` finding holds (1b/1g, 1d, 1l, 1e, 1j); `unschedule`/`link` also refuse a key that already has a resolved entry (audit finding 1a: rerun `resolve-issue` to clear the stale open copy); `repoint` rewrites every stale story-key field (`story`, `ref`) on the one item the key resolves to — the resolved entry when there is one, for the same reason — and writes an `issue_repointed` event; `reseed` merges non-canonical aliases of the epic's `next` key into the canonical key by max and never lowers it, but refuses outright (exit 2, nothing written) when any of the epic's alias or canonical values exceeds 1000 (report-only; fix it by hand); `unschedule` writes an `issue_unscheduled` event; `link` writes an `issue_scheduled` event carrying `via: repair-link` (promote's own carries no `via`). |
 | `calibration show` \| `migrate-metrics` \| `redrive` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent); `redrive` re-derives calibration samples from the story files already on disk (`redrive_story_samples`), for backfilling or repairing samples without re-running the work |
 | `report` | `--project-root P --initiative-dir D` (+ optional `--status-json F`, `--format`, `--out`, `--watch`, `--stall-minutes N`) — progress over a v7 initiative (§12); read-only unless `--out` is given |
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch boundary into `events.jsonl`; the input to `report`'s stalled-dispatch flags |
@@ -415,7 +336,6 @@ nothing on a normal run needs to read it.
 | `2` | Usage error |
 | `3` | Node not found |
 | `4` | Verification failure (missing/invalid field, or structural mismatch) |
-| `5` | Epic locked by another session (`promote-issue`) |
 
 ### `verify` — two different checks behind one subcommand
 
@@ -464,16 +384,16 @@ sharding gives each epic its own directory, and nothing below the epic level nee
 **Lock files.**
 - `{state_root}/epic-NNN.lock` — one per epic, created empty (opened `"w"`, never written)
   the first time any locking verb touches that epic. It lives in the state root itself,
-  beside `issues.yaml.lock` and `pm-calibration.yaml.lock`, never inside an epic directory,
+  beside `pm-calibration.yaml.lock`, never inside an epic directory,
   so it survives a directory move unchanged. It is never deleted
   (deleting a flock file is racy) — do not delete one while a run may be active.
-- `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
-  the three shared-append targets below, likewise created empty and never deleted.
+- `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for the two
+  shared-append targets below, likewise created empty and never deleted.
 - `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-time-ever
   advisory ledger `pm-status.py notice` reads/writes, keyed on `--key` alone (not a session —
   there is no cross-invocation session identifier available), for the
   `l3io-execute`/`l3io-plan` setup-pointer (`config-resolution.md` §5). Same shape as
-  the three above: whole read-modify-write cycle under one lock, likewise created empty and
+  the two above: whole read-modify-write cycle under one lock, likewise created empty and
   never deleted.
 - `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
   `acquired_at`, `expires_at`), not an empty flock target: an epic closure's spec sync holds it
@@ -487,8 +407,8 @@ sharding gives each epic its own directory, and nothing below the epic level nee
 **None of these is ever committed.** `pm-status.py` keeps both `*.lock` and `.notices.yaml`
 in `{state_root}/.gitignore` — the same `_ensure_lock_ignore` mechanism covers both patterns,
 not two separate ones. Every lock acquisition inside a state root checks that file, at most
-once per process per state root. A bare `append-issue --file` outside one (no status folders,
-no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Any pattern
+once per process per state root. A lock taken outside one (no status folders, no
+`--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Any pattern
 absent from the file is appended (patterns already present are left alone, never rewritten or
 reordered); an absent file is created with both. The check is best-effort: a failure warns on
 stderr and never fails the verb. Neither pattern matches a directory, so a `git check-ignore`
@@ -499,24 +419,21 @@ left inside an epic directory by a pre-relocation `pm-status.py` are no longer t
 the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
 is harmless.
 
-`pm-calibration.yaml`, `issues.yaml`, and `adr-register.yaml` are the three shared-append
-targets sharding does not shard, because all three are inherently cross-epic aggregates.
-Every `set-actual` across every epic and every parallel subagent may append a calibration
-sample to the first (specified by the calibration model — see above); every `append-issue` call across
-every epic and every parallel subagent appends to the second, first allocating the item's key
-from it (§3); every `adr-reserve` call across every parallel arch-gate agent allocates a block
-of ADR numbers from the third (§1, §6). All three therefore run their **whole
+`pm-calibration.yaml` and `adr-register.yaml` are the two shared-append targets sharding
+does not shard, because both are inherently cross-epic aggregates. Every `set-actual` across
+every epic and every parallel subagent may append a calibration sample to the first (specified
+by the calibration model — see above); every `adr-reserve` call across every parallel agent
+allocates a block of ADR numbers from the second (§1, §6). Both therefore run their **whole
 read-modify-write cycle** — load, allocate/derive, mutate, save — inside one exclusive lock
-each (`calibration_lock` / `issues_lock` / `adr_register_lock`), not just the save. Locking
-only the save is not sufficient and was not safe: two concurrent callers each loaded the same
-pre-write state and the second save silently dropped the first's item (for `issues.yaml`,
-both a lost finding and, before key allocation existed, two callers computing the same next
-number; for `adr-register.yaml`, two parallel agents both claiming the same ADR number), with
-both calls still exiting 0. There is no `--flock` flag to remember for any of the three — the
-lock is automatic, not opt-in. All three locks are re-entrant within a process, so a save
-that nests inside its own lock (as `save_calibration` does) does not deadlock against its own
-flock. Contrast this with per-epic node files: `sprint.yaml` and story `.yaml` still need no
-flock, because sharding gives each epic its own directory; `epic.yaml` now does, per above.
+each (`calibration_lock` / `adr_register_lock`), not just the save. Locking only the save is
+not sufficient and was not safe: two concurrent callers each loaded the same pre-write state
+and the second save silently dropped the first's write (for `adr-register.yaml`, two parallel
+agents both claiming the same ADR number), with both calls still exiting 0. There is no
+`--flock` flag to remember — the lock is automatic, not opt-in. Both locks are re-entrant
+within a process, so a save that nests inside its own lock (as `save_calibration` does) does
+not deadlock against its own flock. Contrast this with per-epic node files: `sprint.yaml` and
+story `.yaml` still need no flock, because sharding gives each epic its own directory;
+`epic.yaml` does, per above.
 The first number `adr-reserve` hands out is the larger of the register's `next` and the
 highest ADR number already on disk — in `--adr-dir` and in the old per-epic home
 `epic-*/arch/` — plus one (ADR-0005). Outside a git work tree and with no `--adr-dir`, the
@@ -525,26 +442,21 @@ register untouched) and names `--adr-dir` in the message. It does not fall back 
 and print a number: a caller reads the number off stdout, and an allocation made without seeing
 `docs/adr/` is exactly the collision the register exists to prevent.
 
-`issues-resolved.yaml` shares `issues_lock` with `issues.yaml` — every issue verb loads and
-saves both under one hold. **The epic lock is always the outer lock; nothing takes it in
-reverse.** The full nesting set:
+**The epic lock is always the outer lock; nothing takes it in reverse.** The full nesting
+set:
 
-- **epic → `issues_lock`** — `promote-issue` takes `epic_node_lock`, and then, nested inside
-  it, `issues_lock`, which it holds from the decisive item check through the node + estimate
-  save, the story document, both roll-ups and scheduling.
 - **epic → `calibration_lock`** — `set-actual --node epic` takes `epic_node_lock` across the
   actuals write, then nests `calibration_lock` for the closure/orchestration sample
   (`record_closure_sample` / `record_orchestration_sample`).
 - **epic → the `events.jsonl` flock** — a leaf lock, taken and released inside `append_event`
   for any epic-level status/actuals write.
-- **epic → epic** — the same epic only, re-entered (promote's own roll-up); no second flock
-  is taken.
+- **epic → epic** — the same epic only, re-entered; no second flock is taken.
 
 None holds two `epic_node_lock`s at once — the re-entrancy counter is per lock family, not
 per path, and requesting a second epic's lock while one is already held raises. **A fresh
-epic lock is never taken while `issues_lock` or `calibration_lock` is held** — that ordering
-is enforced at runtime: `epic_node_lock` raises `RuntimeError` if it is requested fresh (not
-a same-epic re-entry) while either of those locks is held.
+epic lock is never taken while `calibration_lock` is held** — that ordering is enforced at
+runtime: `epic_node_lock` raises `RuntimeError` if it is requested fresh (not a same-epic
+re-entry) while it is held.
 
 ## 10. Read resolution at activation
 
@@ -563,7 +475,6 @@ and leaves a 3.x tree where it is. The doctor's health check reports one and pro
 | Binding | Resolves to |
 |---|---|
 | `{pm_state_root}` | `{output_folder}/l3io` on v7 (§12); `{implementation_artifacts}/state` for a 3.x tree |
-| `{pm_issues_file}` | `{pm_state_root}/issues.yaml` |
 | `{pm_calibration_file}` | `{pm_state_root}/pm-calibration.yaml` |
 
 There are no other state-path bindings: every path below `{pm_state_root}` is resolved

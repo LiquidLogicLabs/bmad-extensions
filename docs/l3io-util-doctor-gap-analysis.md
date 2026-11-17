@@ -329,7 +329,7 @@ Each with the failure it prevents. Assessment only — nothing here is a plan.
 **Not worth covering, in my judgment:**
 
 - `issues.yaml` naming a vanished epic — an epic directory is removed only by a deliberate
-  `git rm`, and the orphan is harmless: `list-issues` still returns it and `triage` still
+  `git rm`, and the orphan is harmless: `list-issues` (removed in 4.0.0) still returns it and `triage` still
   reviews it. Cost exceeds benefit.
 - Consumer-side `payload-manifest.json` verification — `pm-status.py` (the file where a partial
   install actually hurts) already self-heals by content hash, and the installer is not known to

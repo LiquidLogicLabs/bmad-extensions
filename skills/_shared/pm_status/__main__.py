@@ -102,108 +102,6 @@ Subcommands
                 (appends a dispatch_open/dispatch_close event to events.jsonl;
                 feeds report's stall detection and marks the child/orchestration
                 spend boundary -- records timestamps only, never a token count)
-  append-issue  (--state-root S | --file F)  [--key BL-E{nnn}-{nnn}]  --epic E  [--sprint S]  --title T
-                --source S  --severity {Low,Medium,High,Critical}  [--description D]
-                [--allow-duplicate]
-                [--session-id ID]   (keys: max(next[epic], highest suffix in either
-                issue file + 1); an explicit --key is canonicalized and must match --epic)
-                (--key omitted allocates the next number for --epic under a lock --
-                the caller never invents {nnn}; an explicit --key that already exists
-                exits 2, as does allocating past {nnn} = 999. A content duplicate (same
-                normalized title/epic/sprint/source)
-                of an open item, or of a resolved wontfix/duplicate/obsolete item whose
-                severity is at least the new finding's, is skipped (exit 0, nothing written); a
-                match against a resolved fixed item is appended as a recurrence, and
-                one above a wontfix/duplicate/obsolete severity as re-raised. The
-                newest resolved match decides. --allow-duplicate bypasses all of it)
-  list-issues   --state-root S  [--epic E] [--sprint S]
-                [--severity {Low,Medium,High,Critical}] [--format {text,json}]
-                [--status {backlog,scheduled}] [--resolved [--resolution R]] [--all]
-                (open items by default; --resolved lists issues-resolved.yaml;
-                --all: JSON {open, resolved} under one lock; every JSON item carries
-                origin_archived)
-                (filters combine with AND; a repeated --severity ORs the given severities;
-                a missing issues.yaml, or a filter matching nothing, is success — exit 0
-                with an empty result, not an error)
-  resolve-issue --state-root S  --key K  --resolution {fixed,wontfix,duplicate,obsolete}
-                [--ref R] [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
-                (moves an open item to issues-resolved.yaml -- resolved file first, open
-                file second; fixed needs --ref story key or SHA, duplicate needs --ref an
-                open or non-duplicate BL key, wontfix/obsolete need --note; an already
-                resolved key exits 0 after clearing any stale open copy)
-  update-issue  --state-root S  --key K  --severity {Low,Medium,High,Critical}
-                [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
-                (re-severities an OPEN item; a resolved key exits 2, one in neither
-                issue file 3; the severity it already has exits 0 as "unchanged",
-                writing no file and no event)
-  promote-issue --state-root S  --artifacts-root R  --key K [--key K2 ...]  --epic E
-                --sprint S  --classification {simple,standard,complex}  [--title T]
-                [--model M] [--token-rates JSON] [--session-id ID] [--cause C]
-                (creates an estimated story whose `resolves:` lists the items, writes its
-                document, rolls up its epic, then marks the items scheduled; a key
-                given TWICE is refused (exit 2) rather than deduped, because --title is
-                required on len(keys) > 1 and collapsing a repeat would skip it --
-                schedule-issue still dedups, since nothing there reads the count; every
-                refusal is checked before the first write; a retry after an interrupted
-                run resumes the existing story -- only with the same --epic/--sprint (a
-                claimant elsewhere exits 2 naming them), and a dead claim (a story under
-                archived/ that is not done) is ignored; a foreign 3.x epic `_lock` exits 5
-                while live within its TTL, and whenever promote cannot evaluate it (not a
-                mapping, no session_id, a missing, unparseable or timezone-less claimed_at,
-                a non-integer ttl_minutes); the holder must equal --session-id exactly to
-                count as this session's own, and a whitespace-only one is no session_id --
-                delete the `_lock` block to drop an abandoned one; a story node that does not parse, is not valid UTF-8 or
-                is not a mapping, or a claimant whose key: is malformed, exits 2 naming
-                the file, before any write)
-  schedule-issue --state-root S  --key K [--key K2 ...]  --story E{nnn}-S{nn}-{nnn}
-                [--session-id ID] [--cause C]
-                (attaches open items to a story that ALREADY EXISTS -- the counterpart to
-                promote-issue, which only ever creates one; appends each key to the
-                story's `resolves:` and marks the items scheduled, story node first so an
-                interrupted run leaves finding 1d, which repair-issue --action link
-                repairs, rather than 1e, which has no single-key repair; idempotent by
-                skip for a key already scheduled to THIS story, exit 2 for one scheduled
-                to a different story; exit 3 for an absent story, exit 2 for a story that
-                is `done` or whose epic is under archived/, exit 4 on a back-reference
-                mismatch; does NOT re-estimate the story or roll up its parents; locks in
-                promote-issue's order -- epic_node_lock then one issues_lock spanning the
-                decisive check through the save; every refusal is checked before the first
-                write)
-  audit-issues  --state-root S  [--format {text,json}]
-                (read-only integrity checks 1a-1l over both issue files and the story
-                nodes' resolves:, read under issues_lock when either issue file exists;
-                otherwise the story walk still runs, unlocked, over an empty store;
-                a key with a resolved entry is not evaluated for 1b, 1c, 1d, 1f
-                or 1g -- its stale open copy shows as 1a, and 1h and 1j still
-                apply; a key duplicated within one file (1i) is not evaluated
-                for 1b, 1c, 1d, 1f or 1g either; 1d/1h ignore a dead claim -- a
-                story under archived/ that is not done; 1j fires only when the
-                ref story's resolves: lists the key; 1e also reports every
-                non-canonical alias key in next (1 or '1' for '001') whatever its
-                value, and any next above 1000; 1l reports a `story` or `ref`
-                field holding a story key no story carries any more, and names
-                the heir when exactly one story records it in previous_keys --
-                a scheduled item with such an heir is 1l, NOT 1b, because
-                repointing restores the scheduling that unschedule discards;
-                exit 4 when anything is
-                found, and on a malformed issue file or a story node that does
-                not parse, is not valid UTF-8 or is not a mapping, where
-                --format json prints {"findings": [], "error": MSG})
-  repair-issue  --state-root S  --key K  --action {unschedule,link,repoint,reseed,reopen}
-                [--story KEY] [--session-id ID] [--cause C]
-                (each action refuses unless its audit finding holds: unschedule 1b/1g,
-                link 1d (--story must be the story that lists K), repoint 1l with an
-                heir (it repoints every stale story-key field of the one item the key
-                resolves to, resolved entry first, and writes an issue_repointed event),
-                reseed 1e, reopen 1j;
-                unschedule and link also refuse a key with a resolved entry -- rerun
-                resolve-issue to clear the stale open copy (1a); reseed merges
-                non-canonical aliases of the epic's next key by max, drops them, and
-                never lowers it, but refuses (nothing written) any of those values
-                above 1000;
-                unschedule writes an issue_unscheduled event; a story node that does
-                not parse, is not valid UTF-8 or is not a mapping exits 2 naming the
-                file, before any write)
   calibration   show  --state-root S  [--format {text,json}]
                 (inspects pm-calibration.yaml; a missing file is a normal
                 cold-start state, not an error)
@@ -326,8 +224,7 @@ override. set-actual on a ticket records no calibration sample.
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
-3 = node not found, 4 = verification failure (missing/invalid field), 5 = epic locked
-(promote-issue).
+3 = node not found, 4 = verification failure (missing/invalid field).
 Errors go to stderr; machine output (verify summaries) goes to stdout.
 """
 from __future__ import annotations
@@ -391,16 +288,13 @@ if not __package__ and __name__ == "__main__":
 # the standing guard. `nodes` also carries check 26's resolver-section markers, so it is
 # the one file in this package allowed to assemble a state path; nothing here does.
 #
-# `metrics` and `issues` are DIRECTORIES of modules (metrics: events, rates, calibration,
-# estimates, spend, report, actuals_usage; issues: adr, store, promote, audit -- see each
-# package's __init__.py), so their patch targets are two levels down.
-# `metrics.estimates.compute_story_estimate` and `metrics.estimates.rollup_parent_estimate`
-# are called module-qualified from `issues/promote.py`; `metrics.actuals_usage.
-# dispatch_window` has no caller outside its own module; and `issues.store.
-# resolve_issue_core` is called module-qualified from `issues/audit.py`. None of the four is
-# re-exported, here or by either `__init__.py`.
-# FOUR of the six are imported for a LIVE caller: `build_parser` calls
-# `<module>.register(sub)` on each of instructions, issues, metrics and verbs, so none
+# `metrics` is a DIRECTORY of modules (events, rates, calibration, estimates, spend, report,
+# actuals_usage -- see its __init__.py), so its patch targets are two levels down.
+# `metrics.estimates.compute_story_estimate`, `metrics.estimates.rollup_parent_estimate` and
+# `metrics.actuals_usage.dispatch_window` are reached module-qualified and none is
+# re-exported, here or by `metrics/__init__.py`. `adr` is the ADR number allocator, one verb.
+# FOUR of the modules are imported for a LIVE caller: `build_parser` calls
+# `<module>.register(sub)` on each of adr, instructions, metrics and verbs, so none
 # of them carries a `noqa`. That is the honest state -- a `noqa`
 # over a module ruff can see used is a justification that reads as true and is not -- and it
 # means ruff now reports the one failure mode distributed registration introduces from this
@@ -430,14 +324,20 @@ if not __package__ and __name__ == "__main__":
 # `bracket`, whose token and summing helpers it reuses, so `sidecar.verbs` cannot register it
 # without a cycle; `build_parser` does, bound here as `sidecar_closure`.
 from . import (
+    adr,
     bracket,
     core,  # noqa: F401 -- re-export only
     instructions,
-    issues,
     metrics,
     nodes,  # noqa: F401 -- re-export only
     sidecar,  # noqa: F401 -- re-export only
     verbs,
+)
+
+# The instruction-block leaf, re-exported by name: nothing in the suite patches a name it
+# defines. It reaches `core` as a module object itself.
+from .adr import (
+    load_adr_register,  # noqa: F401 -- re-export only
 )
 from .core import (
     _EPIC_NODE_LOCK,  # noqa: F401 -- re-export only
@@ -465,34 +365,14 @@ from .core import (
     epic_lock_path,  # noqa: F401 -- re-export only
     epic_node_lock,  # noqa: F401 -- re-export only
     events_path,  # noqa: F401 -- re-export only
-    issues_lock,  # noqa: F401 -- re-export only
     parse_story_key,  # noqa: F401 -- re-export only
     sprint_dirname,  # noqa: F401 -- re-export only
 )
-
-# The instruction-block leaf, re-exported by name: nothing in the suite patches a name it
-# defines. It reaches `core` as a module object itself.
 from .instructions import (
     BlockError,  # noqa: F401 -- re-export only
     apply_block,  # noqa: F401 -- re-export only
     find_block,  # noqa: F401 -- re-export only
     remove_block,  # noqa: F401 -- re-export only
-)
-from .issues.adr import (
-    load_adr_register,  # noqa: F401 -- re-export only
-)
-from .issues.promote import (
-    _next_story_key,  # noqa: F401 -- re-export only
-)
-
-# `resolve_issue_core` is deliberately absent from this list. It is a mock.patch target, so
-# it is reached as `issues.store.resolve_issue_core(...)` -- see `issues/audit.py`. A re-export here would be a private copy
-# a patch on `pm.issues.store` could not reach, and the patch would silently guard nothing.
-# `IssueStore` is re-exported because the suite patches a CLASS ATTRIBUTE on it, which
-# mutates the one class object every binding names.
-from .issues.store import (
-    IssueStore,  # noqa: F401 -- re-export only
-    issues_paths,  # noqa: F401 -- re-export only
 )
 from .metrics.actuals_usage import (
     CLAUDE_SESSION_ENV,  # noqa: F401 -- re-export only
@@ -563,10 +443,8 @@ from .nodes import (
     check_backrefs,  # noqa: F401 -- re-export only
     ensure_node_path,  # noqa: F401 -- re-export only
     find_epic_dir,  # noqa: F401 -- re-export only
-    list_story_files,  # noqa: F401 -- re-export only
     load_node,  # noqa: F401 -- re-export only
     sprint_file,  # noqa: F401 -- re-export only
-    story_doc_path,  # noqa: F401 -- re-export only
     story_file,  # noqa: F401 -- re-export only
 )
 from .sidecar import closure as sidecar_closure
@@ -583,7 +461,7 @@ from .sidecar import verbs as sidecar_verbs
 #
 # THE ORDER IS THE SURFACE. argparse lists subcommands in registration order, so this tuple
 # decides what `pm-status.py --help` prints. It is the order of each module's FIRST verb in
-# the pre-split function — verbs led, then metrics, issues, instructions — so
+# the pre-split function — verbs led, then metrics, adr, instructions — so
 # the listing stays as close to the shipped one as a per-module grouping can be. Every
 # individual subcommand's `--help` is byte-identical to the pre-split capture in
 # `.superpowers/sdd/2026-10-23-pm-status-package-split/cli-surface-before.txt`; what the
@@ -605,7 +483,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verbs.register(sub)
     metrics.register(sub)
-    issues.register(sub)
+    adr.register(sub)
     instructions.register(sub)
     sidecar_verbs.register(sub)
     bracket.register(sub)

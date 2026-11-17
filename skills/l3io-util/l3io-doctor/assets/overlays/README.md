@@ -20,8 +20,7 @@ Per `docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md` §5 (
 - `[[workflow.lenses]]` entries exposing `l3io-sec-redteam`'s threat lenses and
   `l3io-arch-review`'s standards.
 - `persistent_facts` with `file:` globs — story technical ACs and `spec-index.md` as run facts.
-- `implementation_handoff` override dispatching the l3io dev agent with `Files in scope` and
-  read-scope discipline.
+- (no `implementation_handoff` override: implementation is `bmad-build-auto`'s alone, ADR-0018)
 - `on_complete` writing back through `pm-status.py`, replacing the flat-file write.
 
 Each overlay is named `<skill>.toml` (e.g. `bmad-build.toml`), using the root key

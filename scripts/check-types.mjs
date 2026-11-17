@@ -29,11 +29,12 @@
 //   TYPE_CHECKING import, annotated, bug present       -> 2 "not callable"  (both call sites)
 //   TYPE_CHECKING import, annotated, code correct      -> 0 "not callable"  (no false positive)
 //
-// So the `if TYPE_CHECKING: from ruamel.yaml.comments import CommentedSeq` is load-bearing --
-// it travelled out to `issues/store.py` with the `IssueStore` it annotates, which is why the
-// test mutates every .py rather than one file. Delete it and this gate becomes a no-op that
-// still reports
-// success, which is the most dangerous shape a check can have. Removing it is exactly a
+// So an `if TYPE_CHECKING: from ruamel.yaml.comments import CommentedSeq` is load-bearing
+// wherever such an annotation lives. The accessors this gate was written for (`IssueStore`'s)
+// went with the issues verbs in Task 4.9, so the test plants a probe of the same shape into a
+// copy of the package and mutates every .py rather than one file. Delete the import and this
+// gate becomes a no-op that still reports success, which is the most dangerous shape a check
+// can have. Removing it is exactly a
 // `[name-defined]` error on the annotation lines, so the gate fails rather than going
 // quietly blind. That is why the second class is gated: it guards the first.
 //

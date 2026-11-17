@@ -79,155 +79,66 @@ whereas `update-ai-rules` edits *your own* prose where it still describes a lega
 
 ## Quick Start
 
-This package is distributed as [BMad community modules](https://docs.bmad-method.org/how-to/install-custom-modules/).
+l3io 4.x runs on **BMad v7**. Each of this package's four modules is a folder under `skills/`
+(`l3io-pm`, `l3io-util`, `l3io-sec`, `l3io-arch`), installed with the `skills` CLI and then set
+up with v7's `bmad setup`. This is the sequence `npm run smoke:install` runs against a real v7
+project built by `tests/fixtures/v7/make-fixture.sh`.
 
-The modules work with both **Claude Code** and **GitHub Copilot**. Pick your IDE(s)
-with the `--tools` flag (comma-separated codes — no spaces):
+**1. A v7 project.** BMad v7's `core-tools` and `method` modules must already be installed and
+set up in the repository — `bmad-agent-po` (Sofia), `bmad-build-auto` and `bmad-retrospective`
+come from `method`, and `l3io-pm` dispatches to all three.
 
-| IDE | `--tools` code | Generated agent surface |
-|-----|----------------|-------------------------|
-| Claude Code | `claude-code` | `.claude/commands/*` slash commands |
-| GitHub Copilot | `github-copilot` | `.github/agents/*.agent.md` + `.github/copilot-instructions.md` |
-
-### One script for all three
-
-`install.sh` at the repository root wraps every command below, picks the right one, and
-refuses the wrong one. It is not skill payload — a first install has no payload to run from —
-so it can be fetched on its own:
+**2. Add the modules.** From the project root, one `npx skills add` per module folder of a
+checkout of this repository, for each tool you use (`-a claude-code`, `-a codex`, …; repeat the
+flag rather than comma-separating):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LiquidLogicLabs/bmad-extensions/main/install.sh -o install.sh
-less install.sh            # it runs npx and, with --action clean, deletes files
-bash install.sh --action upgrade
+git clone https://github.com/LiquidLogicLabs/bmad-extensions /tmp/l3io
+for m in l3io-pm l3io-util l3io-sec l3io-arch; do
+  npx --yes skills add /tmp/l3io/skills/$m -s '*' -a claude-code -a codex -y --copy
+done
 ```
 
-| Action | What runs | Requires |
-|---|---|---|
-| `--action upgrade` | BMad's `--action quick-update` | an existing install |
-| `--action install` | the first-install form, with `--custom-source` | **no** existing install |
-| `--action clean` | removes this extension's payload only, dry run until `--apply` | an existing install |
+`l3io-util` is **required** with `l3io-pm` (it provides `l3io-doctor`); `l3io-sec` and
+`l3io-arch` are optional. Never add `skills/_shared/` — it is source, not a module.
 
-`--action upgrade` and `--action clean` refuse a tree with no install; `--action install`
-refuses one that has it. Those are not conveniences: an upgrade derives its module set from
-the install, and a clean needs the payload manifests to decide what is safe to delete. Both
-would otherwise have to guess, and both guesses are destructive. `-n`/`--dry-run` prints the
-command and runs nothing.
+**3. Set them up.** `npx skills add` installs the skills but none of the scripts they declare.
+`bmad setup` installs those under `_bmad/<module>/scripts/` and records each module's
+settings:
 
-Piping straight to `bash` works and we would rather you did not: the script invokes `npx`
-and, with `--action clean`, deletes files. Download it, read it, then run it. Inside a project
-that already has this extension, `/l3io-doctor upgrade` does the same two things from payload
-already on disk, with no download at all.
-
-**First install** in the current repo — this example installs both IDEs; drop whichever code
-you don't use:
-
-```bash
-npx -y bmad-method@latest install \
-  --directory . \
-  --custom-source https://github.com/LiquidLogicLabs/bmad-extensions \
-  --modules bmm \
-  --tools claude-code,github-copilot \
-  --yes
+```
+bmad setup l3io-pm
+bmad setup l3io-util
 ```
 
-**Upgrading an existing install is a different command, and it is shorter:**
+`bmad setup l3io-pm` asks how many developers share the project (`lane_count`); every other
+setting has a default. It reports `l3io-doctor` as an unmet requirement when only `l3io-pm` is
+installed. `l3io-sec` and `l3io-arch` self-register from their own skill on an explicit
+`configure` request.
 
-```bash
-npx -y bmad-method@latest install --directory . --action quick-update --yes
+**4. Wire the hooks.** In your agent:
+
+```
+/l3io-doctor wire
 ```
 
-That is the whole command. `--action quick-update` (`install.js:31`, branch at `:114`) is the
-path BMad provides for an existing install, and it **derives** what the longer form makes you
-transcribe: `installer.js:1386 quickUpdate` reads the installed module set and the configured
-IDE list straight off the install via `ExistingInstall.detect`, refreshes custom-source modules
-too (`findModuleSourceByCode`, so all four `l3io` modules update), preserves module settings
-(`moduleConfigs`, `_preserveModules`), and warns loudly about an installed module whose source
-it cannot find instead of dropping it. It performs **no** selection-driven deletion: there is no
-`toRemove`, and its only `fs.remove` is alias-migration cleanup (dropping `_bmad/bauto/` once
-`_bmad/bmad-loop/` is in place).
+This writes l3io's entries into the team layer (`_bmad/custom/<skill>.toml`) of Sofia,
+`bmad-build`, `bmad-build-auto` and `bmad-retrospective`: estimates on her ticket procedures,
+the readiness checks in her validate, waves and lanes on her board, a measured bracket around
+every build, and the epic closure on every retrospective. It never overwrites a team's own
+value, and `/l3io-doctor unwire` removes exactly what it added.
 
-`@latest`, not a bare `bmad-method`: a bare `npx` reuses whatever it already cached, which is
-how one machine stayed on 6.11.0 while the fleet ran 6.12.0. `@latest` resolves the dist-tag
-every run, so every repo tracks the current BMad release. The trade is that an upstream change
-reaches every repo on its next upgrade — that is chosen, not accidental.
-
-> **Only use the first-install form on an existing repo when you intend to CHANGE the module
-> or IDE set** — and then know what the flags do, because both are authoritative rather than
-> additive. `--modules` makes `installer.js` `fs.remove` every installed module the flag does
-> not name, sparing only `core` and modules with no available source, and passing it disables
-> the retention `--yes` would otherwise give (`preserveUnselected: options.yes && !options.modules`).
-> `--tools` behaves the same way: deselected IDEs go through `cleanupByList`, which wipes their
-> target directories. Neither asks for confirmation.
->
-> The four `l3io` modules are never at risk from `--modules` — `--custom-source` codes are
-> appended to the selection regardless of it. Everything else you have installed is.
->
-> *Found the hard way, twice. A `--modules bmm` upgrade would have removed `cis` and `tea`
-> from a repo that had them. The "safe" replacement advice — the full form with every module
-> named — was then followed on a repo whose per-module `config.yaml` for core, bmm, cis and tea
-> did not survive it. Both mistakes come from using the install path for an upgrade;
-> `--action quick-update` is the path that cannot make either.*
-
-For a single IDE on a FIRST install, use just that code, e.g. `--tools claude-code`. On an
-upgrade, pass no `--tools` at all: `quick-update` reads the configured list off the install.
-
-**On a first install, name `bmm`.** Without `--yes`, a `--custom-source` install starts from an
-empty module list and brings `core` plus the custom modules only — so you would get the four
-`l3io` modules and none of the BMad skills they dispatch to. `bmad-code-review`,
-`bmad-retrospective`, `bmad-qa-generate-e2e-tests` and `bmad-sprint-planning` live in the
-official `bmm` module, not in `core`, and the failure shows up late: planning works, then the
-first phase that dispatches one of them has nothing to invoke.
-
-*With `--yes` it is belt and braces rather than strictly required — `bmm` declares
-`default_selected: true`, so the non-interactive path selects it anyway. Naming it costs
-nothing and protects the interactive path, which is why the command above keeps it.*
-
-Add any other official modules to the same comma-separated flag (`--modules bmm,tea`). The full
-set BMad offers:
-
-| `--modules` code | Module | What it adds |
-|---|---|---|
-| *(implicit)* | **BMad Core Module** | Shared utilities across modules. Always installed — never passed in `--modules`. |
-| `bmm` | **BMad Method** | Agile AI-driven development. **Required by this package** — every BMad skill the `l3io` modules dispatch to lives here. |
-| `cis` | **BMad Creative Intelligence Suite** | Creative thinking partners |
-| `tea` | **BMad Test Architect** | Enterprise testing add-on for `bmm` |
-| `gds` | **BMad Game Dev Studio** | Ideate, design, and build games |
-| `bmad-loop` | **BMad Loop** | Builds, verifies, and retros a whole epic unattended. One post-install step: run the `bmad-loop-setup` skill, or its automation stays dormant. |
-
-Two further modules are registered but **deprecated**, so the installer hides them unless they
-are already installed: `automator` (replaced by `bmad-loop`) and `wds` — Whiteport Design Studio,
-whose capabilities are folding into `bmm`; existing installs are kept as they are.
-
-Module names and descriptions above are BMad's own, read from `bmad-modules.yaml` in
-`bmad-method@6.12.0`. That registry belongs to BMad, not to this package, so **no check in this
-repo verifies this table** — it can go stale when BMad adds or retires a module. For the live
-set, run `npx bmad-method install` and read the module picker.
-
-BMad ≥6.12.0 installs skills to `.claude/skills/<name>/SKILL.md`; older installs used
-`.claude/commands/<name>.md`. No `--shims` flag is needed for either — this package resolves
-both layouts and both name generations at every dependency site.
-
-Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
-(the installer prompts for which IDEs to target).
-
-After install, run `/l3io-doctor` once to initialize the runtime and verify your project state. See [Getting started](docs/getting-started.md) for the full guide.
+**5. Check.** Run `/l3io-doctor` once — the health check reports anything still missing and
+proposes the fixes in order. See [Getting started](docs/getting-started.md) for the full guide.
 
 ### Upgrading
 
-Run in the project root — no prompts, no questions:
+Pull the new release into your checkout and repeat steps 2 and 3: `skills add` replaces each
+skill folder, and `bmad setup` rebuilds each module's declared scripts. Re-run
+`/l3io-doctor wire` only when the release notes say the wire-in set changed. A project still on
+a 3.x state layout migrates with `/l3io-doctor migrate-state`.
 
-```bash
-npx -y bmad-method@latest install --directory . --action quick-update --yes
-```
-
-Reads the stored install config (tools, custom source) so nothing needs to be re-specified. Omitting `--modules` leaves core BMad skills untouched. Your `_bmad/custom/` config overrides are preserved and skills are refreshed in place.
-
-**The installer refreshes skills; it does not migrate your data.** After upgrading, run
-`/l3io-doctor` once before any run — it inspects the project and
-applies every migration you need, in order, behind one confirmation.
-
-See **[Upgrading](docs/upgrading.md)** for version-by-version notes, the full migration
-sequence, backups and rollback, and current deprecations.
+See **[Upgrading](docs/upgrading.md)** for version-by-version notes.
 
 ## Why This Extension Exists
 

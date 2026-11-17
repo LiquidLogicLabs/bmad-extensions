@@ -70,7 +70,7 @@ Ordered by consequence, not effort.
 **Note on #2:** the write and read halves shipped in 3.1.0 — `--source-phase`/`--source-ref`/
 `--source-note` exist, `pointer_for` prefers them, seven call sites converted. What remains is
 the *optional* part the spec deliberately left out: making `--source` non-required, and the
-`append-issue` normalisation of legacy free text. Both are breaking changes needing their own
+`append-issue` (removed in 4.0.0) normalisation of legacy free text. Both are breaking changes needing their own
 decision. **Item 2 is closer to done than the spec's task count suggests.**
 
 **Note on #3:** this is the one item where the *design* is the work. The adaptive-parallelism

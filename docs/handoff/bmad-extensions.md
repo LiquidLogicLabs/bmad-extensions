@@ -112,7 +112,7 @@ rediscover the hard way.
 - [blocked] Calibration: no cross-classification monotonicity guard, `MIN_SAMPLES = 3`, so a
   calibrated `complex` can price below a calibrated `standard`. Real behaviour, by design.
   Changing the threshold on one project's report is the decision being declined, not deferred.
-- [blocked] `--source` becoming non-required on `append-issue` — breaking. Scoped out in
+- [blocked] `--source` becoming non-required on `append-issue` (removed in 4.0.0) — breaking. Scoped out in
   `docs/superpowers/specs/2026-09-26-issue-source-structure-design.md` §9.
 - [blocked] Concurrent epics share one working tree with no source-file independence check.
   Design exists (`docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`); the

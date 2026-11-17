@@ -4,20 +4,20 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 On BMad v7 the work-item tree is v7's: Sofia (`bmad-agent-po`) owns initiatives, epics and
 tickets, and l3io keeps only its sidecars beside them and its project-wide files under
-`{l3io_state_root}`. Progress and stalls are read through `report` (Check 19). The 3.x state
-tree under `{pm_state_root}` is read only by `migrate-state`; the checks that still look at it
-say so.
+`{l3io_state_root}`. Progress and stalls are read through `report` (Check 19), and the
+backlog — v7's `{output_folder}/backlog/` — through `scripts/audit-tree.py` (Check 8). The 3.x
+state tree under `{pm_state_root}` is read only by `migrate-state`; **Checks 2, 6, 7 and the
+3.x half of 16 are the migration path**: they fire only on a project that still carries a
+pre-v7 layout, and retire with `migrate-state` in Phase 6.
 
 ### Step HC1 — Load config
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (19 checks, read-only)
+### Step HC2 — Scan (18 checks, read-only; Check 13 is retired)
 
-Run all checks. They change no project files, with one exception: a check that runs
-`pm-status.py` (Check 8) takes its locks when an issue file exists, and taking a lock may
-create that lock file and `{pm_state_root}/.gitignore` (the `*.lock` rule `pm-status.py`
-maintains). Checks 10–14 run `{spec_align}` in its read-only modes, which write nothing.
+Run all checks. They change no project files. Checks 10–14 run `{spec_align}` in its
+read-only modes, which write nothing.
 
 **Check 1 — Status file naming**
 Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
@@ -63,14 +63,11 @@ uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifac
     `A 3.x state tree is present at {pm_state_root}. No 4.x skill reads or writes it — the
     work-item tree on BMad v7 is Sofia's; it is read only by migrate-state.`
 
-This Critical, multi-layout condition is duplicated (severity and outcome, not the
-flat-plus-sharded script check above) in `steps/stats.md` Step ST1, which reports it rather
-than reading the 3.x backlog when it fires — `stats` is a read-only single mode with no
-findings table to report into, so it has its own copy rather than loading this file. Keep both
-in sync if the condition or severity changes.
+This check is the entry to the migration path, and the one pre-v7 check with a meaning on
+v7: it is how a project upgrading to 4.x learns it has a layout to migrate.
 
 **Check 3 — Deferred code markers**
-Run the `bmad-defer:` grep from Harvest Debt Mode (Step H2 grep command). Dedupe against the existing `backlog:` list (Step H3 logic). Count new (unharvested) markers.
+Run the `bmad-defer:` grep from Harvest Debt Mode (Step H2 grep command). Dedupe against the leaves of v7's backlog (Step H3 logic). Count new (unharvested) markers.
 - New markers found → flag `harvest-debt` · Priority: Low · note count
 - None or all already harvested → ✓
 
@@ -85,8 +82,9 @@ Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-stat
 - None → ✓
 
 **Check 6 — Epic directory padding (legacy two-digit form)**
-Scan the top level of `{implementation_artifacts}/` for directories matching `epic-[0-9][0-9]`
-(exactly two digits).
+Run only when Check 2 flagged `migrate-state` — this prepares a migration, and on a v7 tree an
+`epic-<slug>` folder is v7's and never this shape's concern. Scan the top level of
+`{implementation_artifacts}/` for directories matching `epic-[0-9][0-9]` (exactly two digits).
 - Any found → flag `rename-epic-dirs` · Priority: **High** · list directories — the 3.x
   artifact tree mirrors `state/{status}/epic-{nnn}/` with three digits, and `migrate-state`
   pairs the two by that suffix; a two-digit `epic-{nn}/` never matches its counterpart.
@@ -105,7 +103,9 @@ story nodes themselves, which still hold the original field. `NUMERIC_NODE_FIELD
 this field on every write, so a string can only have been written by a version that predates
 that fix; its presence means this project generated samples under the defect.
 
-If `{pm_state_root}` exists, scan every story node file under
+Migration path: v7's calibration file under `{l3io_state_root}` is written only by
+`build-close` and `epic-close`, which store `fix_iterations` as an integer, so the defect can
+only be in a 3.x tree. If `{pm_state_root}` exists, scan every story node file under
 `{pm_state_root}/{active,planned,archived}/epic-*/sprint-*/E*.yaml` and check whether
 `completion_evidence.fix_iterations` is a string (as opposed to absent, or an integer):
 
@@ -138,37 +138,20 @@ PY
 - No `{pm_state_root}` yet, or none found → ✓
 
 **Check 8 — Backlog integrity and audit**
-If `{pm_state_root}` exists — not gated on `{pm_issues_file}`, because `audit-issues` still
-walks story nodes with no issues file present. The findings reachable in that case are **1b**
-(a `resolves:` key that names neither issue file) and **1h** (two live stories claiming one
-key); both are read from story nodes alone. `1d` needs an open item and `1j` a resolved one,
-so neither can fire without an issue file — do not expect them here. `triage` shares this
-precondition (`steps/triage.md` Step T1) and will act on whatever this check reports.
+Run only if `{output_folder}` holds a `backlog/` directory or any `*/tickets/tickets.toml` —
+v7's ticket tree. It is read, never written:
 
 ```bash
-uv run {pm_status} audit-issues --state-root {pm_state_root} --format json; echo "exit=$?"
-uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
-  --state-root {pm_state_root} --artifacts-root {implementation_artifacts} \
-  --project-root {project-root} --format json
+uv run {skill-root}/scripts/audit-tree.py --project-root {project-root} \
+  --output-folder {output_folder} --format json; echo "exit=$?"
 ```
-- `audit-issues` exit 4 with a non-empty `findings` list → flag `triage` · Priority: **High** ·
-  note the finding ids
-- `audit-issues` exit 4 with `findings: []` and an `error` → a malformed issue file or an
-  unreadable story node (the node failed to parse, was not a mapping, or was not valid
-  UTF-8); report the error as Check 8's result and never mark Check 8 ✓ — an empty
-  `findings` list on exit 4 is not "clean" — then continue with the remaining checks
-- any `fixed-candidate`, `obsolete-candidate`, or `duplicate-candidate` → flag `triage` ·
-  Priority: **Medium** · note the count
-- **count the `needs-review` verdicts whose `evidence` is `untraceable` and report them
-  separately** — never fold them into a "0 candidates" line. Zero candidates over a backlog
-  the auditor could not trace is blindness, not a clean bill, and the two read identically
-  otherwise. Say:
-  `{n} of {total} item(s) could not be traced to an artifact (evidence: untraceable) — the
-  mechanical pass reached no verdict on them.` On a legacy backlog this is the normal result
-  and not a defect in the backlog; it means the items predate the pointer fields the auditor
-  reads
-- no `{pm_state_root}` yet → ✓
-- no findings, no candidates, **and nothing untraceable** → ✓
+
+- exit 4 → flag `triage` · Priority: **High** · note the finding ids. Every finding's repair
+  is a proposal for Sofia (`bmad-agent-po`) except `1l` with a named heir, which is
+  `pm-status.py sidecar-reconcile` over our own sidecars
+- any `fixed-candidate` or `obsolete-candidate` in `markers` → flag `triage` · Priority:
+  **Medium** · note the count
+- no tree, or exit 0 with no candidates → ✓
 
 **Check 9 — Lock files tracked in git**
 `pm-status.py`'s lock files are empty flock targets and must never be committed: in the 3.x
@@ -236,17 +219,10 @@ Run only if `{project-root}/docs/adr/` exists or any
 - exit 1 → report each ADR it names. This is report only
 - exit 0 → ✓
 
-**Check 13 — Unconfirmed spec changes that have been built upon**
-Run only if `{project-root}` is a git work tree (`git -C {project-root} rev-parse --is-inside-work-tree`
-prints `true`).
-
-```bash
-{spec_align} check-stale
-```
-
-- exit 1 → flag `triage` · Priority: **Medium**. Its spec pass confirms or rejects them;
-  each later commit on the same file makes a clean revert less likely
-- exit 0 → ✓
+**Check 13 — retired (4.x)**
+It reported unconfirmed `spec-change` items of the 3.x issues ledger that later commits had
+built on. That ledger, and the spec sync that filed those items, are gone with Task 4.9; the
+number is not reused. Phase 5 re-homes the spec sync beside `bmad-retrospective`.
 
 **Check 14 — Spec index freshness**
 Run only if the index exists.
@@ -282,10 +258,22 @@ uv run {skill-root}/scripts/bmad-deps.py verify --project-root {project-root} --
   self-skip, so a missing phase later is expected rather than mysterious
 - exit 0 and no drift → ✓
 
-**Check 16 — 3.x state tree reachable and tracked**
-Two states that look identical to a check that only looks at the configured path, and that
-turn "no findings" into a wrong answer rather than a refusal. The backlog (`issues.yaml`) and
-the 3.x tree `migrate-state` reads both live here.
+**Check 16 — State reachable and tracked**
+Two halves. **The v7 half** — `{l3io_state_root}` holds the event log and the calibration
+file, both committed: run it only if `{l3io_state_root}` exists, then
+
+```bash
+git -C {project-root} check-ignore -q {l3io_state_root}/events.jsonl; echo "exit=$?"
+```
+
+- exit 0 → flag · Priority: **High** · git ignores l3io's project-wide state, so no build's
+  actuals or calibration samples reach another clone. Report only: the fix is a `.gitignore`
+  edit, and which rule is catching it matters
+- exit 1, or not a git work tree → ✓
+
+**The 3.x half** is the migration path. Two states that look identical to a check that only
+looks at the configured path, and that turn "no findings" into a wrong answer rather than a
+refusal. The 3.x tree `migrate-state` reads lives here.
 
 ```bash
 uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts} \
@@ -302,7 +290,7 @@ uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifac
 - neither → ✓
 
 > The probe is in `detect-layout.py`, not inline here, deliberately: one tested
-> implementation shared with `steps/stats.md`, and `tests/l3io-doctor/test-detect-layout.py`
+> implementation, and `tests/l3io-doctor/test-detect-layout.py`
 > covers the orphan, the gitignore, the clean tree and the not-a-git-repo cases.
 
 **Check 17 — Agent instruction block**
@@ -409,7 +397,6 @@ Tracked lock files              ⚠ 3 *.lock tracked in git      untrack-locks
 ADR home & register             ⚠ 2 ADR(s) in epic-*/arch/     migrate-adrs
 Spec pointers                   ⚠ 1 broken pointer             — (report only)
 ADR links                       ⚠ 1 unlinked departure         — (report only)
-Unconfirmed spec changes        ⚠ 1 built upon                 triage
 Spec index freshness            ✓ Fresh                        —
 BMad dependencies               ✓ all resolve                  —
 3.x state reachable & tracked   ✓ configured tree only         —
@@ -470,7 +457,7 @@ project does not have before that step — so it rebuilds calibration samples fr
 complete tree available. It runs before `clean-legacy` only because that step is the fixed
 final tidy-up; nothing about `redrive` depends on backup files still being present.
 
-`migrate-adrs` runs before `triage` so that ADR paths a backlog item cites are already the new
+`migrate-adrs` runs before `triage` so that ADR paths a backlog ticket cites are already the new
 ones when triage reads them. It keeps its own plan and confirmation (Step MA2), like `triage`
 does, because it commits.
 
@@ -481,7 +468,7 @@ Before each action, print a separator header:
 
 Each action runs its full mode implementation from its own section. **Suppress the per-mode confirmation prompts** — the user already confirmed in HC5; proceed as if they answered yes at each mode's own confirm step. The per-mode dry-run output and verify steps still run and are shown.
 
-**`triage` keeps its own confirmations here.** The rule above does not apply to it: every triage action resolves or rewrites backlog items, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
+**`triage` keeps its own confirmations here.** The rule above does not apply to it: its only write (`sidecar-reconcile`) and every proposal it hands Sofia are per finding, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
 
 **`migrate-adrs` keeps its own confirmation too** — it moves files and commits.
 

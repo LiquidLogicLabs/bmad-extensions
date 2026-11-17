@@ -97,10 +97,6 @@ fails every node the override priced. Overrides merge per model rather than repl
 table, so a card for one model leaves the rest intact. `pm-status.py rates
 [--token-rates JSON]` prints the effective table if you need to confirm what is in force.
 
-`{max_turns_per_story}` is resolved from `customize.toml` `[workflow]` (not from BMad config) by
-the BMad harness at skill load time. It is carried in `{agent_contract}` as a soft turn cap for
-story dev agents. Default: `120`.
-
 `implementation_artifacts` and `planning_artifacts` deliberately resolve from the
 **`l3io-pm`** section for every module, not from each module's own section. All four
 modules read and write the same artifact tree; giving each its own copy of the path let

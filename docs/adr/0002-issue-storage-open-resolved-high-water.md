@@ -4,6 +4,8 @@
 - **Date:** 2026-09-10
 - **Deciders:** Package maintainer; reviewed by `l3io-arch-review` Mode B and `bmad-review`
 - **Principle(s) in tension:** Core §3 design by contract (invariants, no silent key reuse) vs. minimal change to a shared file format
+- **Amended 2026-11-17 (Task 4.9):** superseded on BMad v7 — see the Amendment at the end.
+  Removed in 4.0.0: `append-issue`, `list-issues`, `resolve-issue`, `update-issue`, `promote-issue`, `schedule-issue`, `repair-issue`, `audit-issues`.
 
 ## Context
 
@@ -33,3 +35,13 @@ removing from the open file; the one resulting intermediate state (a key in both
 - Negative / trade-offs accepted: a crash window between the two writes, detected by audit 1a;
   keys reused before this change cannot be recovered.
 - Follow-ups: GitHub sync of BL items will resolve through `resolve-issue`.
+
+## Amendment (2026-11-17, Task 4.9)
+
+On BMad v7 the backlog is v7's own: standalone tickets in `{output_folder}/backlog/`
+(`bug-<slug>.md` and the like), each with its state in the plan beside it, filed and closed by
+Sofia (`bmad-agent-po`). l3io keeps no issues ledger, so `issues.yaml`, `issues-resolved.yaml`
+and every verb over them were removed in 4.0.0. v7's ids never decrease (`next_id`), which is
+the property this ADR's high-water mark existed to give. The integrity findings 1a–1l are
+re-expressed over v7's tree by the doctor's read-only `scripts/audit-tree.py`; 1a, 1e, 1g and
+1j have no v7 meaning and are not reported. The decision stands for 3.x.

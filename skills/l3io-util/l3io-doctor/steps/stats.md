@@ -5,10 +5,12 @@ progress dashboard over BMad v7's work-item tree — renders each initiative's e
 via `pm-status.py report`, then appends the backlog and calibration sections that `report`
 does not cover. No files are changed.
 
-**One `list-issues` call serves both views.** Step ST3 already reads the whole backlog
-(`--all`) to produce the counts, so the per-item table in Step ST4 costs nothing extra. Under
-the `backlog`/`issues` alias the per-item table is always printed; under `stats` it is printed
-whenever there is at least one open item.
+**The backlog is v7's** (4.x): the leaves in `{output_folder}/backlog/` — `bug-<slug>.md` and
+any story or spike filed there — with their state in the plan beside each. Sofia
+(`bmad-agent-po`) files and closes them; l3io only reads them. **One `tickets.py status` call
+serves both views**: Step ST3 counts from it and Step ST4 prints its rows. Under the
+`backlog`/`issues` alias the per-item table is always printed; under `stats` it is printed
+whenever there is at least one ticket not `done` or `dropped`.
 
 ### Steps
 
@@ -79,17 +81,14 @@ and any `Problems (tickets.py)` or `STALLED BUILD` block.
 
 `report` does not cover these. Read them directly.
 
-- **Backlog items** — only if `{pm_state_root}` exists; otherwise every count is zero. If more
-  than one pre-v7 layout is present (the multi-layout condition of Check 2 in
-  `steps/health-check.md` — keep the two in sync), print `Backlog: not read — more than one
-  state layout is present. Run /l3io-doctor migrate-state first.` and skip this bullet.
-  Otherwise:
-  `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`: count
-  `open` by severity (Critical, High, Medium, Low, unknown) and by status (untriaged =
-  `backlog`, `scheduled`) plus `origin_archived`; count `resolved` by `resolution`. An absent
-  file = zero items, not an error. **Keep the `open` records themselves, not only the
-  counts** — Step ST4 prints them per item from this same call; do not make a second
-  `list-issues` call for it.
+- **Backlog** — only if `{tickets_py}` exists and `{output_folder}/backlog/` is a directory;
+  otherwise every count is zero:
+  `uv run {tickets_py} status {output_folder}/backlog`. Count its `tickets` rows by `type`
+  (`bug`, `story`, `spike`) and by `state` (`backlog`, `in-progress`, `review`, `done`,
+  `dropped`). **Keep the rows themselves, not only the counts** — Step ST4 prints them from
+  this same call. A non-zero exit is v7's finding over its own tree: print its message in
+  place of the counts and say `Sofia's BOARD and REFINE fix it; /l3io-doctor triage lists
+  what l3io can see.`
 - **Calibration** — if `{l3io_state_root}/pm-calibration.yaml` exists:
   `uv run {pm_status} calibration show --state-root {l3io_state_root} --format json`; note its
   version and the number of samples per component.
@@ -99,10 +98,9 @@ Append:
 
 ```
 ----------------------------------------------------------------
-Backlog items
-  Critical: {n}  High: {n}  Medium: {n}  Low: {n}  total: {n}
-  untriaged: {n}  scheduled: {n}  origin archived: {n}
-  resolved: {n}  (fixed {n} · wontfix {n} · duplicate {n} · obsolete {n})
+Backlog ({output_folder}/backlog)
+  bug: {n}  story: {n}  spike: {n}  total: {n}
+  backlog: {n}  in-progress: {n}  review: {n}  done: {n}  dropped: {n}
 Calibration file:    {version}, {n} samples  (or "not found")
 3.x state tree:      present at {pm_state_root}, read only by migrate-state  (or "none")
 ================================================================
@@ -110,27 +108,23 @@ Calibration file:    {version}, {n} samples  (or "not found")
 
 **Step ST4 — Per-item backlog table**
 
-From the `open` records Step ST3 already read — no second `list-issues` call. Print this when
-the argument was `backlog`/`issues`, or when `stats` found at least one open item. Group by
-severity (Critical → High → Medium → Low → unknown); within a group sort by `epic` then `key`.
-`scheduled` items show the story they are scheduled into; `origin_archived` items are marked.
-Each item carries a `kind` — `defect` (the default, and what an absent field means) plus
-`spec-change` and `spec-proposal`, which `triage`'s spec pass resolves:
+From the rows Step ST3 already read — no second `tickets.py` call. Print this when the
+argument was `backlog`/`issues`, or when `stats` found at least one ticket not `done` or
+`dropped`. Leave out `done` and `dropped` rows. Sort by `state` (`in-progress`, `review`,
+`backlog`), then by `file`:
 
 ```
 ----------------------------------------------------------------
-BACKLOG — {pm_issues_file}
-Sev    Key           Epic  Sprint  Kind        Status              Title
+BACKLOG — {output_folder}/backlog
+Type   Ticket                               State        Title
 ----------------------------------------------------------------
-High
-  HIGH   BL-E001-002   001   —       defect      scheduled E003-S02-004  {title}
-Low
-  LOW    BL-E002-001   002   03      spec-change backlog (archived)      {title}
+bug    bug-checkout-total-ignores-codes     in-progress  {title}
+bug    bug-linear-scan-in-cache             backlog      {title}
 ----------------------------------------------------------------
-Run /l3io-doctor triage to audit these and close what is already fixed.
+Run /l3io-doctor triage to audit these; Sofia (bmad-agent-po) closes them.
 ```
 
-Truncate titles at 50 characters with `…`. Show the sprint as `—` when blank. With no open
-items, print `Backlog is empty — no open items.` in place of the table.
+Truncate titles at 50 characters with `…`. With no open ticket, print
+`Backlog is empty — no open tickets.` in place of the table.
 
 ---

@@ -13,7 +13,9 @@
 spec-align.py -- keeps a project's specs and its implementation in step, for l3io-pm.
 
 Subcommands: build, check-pointers, sections, disposition, check-dispositions, adrs,
-check-links, lease, sync-plan, propose, commit, reject, check-stale, migrate-adrs.
+check-links, lease, migrate-adrs. The 3.x epic-closure spec sync (sync-plan, propose,
+commit, reject, check-stale) filed and resolved its items through the issues ledger and went
+with it in Task 4.9; Phase 5 re-homes the spec sync beside bmad-retrospective.
 
 It never calls a model. Each spec-alignment point in l3io-execute runs one of these
 first, and the result decides whether an agent is dispatched at all.
@@ -40,12 +42,10 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from datetime import UTC
 
 INDEX_FORMAT = 1
@@ -1067,23 +1067,6 @@ def _lease_write(fh, value):
     os.fsync(fh.fileno())
 
 
-def lease_holder(ctx):
-    """The current lease if it is held and unexpired, else None."""
-    import fcntl
-    path = _lease_path(ctx)
-    if not os.path.exists(path):
-        return None
-    with open(path, "a+", encoding="utf-8") as fh:
-        fcntl.flock(fh, fcntl.LOCK_SH)
-        try:
-            cur = _lease_read(fh)
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
-    if cur and (_parse_iso(cur.get("expires_at")) or _now()) > _now():
-        return cur
-    return None
-
-
 def _lease_try(path, owner, ttl_minutes):
     import fcntl
     from datetime import timedelta
@@ -1144,181 +1127,12 @@ def cmd_lease(ctx, a):
     return 0
 
 
-# -- spec sync: the plan, deferral, proposals ---------------------------------------------- #
-
-SEV_MAP = {"BLOCKER": "High", "MAJOR": "Medium", "MINOR": "Low"}
-ISSUE_KEY_RE = re.compile(r"\b(BL-E\d{3}-\d{3})\b")
-
+# -- git and pm-status helpers ------------------------------------------------------------- #
 
 def _pm(ctx, *args):
     ctx.need("pm")
     return subprocess.run([sys.executable, ctx.pm_status, *args], capture_output=True, check=False, text=True)
 
-
-def _spec_issue_args(ctx, nnn, kind, ref, ident, title, severity, pointer, where):
-    label = "Spec change" if kind == "spec-change" else "Spec proposal"
-    return ["append-issue", "--state-root", ctx.state_root, "--epic", nnn, "--sprint", "",
-            "--kind", kind, "--ref", ref, "--title", f"{label}: {title}",
-            "--source", f"spec-sync ({ident})", "--severity", SEV_MAP.get(severity, "Low"),
-            "--description", (f"Confirm or reject: /l3io-doctor triage. Spec: {pointer}. "
-                             f"From: {where}.")]
-
-
-def append_spec_issue(ctx, nnn, kind, ref, ident, title, severity, pointer, where):
-    """One spec-change/spec-proposal backlog item through pm-status; returns its key. A rerun
-    after a crash finds the open twin (append-issue skips a content duplicate and names it)."""
-    ctx.need("state")
-    args = _spec_issue_args(ctx, nnn, kind, ref, ident, title, severity, pointer, where)
-    r = _pm(ctx, *args)
-    if r.returncode == 0 and "resolved as" in r.stdout:     # matched a resolved twin, not open
-        r = _pm(ctx, *args, "--allow-duplicate")
-    m = ISSUE_KEY_RE.search(r.stdout)
-    if r.returncode != 0 or not m:
-        raise SAError(2, f"append-issue failed: {(r.stderr or r.stdout).strip()}")
-    return m.group(1)
-
-
-def epic_nnn(value):
-    ek = epic_key(value)
-    if ek is None:
-        raise SAError(2, f"--epic {value!r} is not an epic key")
-    return ek[1:]
-
-
-def epic_disp_path(ctx, nnn):
-    ctx.need("impl")
-    return os.path.join(ctx.impl, f"epic-{nnn}", "epic-closure", DISP_FILE)
-
-
-def disposition_files(ctx, nnn):
-    ctx.need("impl")
-    files = sorted(glob.glob(os.path.join(ctx.impl, f"epic-{nnn}", "sprint-*", "closure",
-                                          DISP_FILE)))
-    ep = epic_disp_path(ctx, nnn)
-    return files + ([ep] if os.path.isfile(ep) else [])
-
-
-def proposal_path(ctx, nnn, ident):
-    return os.path.join(ctx.impl, f"epic-{nnn}", "epic-closure", "spec-proposals", f"{ident}.md")
-
-
-def adr_ident(ctx, path):
-    m = DOC_ADR_RE.match(os.path.basename(path))
-    if not m or not os.path.isfile(ctx.abs(path)):
-        raise SAError(2, f"--adr {path} is not an ADR under docs/adr/")
-    return f"ADR-{int(m.group(1)):04d}"
-
-
-def _range(hit):
-    return f"L{hit[2].start}–{hit[2].end}" if hit else None
-
-
-def pending_items(ctx, nnn, cat):
-    items = []
-    for f in disposition_files(ctx, nnn):
-        data = load_dispositions(f)
-        for fid, e in data["findings"].items():
-            if (e.get("disposition") not in SPEC_DISPOSITIONS or e.get("commit")
-                    or e.get("issue")):
-                continue
-            hit, why = resolve_pointer(cat, e.get("spec") or "")
-            items.append({"type": e["disposition"], "id": fid, "severity": e.get("severity"),
-                          "title": e.get("title"), "spec": e.get("spec"), "range": _range(hit),
-                          "problem": why, "adr": e.get("adr"), "review": data.get("review"),
-                          "dispositions": ctx.rel(f)})
-    ep = epic_disp_path(ctx, nnn)
-    done = (load_yaml(ep) or {}).get("adr_links") or {}
-    for x, dep, why in link_gaps(ctx, cat, [a for a in all_adrs(ctx) if a["epic"] == f"E{nnn}"]):
-        ident = f"ADR-{x['number']:04d}"
-        if why != "section does not link the ADR" or ident in done:
-            continue
-        hit, _ = resolve_pointer(cat, dep)
-        items.append({"type": "adr-link", "id": ident, "severity": "MINOR",
-                      "title": f"Link {ident} from {dep}", "spec": dep, "range": _range(hit),
-                      "problem": None, "adr": x["path"], "review": None,
-                      "dispositions": ctx.rel(ep)})
-    return items
-
-
-def find_item(ctx, nnn, ident, cat):
-    hits = [i for i in pending_items(ctx, nnn, cat) if i["id"] == ident]
-    if not hits:
-        raise SAError(2, f"{ident} is not a pending spec item for E{nnn} (see sync-plan)")
-    return hits[0]
-
-
-def record_item(ctx, item, **fields):
-    from ruamel.yaml.comments import CommentedMap
-    dpath = ctx.abs(item["dispositions"])
-    data = load_dispositions(dpath)
-    if item["type"] == "adr-link":
-        if data.get("adr_links") is None:
-            data["adr_links"] = CommentedMap()
-        entry = data["adr_links"].get(item["id"])
-        if entry is None:
-            entry = data["adr_links"][item["id"]] = CommentedMap()
-    else:
-        entry = data["findings"][item["id"]]
-    for k, v in fields.items():
-        entry[k] = v
-    dump_yaml(dpath, data)
-
-
-def _deferred_text(it):
-    lines = [f"# Spec proposal — {it['id']} (deferred)", "",
-             f"- **Finding:** {it['id']}" + (f" in `{it['review']}`" if it["review"] else ""),
-             f"- **Severity:** {it['severity']}",
-             f"- **Spec:** `{it['spec']}` ({it['range'] or 'pointer does not resolve'})"]
-    if it["adr"]:
-        lines.append(f"- **ADR:** `{it['adr']}`")
-    lines += [("- **Why deferred:** the spec-sync lease was held by another epic's closure, so "
-              "nothing was edited."), "",
-              ("Apply the change the finding describes to that section, then confirm this item "
-              "in `/l3io-doctor triage`."), ""]
-    return "\n".join(lines)
-
-
-def cmd_sync_plan(ctx, a):
-    nnn = epic_nnn(a.epic)
-    items = pending_items(ctx, nnn, load_catalog(ctx))
-    if not a.defer:
-        print(json.dumps({"epic": f"E{nnn}", "items": items}, indent=2))
-        return 0
-    done = []
-    for it in items:
-        rel = ctx.rel(proposal_path(ctx, nnn, it["id"]))
-        atomic_write(ctx.abs(rel), _deferred_text(it))
-        key = append_spec_issue(ctx, nnn, "spec-proposal", rel, it["id"], it["title"],
-                                it["severity"], it["spec"], it["review"] or it["adr"])
-        fields = {"proposal": rel, "issue": key}
-        if it["type"] != "adr-link":
-            fields.update(disposition="spec-proposal", deferred=True)     # R10
-        record_item(ctx, it, **fields)
-        done.append({"id": it["id"], "proposal": rel, "issue": key})
-    print(json.dumps({"epic": f"E{nnn}", "deferred": done}, indent=2))
-    return 0
-
-
-def cmd_propose(ctx, a):
-    nnn = epic_nnn(a.epic)
-    ident = a.finding or adr_ident(ctx, a.adr)
-    it = find_item(ctx, nnn, ident, load_catalog(ctx))
-    rel = ctx.rel(proposal_path(ctx, nnn, ident))
-    p = ctx.abs(rel)
-    if not os.path.isfile(p) or not read_text(p).strip():
-        raise SAError(2, f"write the proposal at {rel} first (target pointer, the change, why, "
-                         f"and the finding)")
-    key = append_spec_issue(ctx, nnn, "spec-proposal", rel, ident, it["title"], it["severity"],
-                            it["spec"], it["review"] or it["adr"])
-    fields = {"proposal": rel, "issue": key}
-    if it["type"] == "spec-updated":
-        fields["disposition"] = "spec-proposal"
-    record_item(ctx, it, **fields)
-    print(f"OK propose {ident} -> {key} ({rel})")
-    return 0
-
-
-# -- git and the guarded docs(spec) commit ----------------------------------------------------- #
 
 class IndexLocked(Exception):
     pass
@@ -1354,245 +1168,6 @@ def git_commit(ctx, message, paths):
     except IndexLocked as e:
         raise SAError(2, f"the git index stayed locked after 5 attempts: {e}")
     return _git(ctx, "rev-parse", "HEAD").stdout.strip()
-
-
-def changed_hunks(ctx, rel):
-    from unidiff import PatchSet
-    diff = _git(ctx, "diff", "-U0", "HEAD", "--", rel).stdout
-    if not diff.strip():
-        return []
-    return [(h.source_start, h.source_length) for pf in PatchSet(diff) for h in pf]
-
-
-def hunks_outside(hunks, sec):
-    """Hunks (in HEAD line numbers) not contained in the section. A pure insertion
-    (length 0) lands after line `start`, which must itself be inside the section."""
-    bad = []
-    for start, length in hunks:
-        inside = (sec.start <= start <= sec.end) if length == 0 else (
-            sec.start <= start and start + length - 1 <= sec.end)
-        if not inside:
-            bad.append((start, length))
-    return bad
-
-
-def _pointer_re(rel, anchor):
-    return re.compile(rf"^(\s*(?:[-*]\s+)?Spec:\s*){re.escape(rel)}#{re.escape(anchor)}(\s*)$",
-                      re.MULTILINE)
-
-
-def pointing_stories(ctx, rel, anchor):
-    pat = _pointer_re(rel, anchor)
-    return [s for s in all_story_files(ctx) if pat.search(read_text(s))]
-
-
-def rewrite_pointer(path, rel, old, new):
-    pat = _pointer_re(rel, old)
-    atomic_write(path, pat.sub(lambda m: f"{m.group(1)}{rel}#{new}{m.group(2)}",
-                               read_text(path)))
-
-
-def adr_link_item(ctx, nnn, path):
-    """The adr-link item for an ADR, built from its own metadata -- not from sync-plan, whose
-    gap disappears the moment the agent has written the link this commit is for."""
-    ident = adr_ident(ctx, path)
-    rows = [x for x in all_adrs(ctx) if x["path"] == ctx.rel(ctx.abs(path))]
-    if not rows or rows[0]["epic"] != f"E{nnn}":
-        raise SAError(2, f"{path} is not an ADR of E{nnn} (its Epic: line)")
-    dep = (rows[0]["departs"] or "").strip()
-    if not PTR_RE.match(dep):
-        raise SAError(2, f"{path} has no `Departs from spec:` pointer to link from")
-    cat = load_catalog(ctx)
-    hit, why = resolve_pointer(cat, dep)
-    if hit is None:
-        raise SAError(2, f"{path}: `Departs from spec:` {dep} does not resolve ({why})")
-    if hit[3] != "architecture":
-        raise SAError(2, f"{path} departs from {hit[0]}, a {hit[3]} spec; agents edit "
-                         f"architecture specs only (docs/adr/0004-agents-edit-architecture-"
-                         f"specs.md) -- add the {ident} link there by hand")
-    if ident in ((load_yaml(epic_disp_path(ctx, nnn)) or {}).get("adr_links") or {}):
-        raise SAError(2, f"{ident} is already linked or proposed for E{nnn}")
-    return {"type": "adr-link", "id": ident, "severity": "MINOR",
-            "title": f"Link {ident} from {dep}", "spec": dep, "adr": rows[0]["path"],
-            "review": None, "dispositions": ctx.rel(epic_disp_path(ctx, nnn))}
-
-
-def cmd_commit(ctx, a):
-    ctx.need("impl", "state", "pm")
-    nnn = epic_nnn(a.epic)
-    holder = lease_holder(ctx)
-    if not holder or holder.get("owner") != f"E{nnn}":
-        raise SAError(2, f"the spec-sync lease is not held by E{nnn} -- run "
-                         f"`lease acquire --owner E{nnn}` first")
-    if a.finding:
-        item = find_item(ctx, nnn, a.finding, load_catalog(ctx))
-        if item["type"] != "spec-updated":
-            raise SAError(2, f"{a.finding} is a {item['type']} item: proposals are never "
-                             f"edited -- write the proposal and run `propose`")
-    else:
-        item = adr_link_item(ctx, nnn, a.adr)
-    ident = item["id"]
-    rel, anchor = PTR_RE.match(item["spec"]).groups()
-    if [ctx.rel(ctx.abs(p)) for p in a.paths] != [rel]:
-        raise SAError(2, f"--paths must be exactly {rel}, the file {ident} points at")
-    head = _git(ctx, "show", f"HEAD:{rel}", check=False)
-    if head.returncode != 0:
-        raise SAError(2, f"{rel} is not committed at HEAD; spec sync edits committed specs only")
-    head_secs = {s.anchor: s for s in parse_sections(head.stdout)}
-    sec = head_secs.get(anchor)
-    if sec is None:
-        raise SAError(2, f"{rel} has no #{anchor} at HEAD")
-    hunks = changed_hunks(ctx, rel)
-    if not hunks:
-        raise SAError(2, f"{rel} has no change to commit")
-    bad = hunks_outside(hunks, sec)
-    if bad:
-        spots = ", ".join(f"L{s}" + (f"–{s + n - 1}" if n > 1 else "") for s, n in bad)
-        raise SAError(2, f"the edit to {rel} changes line(s) outside #{anchor} "
-                         f"(L{sec.start}–{sec.end} at HEAD): {spots} -- edit only that section")
-    work = parse_sections(read_text(ctx.abs(rel)))
-    after = {s.anchor for s in work}
-    renames = {}
-    for pair in a.rename_anchor:
-        old, _, new = pair.partition("=")
-        if not old or not new or new not in after:
-            raise SAError(2, f"--rename-anchor {pair}: {new or '(empty)'} is not an anchor in "
-                             f"the edited {rel}")
-        renames[old] = new
-    unhandled = {}
-    for gone in sorted(set(head_secs) - after):
-        stories = pointing_stories(ctx, rel, gone)
-        if stories and gone not in renames:
-            unhandled[gone] = [ctx.rel(s) for s in stories]
-    if unhandled:
-        detail = "; ".join(f"#{k} <- {', '.join(v)}" for k, v in unhandled.items())
-        raise SAError(2, f"the edit removes anchor(s) stories point to: {detail} -- keep the "
-                         f"heading, or pass --rename-anchor OLD=NEW to rewrite those pointers")
-    target = renames.get(anchor, anchor)
-    if item["type"] == "adr-link":
-        wsec = next((s for s in work if s.anchor == target), None)
-        body = read_text(ctx.abs(rel)).splitlines()[wsec.start - 1:wsec.end] if wsec else []
-        link_re = re.compile(r"\[[^\]]*\]\((?:[^)]*/)?"
-                             + re.escape(os.path.basename(item["adr"])) + r"\)")
-        if not any(link_re.search(line) for line in body):
-            raise SAError(2, f"the edit does not link {item['adr']} from #{target} "
-                             f"(a markdown link to it, not a mention of its filename)")
-    paths = [rel]
-    rewritten = []
-    for old, new in renames.items():
-        for s in pointing_stories(ctx, rel, old):
-            rewrite_pointer(s, rel, old, new)
-            rewritten.append((s, old, new))
-            paths.append(ctx.rel(s))
-    message = (f"docs(spec): E{nnn} {ident} — {item['title']}" if item["type"] == "spec-updated"
-               else f"docs(spec): E{nnn} link {ident} from {item['spec']}")
-    try:
-        sha = git_commit(ctx, message, paths)
-    except Exception:
-        # The spec edit and its pointer rewrites must land in one commit or none, so a failed
-        # commit (e.g. a stuck index.lock) must not strand the rewrites: undo them here, not
-        # via `git restore`/`git checkout`, which would also discard unrelated uncommitted
-        # edits already sitting in those story files.
-        for s, old, new in reversed(rewritten):
-            rewrite_pointer(s, rel, new, old)
-        raise
-    fields = {"commit": sha}
-    if target != anchor and item["type"] == "spec-updated":
-        fields["spec"] = f"{rel}#{target}"
-        item["spec"] = fields["spec"]
-    record_item(ctx, item, **fields)
-    try:
-        key = append_spec_issue(ctx, nnn, "spec-change", sha, ident, item["title"],
-                                item["severity"], item["spec"], item["review"] or item["adr"])
-    except SAError as e:
-        args = _spec_issue_args(ctx, nnn, "spec-change", sha, ident, item["title"],
-                                item["severity"], item["spec"], item["review"] or item["adr"])
-        cmd = " ".join(shlex.quote(x) for x in [ctx.pm_status, *args])
-        raise SAError(2, f"{e}; commit {sha} already landed and is recorded on {ident}'s "
-                         f"disposition -- finish recording the backlog issue by hand: {cmd}")
-    record_item(ctx, item, issue=key)
-    print(f"OK commit {sha[:12]} {ident} -> {key}")
-    return 0
-
-
-# -- confirm/reject support ------------------------------------------------------------------- #
-
-def _open_items(ctx, *extra):
-    ctx.need("state", "pm")
-    r = _pm(ctx, "list-issues", "--state-root", ctx.state_root, "--format", "json", *extra)
-    if r.returncode != 0:
-        raise SAError(2, f"list-issues failed: {(r.stderr or r.stdout).strip()}")
-    return json.loads(r.stdout or "[]")
-
-
-def cmd_reject(ctx, a):
-    it = next((i for i in _open_items(ctx) if i.get("key") == a.key), None)
-    if it is None:
-        raise SAError(2, f"{a.key} is not an open backlog item")
-    kind = it.get("kind") or "defect"
-    if kind not in ("spec-change", "spec-proposal"):
-        raise SAError(2, f"{a.key} is a {kind} item; reject handles spec-change and "
-                         f"spec-proposal items only")
-    ref = str(it.get("ref") or "")
-    if kind == "spec-change":
-        r = _git(ctx, "revert", "--no-edit", "--signoff", ref, check=False)
-        if r.returncode != 0:
-            unmerged = [l for l in _git(ctx, "diff", "--name-only", "--diff-filter=U",
-                                        check=False).stdout.splitlines() if l]
-            _git(ctx, "revert", "--abort", check=False)
-            raise SAError(2, f"git revert {ref} failed (unmerged: "
-                             f"{', '.join(unmerged) or 'none reported'}); aborted the revert, "
-                             f"{a.key} stays open. Resolve by hand, then resolve it.")
-        res_ref = _git(ctx, "rev-parse", "HEAD").stdout.strip()
-    else:
-        res_ref = ref
-    r = _pm(ctx, "resolve-issue", "--state-root", ctx.state_root, "--key", a.key,
-            "--resolution", "wontfix", "--ref", res_ref, "--note",
-            f"{kind} rejected in triage", "--cause", "triage")
-    if r.returncode != 0:
-        raise SAError(2, f"resolve-issue failed after {res_ref}: "
-                         f"{(r.stderr or r.stdout).strip()}")
-    title = re.sub(r"^Spec (change|proposal):\s*", "", str(it.get("title", "")))
-    args = ["append-issue", "--state-root", ctx.state_root, "--epic", str(it.get("epic", "")),
-            "--sprint", "", "--title", f"Code diverges from spec: {title}",
-            "--source", f"spec-reject ({a.key})", "--severity", str(it.get("severity") or "Medium"),
-            "--description", (f"{kind} {a.key} was rejected, so the code must change to match "
-                              f"the spec. {it.get('description') or ''}").strip()]
-    r = _pm(ctx, *args)
-    m = ISSUE_KEY_RE.search(r.stdout)
-    if r.returncode != 0 or not m:
-        cmd = " ".join(shlex.quote(x) for x in [ctx.pm_status, *args])
-        raise SAError(2, f"{a.key} is resolved but the code fix was not filed -- rerun: {cmd}")
-    print(f"OK reject {a.key} ({kind}) -> wontfix {res_ref}; code fix {m.group(1)}")
-    return 0
-
-
-def cmd_check_stale(ctx, a):
-    items = _open_items(ctx, "--kind", "spec-change")
-    findings = []
-    for it in items:
-        ref = str(it.get("ref") or "")
-        if not ref:
-            continue                                  # audit-issues 1k reports a missing ref
-        files = [l for l in _git(ctx, "show", "--name-only", "--format=", ref,
-                                 check=False).stdout.splitlines() if l]
-        if not files:
-            findings.append(f"{it['key']}: its commit {ref} is not in this repository")
-            continue
-        later = _git(ctx, "log", "--format=%h", f"{ref}..HEAD", "--", *files,
-                     check=False).stdout.split()
-        if later:
-            ct = _git(ctx, "show", "-s", "--format=%ct", ref, check=False).stdout.strip()
-            age = f"{(time.time() - int(ct)) / 86400:.0f} day(s) old, " if ct.isdigit() else ""
-            findings.append(f"{it['key']}: unconfirmed spec change {ref[:12]} ({age}"
-                            f"{len(later)} later commit(s) on {', '.join(files)}) -- confirm "
-                            f"or reject it in /l3io-doctor triage")
-    for f in findings:
-        print(f)
-    if findings:
-        return 1
-    print(f"OK check-stale: {len(items)} unconfirmed spec change(s), none built upon")
-    return 0
 
 
 # -- migrate-adrs: the old per-epic home -> docs/adr (ADR-0005) ------------------------------- #
@@ -1854,35 +1429,6 @@ def build_parser():
     lr = lease_sub.add_parser("release")
     lr.add_argument("--owner", required=True)
     le.set_defaults(func=cmd_lease)
-
-    sp = sub.add_parser("sync-plan", help="the epic's pending spec-sync items (JSON)")
-    sp.add_argument("--epic", required=True)
-    sp.add_argument("--defer", action="store_true",
-                    help="write pointer-only proposals + backlog items instead (lease timeout)")
-    sp.set_defaults(func=cmd_sync_plan)
-
-    pr = sub.add_parser("propose", help="record an agent-written proposal and its backlog item")
-    pr.add_argument("--epic", required=True)
-    g = pr.add_mutually_exclusive_group(required=True)
-    g.add_argument("--finding", default="")
-    g.add_argument("--adr", default="")
-    pr.set_defaults(func=cmd_propose)
-
-    co = sub.add_parser("commit", help="guarded docs(spec) commit for one finding or ADR link")
-    co.add_argument("--epic", required=True)
-    g = co.add_mutually_exclusive_group(required=True)
-    g.add_argument("--finding", default="")
-    g.add_argument("--adr", default="")
-    co.add_argument("--paths", nargs="+", required=True, help="exactly the pointed-to spec file")
-    co.add_argument("--rename-anchor", action="append", default=[], metavar="OLD=NEW")
-    co.set_defaults(func=cmd_commit)
-
-    rj = sub.add_parser("reject", help="revert/decline a spec item and refile it as a code fix")
-    rj.add_argument("--key", required=True)
-    rj.set_defaults(func=cmd_reject)
-
-    cs = sub.add_parser("check-stale", help="report unconfirmed spec changes built upon")
-    cs.set_defaults(func=cmd_check_stale)
 
     mi = sub.add_parser("migrate-adrs", help="move ADRs from epic-*/arch/ to docs/adr/")
     g = mi.add_mutually_exclusive_group(required=True)

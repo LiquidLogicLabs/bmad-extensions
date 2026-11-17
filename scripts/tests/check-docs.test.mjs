@@ -385,10 +385,10 @@ test("check 4: an undocumented spec-align subcommand is caught", async (t) => {
   const root = fixture(t);
   const rel = "docs/l3io-pm-reference.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
-  write(root, rel, text.replace(/^\| `check-stale` \|.*\n/m, ""));
+  write(root, rel, text.replace(/^\| `check-links` \|.*\n/m, ""));
   const r = await run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /does not document spec-align\.py subcommand 'check-stale'/);
+  assert.match(r.stderr, /does not document spec-align\.py subcommand 'check-links'/);
 });
 
 test("check 4: spec-align names in backticks are not read as pm-status subcommands", async (t) => {
@@ -1048,7 +1048,7 @@ test("check 17: a PEP-723 helper invoked with python3 is caught", async (t) => {
 test("check 17: uv run of the same helper passes", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm/l3io-execute/steps/good-invocation.md",
-    "```bash\nuv run {pm_status} audit-issues --state-root x\n```\n");
+    "```bash\nuv run {pm_status} calibration show --state-root x\n```\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -2229,23 +2229,23 @@ test("check 4/skills: an invocation naming a subcommand the CLI does not have is
 
 test("check 4/skills: an invocation passing a flag the CLI never registers is caught", async (t) => {
   const root = fixture(t);
-  plantInvocation(root, "uv run {pm_status} audit-issues --state-root {pm_state_root} --ledger {f}");
+  plantInvocation(root, "uv run {pm_status} dispatch --state-root {pm_state_root} --event open --agent a --ledger {f}");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /planted\.md:\d+: invokes 'audit-issues --ledger'/);
+  assert.match(r.stderr, /planted\.md:\d+: invokes 'dispatch --ledger'/);
 });
 
 test("check 4/skills: a flag on a `\\`-continued line is still seen", async (t) => {
   const root = fixture(t);
   write(root, PLANT_FILE, [
     "# Planted", "", "```bash",
-    "uv run {pm_status} audit-issues --state-root {pm_state_root} \\",
+    "uv run {pm_status} dispatch --state-root {pm_state_root} \\",
     "  --no-such-flag {epic_key}",
     "```", "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'audit-issues --no-such-flag'/);
+  assert.match(r.stderr, /invokes 'dispatch --no-such-flag'/);
 });
 
 test("check 4/skills: an invocation inside a markdown table cell is seen", async (t) => {
@@ -2254,18 +2254,18 @@ test("check 4/skills: an invocation inside a markdown table cell is seen", async
     "# Planted", "",
     "| When | Run |",
     "|---|---|",
-    "| audit | `uv run {pm_status} audit-issues --state-root {r} --not-a-flag {e}` |",
+    "| audit | `uv run {pm_status} dispatch --state-root {r} --not-a-flag {e}` |",
     "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'audit-issues --not-a-flag'/);
+  assert.match(r.stderr, /invokes 'dispatch --not-a-flag'/);
 });
 
 test("check 4/skills: a correct invocation does not fire", async (t) => {
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} list-issues --state-root {pm_state_root} --epic {epic_key}");
+    "uv run {pm_status} dispatch --state-root {pm_state_root} --event open --agent a --epic {epic_key}");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -2327,12 +2327,11 @@ test("check 4/skills: import-node --status in-progress does not require --reason
 });
 
 test("check 4/skills: other subcommands are unaffected by the import-node rule", async (t) => {
-  // The map is scoped by subcommand too. list-issues --status is a filter over backlog
-  // items, not a node status, so `--status` on it must not demand a --reason even though
-  // the flag name matches the rule's.
+  // The map is scoped by subcommand too. report's --status-json is a file, not a node
+  // status, so it must not demand a --reason even though it shares the rule's flag prefix.
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} list-issues --state-root {r} --status backlog");
+    "uv run {pm_status} report --project-root {r} --initiative-dir {d} --status-json {f}");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -2685,13 +2684,13 @@ test("check 4/skills: flags soft-wrapped onto the next line inside one code span
   const root = fixture(t);
   write(root, PLANT_FILE, [
     "# Planted", "",
-    "- If a lock is stale, recommend: `Epic {key} is locked. Run: uv run {pm_status} audit-issues",
+    "- If a lock is stale, recommend: `Epic {key} is locked. Run: uv run {pm_status} dispatch",
     "  --state-root {r} --epic-key {key}`. Do not re-derive the lock state yourself.",
     "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'audit-issues --epic-key'/);
+  assert.match(r.stderr, /invokes 'dispatch --epic-key'/);
 });
 
 // MAX_LINE_JOINS bounds the open-span join, and the observable difference is the reported
@@ -2708,12 +2707,12 @@ test("check 4/skills: a stray backtick does not swallow the lines below it", asy
     "filler one",                                                   // 4
     "filler two",                                                   // 5
     "filler three",                                                 // 6
-    "uv run {pm_status} audit-issues --state-root {r} --epic-key {k}", // 7
+    "uv run {pm_status} dispatch --state-root {r} --epic-key {k}", // 7
     "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /planted\.md:7: invokes 'audit-issues --epic-key'/);
+  assert.match(r.stderr, /planted\.md:7: invokes 'dispatch --epic-key'/);
 });
 
 // Continuation DEPTH. A single shared join cap covered both continuation kinds and stopped at
@@ -2917,11 +2916,11 @@ test("prose naming {pm_status} outside code formatting is not an invocation, fla
 test("check 4 catches a real flag invoked on a subcommand that does not take it", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-util/l3io-doctor/steps/triage.md",
-    "\n| `zy` | `uv run {pm_status} audit-issues --state-root S --scope story` |\n", true);
+    "\n| `zy` | `uv run {pm_status} dispatch --state-root S --event open --agent a --scope story` |\n", true);
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /invokes 'audit-issues --scope', but pm-status\.py registers that option on other subcommands only/);
+    /invokes 'dispatch --scope', but pm-status\.py registers that option on other subcommands only/);
 });
 
 // ---------------------------------------------------------------------------
@@ -3148,10 +3147,10 @@ const PROBE_MD = "skills/l3io-pm/l3io-execute/references/zz-probe.md";
 
 test("check 4: a short option on a pm-status.py invocation is caught", async (t) => {
   const root = fixture(t);
-  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} list-issues -s backlog --state-root S"));
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} dispatch -s open --state-root S"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'list-issues -s', but pm-status\.py registers no such short option/);
+  assert.match(r.stderr, /invokes 'dispatch -s', but pm-status\.py registers no such short option/);
 });
 
 test("check 4: a flag value outside argparse's choices is caught", async (t) => {
@@ -3163,23 +3162,23 @@ test("check 4: a flag value outside argparse's choices is caught", async (t) => 
   assert.match(r.stderr, /invokes 'verify --runtime martian', but pm-status\.py accepts only/);
 });
 
-// The choices came from `choices=list(RESOLUTIONS)`, a module constant -- not a literal list
+// The choices came from `choices=list(calibration.CLASSIFICATIONS)`, a module constant -- not a literal list
 // -- so this also pins the constant resolution.
 test("check 4: a flag value from a choices=list(CONST) set is judged too", async (t) => {
   const root = fixture(t);
   write(root, PROBE_MD,
-    DIRECTIVE("uv run {pm_status} resolve-issue --state-root S --key BL-E001-001 --resolution maybe"));
+    DIRECTIVE("uv run {pm_status} estimate-story --state-root S --story K --classification maybe"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'resolve-issue --resolution maybe', but pm-status\.py accepts only/);
+  assert.match(r.stderr, /invokes 'estimate-story --classification maybe', but pm-status\.py accepts only/);
 });
 
 test("check 4: a value-taking flag given no value is caught", async (t) => {
   const root = fixture(t);
-  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} audit-issues --state-root --format json"));
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} dispatch --state-root --event open"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'audit-issues --state-root' with no value/);
+  assert.match(r.stderr, /invokes 'dispatch --state-root' with no value/);
 });
 
 test("check 4: a required positional left out is caught", async (t) => {

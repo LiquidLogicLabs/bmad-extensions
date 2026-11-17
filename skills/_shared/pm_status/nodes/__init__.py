@@ -2,13 +2,12 @@
 
 Two resolvers, kept apart. The 3.x sharded tree (`find_epic_dir`,
 `epic_file`/`sprint_file`/`story_file`, `resolve_node_path`, `ensure_node_path`, the node
-load/save pair, the story enumerators, the story-document skeleton and
-`_check_lock_verdict`) serves the migration's writers (`import-node`, `import-actual`)
-and the issues verbs, and retires with them; the v7 sidecar resolvers (`entry_sidecar`,
+load/save pair and the story enumerators) serves the migration's writers (`import-node`,
+`import-actual`) and retires with them in Phase 6; the v7 sidecar resolvers (`entry_sidecar`,
 `ticket_sidecar`, `project_state_root`, ...) are the 4.x layout.
 
-It sits directly above `core` and below everything else: the issue store, the metrics
-layer and the verbs all reach state through here.
+It sits directly above `core` and below everything else: the metrics layer and the verbs
+all reach state through here.
 
 check:docs check 26 ("state paths are assembled only in pm-status.py's resolver
 section") judges each authored file of the package by ITS OWN marker pair, and the pair
@@ -33,23 +32,16 @@ module-qualified the moment the suite starts patching it.
 from __future__ import annotations
 
 import contextlib
-import io
 import os
-import re
 import sys
 
 from .. import core
 from ..core import (
     DIR_FOR_STATUS,
     STATUS_DIRS,
-    PMError,
-    _atomic_create,
     _die_notfound,
     _die_usage,
     _flock_write_or_plain,
-    _lock_age_minutes,
-    _parse_iso,
-    _yaml,
     epic_dirname,
     epic_node_lock,
     parse_story_key,
@@ -451,113 +443,3 @@ def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
         return []
     return sorted(os.path.join(sd, n) for n in os.listdir(sd)
                   if n.endswith(".yaml") and n != "sprint.yaml")
-
-
-# --------------------------------------------------------------------------- #
-# Story documents — the artifact-tree mirror of a story node, and its skeleton
-# --------------------------------------------------------------------------- #
-def story_doc_path(artifacts_root: str, story_key: str) -> str:
-    """E{nnn}-S{nn}-{nnn} -> {artifacts}/epic-{nnn}/sprint-{nn}/stories/{key}.md
-
-    The artifact tree mirrors the state tree with an identical path suffix but is
-    NOT the state tree: artifacts are human-authored and never moved between
-    status directories. This is the only place that resolves a story key to a
-    document path, for the same reason story_file() is the only place that
-    resolves one to a state path.
-    """
-    m = re.match(r"^E(\d{3})-S(\d{2})-\d{3}$", story_key)
-    if not m:
-        raise ValueError(f"not a story key: {story_key!r}")
-    return os.path.join(artifacts_root, f"epic-{m.group(1)}",
-                        f"sprint-{m.group(2)}", "stories", f"{story_key}.md")
-
-
-def init_story_doc(state_root, artifacts_root, story_key, context_md="", ac_lines=None,
-                   must_not_exist=False) -> str:
-    """Create a story document's skeleton from its state node -- the only writer of
-    that skeleton (story prep and promote-issue both call it). Returns 'created' or
-    'exists'. Raises PMError: 2 for a bad key or, under must_not_exist, an existing
-    document; 3 for a missing state node."""
-    from ruamel.yaml.comments import CommentedMap
-    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
-    try:
-        doc = story_doc_path(artifacts_root, story_key)
-    except ValueError as e:
-        raise PMError(2, str(e))
-    path = story_file(state_root, story_key)
-    if path is None:
-        raise PMError(3, f"story {story_key}")
-    _, node = load_node(path)
-    if node is None:
-        raise PMError(3, f"story {story_key} — file is empty")
-    title = str(node.get("title") or story_key)
-    meta = CommentedMap()
-    meta["key"] = SQ(story_key)
-    meta["title"] = SQ(title)
-    meta["status"] = str(node.get("status") or "backlog")
-    meta["classification"] = str(node.get("classification") or "standard")
-    buf = io.StringIO()
-    _yaml().dump(meta, buf)
-    parts = ["---\n", buf.getvalue(), "---\n\n", f"# {title}\n\n"]
-    if context_md:
-        parts.append(context_md.rstrip("\n") + "\n\n")
-    parts.append("## Acceptance Criteria\n\n")
-    if ac_lines:
-        parts.extend(f"- {line}\n" for line in ac_lines)
-    else:
-        parts.append("<!-- Technical ACs to be added below -->\n")
-    if not _atomic_create(doc, "".join(parts)):
-        if must_not_exist:
-            raise PMError(2, f"story document {doc} already exists -- refusing to adopt it")
-        return "exists"
-    return "created"
-
-
-# --------------------------------------------------------------------------- #
-# Lock verdict and dependency list — read helpers over an already-loaded node
-# --------------------------------------------------------------------------- #
-def _check_lock_verdict(lock, session_id) -> tuple:
-    """The verdict on a PRESENT 3.x epic `_lock` value, as (exit, line): 0 when the epic
-    is free to claim, 5 when another session holds it within its TTL.
-
-    promote-issue (`_foreign_lock_error`) takes this verdict only for a lock it can
-    evaluate (`_unevaluable_lock_reason`): e.g. `ttl_minutes: 0` is always stale. A lock
-    this verdict calls unreadable is FREE here but refused by promote, a write (Ruling 24)."""
-    if not isinstance(lock, dict):
-        return 0, "FREE (unreadable lock — not a mapping — treating as stale)"
-    holder = str(lock.get("session_id", ""))
-    if holder == session_id:
-        return 0, "FREE (own session)"
-    claimed_str = str(lock.get("claimed_at", ""))
-    ttl = int(lock.get("ttl_minutes", 30))
-    claimed = _parse_iso(claimed_str)
-    if claimed is None:
-        return 0, "FREE (unreadable lock timestamp — treating as stale)"
-    age_minutes = _lock_age_minutes(claimed)
-    if age_minutes > ttl:
-        return 0, f"FREE (stale lock from {holder}, age={age_minutes:.1f}m > ttl={ttl}m)"
-    return 5, f"LOCKED by {holder} (claimed {claimed_str}, ttl={ttl}m)"
-
-
-def deps_list(node, path) -> list:
-    """A node's `depends_on` as a list, refusing (PMError 2) anything else.
-
-    A scalar is not a near-miss, it is an erasure: `depends_on: 'E001'` iterates as
-    CHARACTERS, so consumers see `["E", "0", "0", "1"]` and plan-graph's `if d in epics`
-    filter drops every one. The epic then reads as having NO dependencies, its phase is
-    marked `parallel: true`, and two epics declared sequential are dispatched concurrently
-    into one working tree. Phantom dependencies would fail on the first lookup; an empty
-    list is indistinguishable from a correct independent epic, so this must refuse.
-
-    Refusing, not coercing: a scalar may have been meant as a one-element list or as a
-    string of keys, and promoting it picks one without evidence.
-    """
-    dep = node.get("depends_on")
-    if dep is None or isinstance(dep, list):
-        return list(dep or [])
-    shown = repr(dep)
-    hint = f"[{dep!r}]" if isinstance(dep, str) else "[...]"
-    raise PMError(2, f"{path}: depends_on is {type(dep).__name__} ({shown}), not a list -- "
-                     f"write it as {hint}. A non-list is read character by character by "
-                     f"every consumer, which silently DROPS the dependency and lets the "
-                     f"planner run these epics concurrently; fix the file by hand")

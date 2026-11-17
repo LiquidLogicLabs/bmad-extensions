@@ -11,7 +11,7 @@ One skill, `l3io-doctor`, the diagnostics and housekeeping tool for l3io project
 | Mode | For | When to recommend |
 |---|---|---|
 | (no argument) | A health check: every finding in a table, then an ordered fix plan. Changes nothing unless a fix is confirmed. | After installing or upgrading, before any epic run, or whenever something in l3io-pm state looks wrong. |
-| `stats` | Progress over BMad v7 initiatives: each epic's status, lane and built count, open tickets, estimates and actuals, stalled builds, plus backlog size by severity and calibration state. | "Where are we", "what is stuck", "show progress". |
+| `stats` | Progress over BMad v7 initiatives: each epic's status, lane and built count, open tickets, estimates and actuals, stalled builds, plus v7's backlog by type and state, and calibration state. | "Where are we", "what is stuck", "show progress". |
 | `check-deps` | Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names the optional dependencies whose phases will self-skip. | A phase skipped unexpectedly, or a fresh install. |
 | `version` | Reports which l3io-extensions version the project runs, per skill and per module, and fails on a tree carrying more than one. | "Which l3io am I on", or after an interrupted upgrade. |
 | `upgrade` | Runs the right command to install, upgrade or remove this extension, and confirms before acting. | The user asks to install, upgrade or uninstall l3io. |

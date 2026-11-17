@@ -171,6 +171,25 @@ The sprint level goes from estimation and calibration too: `estimate-rollup` tak
 only, `set-actual --node` takes `story` or `epic`, and an epic's estimate is the sum of its
 tickets plus the epic closure and orchestration bands.
 
+**The backlog is v7's `backlog/` folder; l3io keeps no issues ledger.** `issues.yaml`,
+`issues-resolved.yaml` and the eight `pm-status.py` verbs over them are removed; the CLI is now 22
+verbs, spec §4.5's set with `import-node`/`import-actual` kept until a later release.
+Removed: `append-issue`, `update-issue`, `promote-issue`, `schedule-issue`, `resolve-issue`, `list-issues`, `audit-issues`, `repair-issue`, and spec-align's `check-stale`.
+
+| Removed | Replaced by |
+|---|---|
+| `append-issue` | a ticket Sofia files in `{output_folder}/backlog/` (her TICKETS); `/l3io-doctor harvest-debt` proposes `bmad-defer:` markers as candidate `bug-<slug>` tickets |
+| `update-issue`, `promote-issue`, `schedule-issue` | Sofia's REFINE (severity, criteria) and BOARD `move` (into an epic) |
+| `resolve-issue` | Sofia's BOARD `mark <ticket> done` or `dropped` |
+| `list-issues` | `tickets.py status {output_folder}/backlog`, which `/l3io-doctor stats` (`backlog`, `issues`) prints |
+| `audit-issues`, `repair-issue` | `/l3io-doctor triage`, which runs the read-only `scripts/audit-tree.py` (findings 1a–1l over v7's tree) and hands Sofia its repairs |
+| `spec-align.py` `sync-plan`, `propose`, `commit`, `reject`, `check-stale` | nothing yet — the epic-closure spec sync filed its items in the ledger; a later release re-homes it beside `bmad-retrospective` |
+
+`/l3io-doctor triage` and `harvest-debt` write no ticket: closing, moving and filing are
+Sofia's. The health check's Check 13 (unconfirmed spec changes) is retired, and its Check 16
+also reports a `{output_folder}/l3io/` that git ignores. A 3.x project's `issues.yaml` is left
+where it is; nothing reads it. File what is still open as backlog tickets through Sofia.
+
 ### → 3.7.2
 
 **3.x now also stops on a project that is part-way to BMad v7.** 3.7.0 recognised v7 by a file

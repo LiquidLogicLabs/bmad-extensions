@@ -19,7 +19,7 @@
 | `{pm_calibration_file}` | `{pm_state_root}/pm-calibration.yaml` = `{implementation_artifacts}/state/pm-calibration.yaml` |
 
 The file is **committed**. Learned ratios are team knowledge and expensive to rebuild —
-several closed epics of real work each. It sits beside `issues.yaml` in the state root and
+several closed epics of real work each. It sits beside `events.jsonl` in the state root and
 moves nowhere when epics move between `planned/`, `active/`, and `archived/`.
 
 ### Four separable components
