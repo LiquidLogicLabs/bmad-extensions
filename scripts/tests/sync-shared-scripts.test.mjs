@@ -17,12 +17,24 @@ const DECLARERS = ["skills/l3io-pm/l3io-execute", "skills/l3io-util/l3io-doctor"
 // Files beside the pm_status tree that a declarer also declares: a hook value can name only a
 // path under `_bmad/<module>/scripts/`, so whatever a hook runs or reads must be declared.
 const EXTRAS = {
-  "skills/l3io-pm/l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/spec-align.py"],
+  "skills/l3io-pm/l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/facts/spec-sync.md",
+    "scripts/spec-align.py"],
   "skills/l3io-util/l3io-doctor": [],
 };
 // A skill that ships no pm_status copy and still declares a file a hook names: it declares
 // that file alone, never the package it does not carry.
-const EXTRAS_ONLY = { "skills/l3io-pm/l3io-plan": ["scripts/plan-graph.py"] };
+// l3io-arch-review and l3io-sec-redteam declare whole directories (their lenses, standards and
+// design review), so their expected list is every file under those directories on disk.
+const filesUnder = (skill, ...dirs) => dirs.flatMap((d) =>
+  fs.readdirSync(path.join(repo, skill, d), { recursive: true })
+    .filter((f) => fs.statSync(path.join(repo, skill, d, f)).isFile())
+    .map((f) => `${d}/${f.split(path.sep).join("/")}`));
+const EXTRAS_ONLY = {
+  "skills/l3io-pm/l3io-plan": ["scripts/plan-graph.py"],
+  "skills/l3io-arch/l3io-arch-review":
+    filesUnder("skills/l3io-arch/l3io-arch-review", "scripts/lenses", "scripts/reviewers", "scripts/standards"),
+  "skills/l3io-sec/l3io-sec-redteam": filesUnder("skills/l3io-sec/l3io-sec-redteam", "scripts/lenses"),
+};
 
 // A runnable copy: sync `git add`s what it writes, so the copy is a work tree of its own.
 function copyRepo(t) {
@@ -58,6 +70,22 @@ test("each pm_status shipper declares every .py of its payload copy and its extr
     }
     assert.deepEqual(declared(repo, skill), [...onDisk, ...EXTRAS[skill]].sort(), `${skill}/bmod.toml`);
   }
+});
+
+test("a declared directory declares every file in it: one added there fails --check until synced", (t) => {
+  const root = copyRepo(t);
+  const skill = "skills/l3io-sec/l3io-sec-redteam";
+  assert.ok(EXTRAS_ONLY[skill].length >= 6, "the six threat lenses are declared");
+  assert.ok(!declared(root, skill).includes("scripts/write-module-config.py"),
+    "a script outside a declared directory is not declared");
+  const lens = "scripts/lenses/l3io-threat-new.md";
+  fs.writeFileSync(path.join(root, skill, lens), "# new lens\n");
+  const r = sync(root, "--check");
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, new RegExp(`UNDECLARED: ${skill}/bmod\\.toml \\[skill\\] scripts lacks ${lens}`));
+  assert.equal(sync(root).status, 0);
+  assert.ok(declared(root, skill).includes(lens), "sync declares it");
+  assert.equal(sync(root, "--check").status, 0);
 });
 
 test("declared extras are generated: one missing from the payload or the list fails --check, naming it", (t) => {

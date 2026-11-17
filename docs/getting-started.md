@@ -197,9 +197,9 @@ normal, not a trigger. With no argument it runs its health check directly.
 
 `/l3io-arch-review` is a standalone (single-skill) module and self-registers only when you
 explicitly pass `setup` or `configure` — an absent `l3io-arch` config section is
-normal, not a trigger. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architecture` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
+normal, not a trigger. The standards themselves live in the skill's `scripts/standards/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. Run `/l3io-doctor wire` to apply them automatically inside BMad: `bmad-architecture` gets the guardrails and l3io's design review, and five engineering lenses join `bmad-review` and every thorough code review.
 
-See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the three modes, and the customization wiring.
+See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the three modes, and the wiring.
 
 ## Upgrading
 

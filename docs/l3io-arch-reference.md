@@ -4,9 +4,9 @@ Engineering-standards architecture guardrails and review.
 
 ## Overview
 
-`l3io-arch` applies a LiquidLogicLabs engineering-standards charter to a project's architecture. It operates in three modes — **design guardrails** (new project), **review** (audit a design, component, or diff), and **decision support** (weigh options and record an ADR). The standards are the single source of truth in the skill's `references/standards-*.md` files; the skill applies and cites them rather than inventing rules.
+`l3io-arch` applies a LiquidLogicLabs engineering-standards charter to a project's architecture. The standards are the single source of truth in the skill's `scripts/standards/standards-*.md` files; everything else applies and cites them rather than inventing rules.
 
-The module is standalone — no orchestrator relationship and no runtime dependency on the other l3io modules. It is also designed to be wired into core `bmad-architecture` and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
+On BMad v7 the module runs mostly **inside BMad's own skills** (ADR-0017, spec §14.3). `/l3io-doctor wire` attaches it, and each entry loads a file this module declares in `bmod.toml`, which `bmad setup l3io-arch` installs under `{project-root}/_bmad/l3io-arch/scripts/` (see [Wiring into BMad](#wiring-into-bmad)). What stays a workflow of its own is **decision support**: weigh options and record an ADR. No runtime dependency on the other l3io modules; ADR numbering uses `l3io-pm`'s register when it is installed.
 
 Skill: `/l3io-arch-review`.
 
@@ -27,7 +27,7 @@ Review reports write to `implementation_artifacts`; ADRs and the docs skeleton w
 
 ## The Standards Charter
 
-The universal principles live in `references/standards-core.md`. Each is written for **design**, **review**, and **decision** use, with red flags and a review severity (BLOCKER / MAJOR / MINOR).
+The universal principles live in `scripts/standards/standards-core.md`. Each is written for **design**, **review**, and **decision** use, with red flags and a review severity (BLOCKER / MAJOR / MINOR).
 
 | # | Principle | Core rule |
 |---|-----------|-----------|
@@ -58,15 +58,15 @@ The skill auto-detects the stack in scope and loads the matching overlay on top 
 
 ## Modes
 
-### Mode A — Design guardrails (new project)
+### `design` — guardrails inside `bmad-architecture`
 
-Walk `standards-core.md` §1–10 plus each loaded overlay as a design checklist. Produce a boundaries/architecture sketch (C4 context + at least one flow diagram), the initial ADR set for every load-bearing call (numbered and placed as in Mode C), a `/docs` skeleton across the architectural / developer / operational axes, and a dependency policy note.
+No longer a workflow of its own. `/l3io-arch-review design` hands the user to `bmad-architecture` (create or update intent), which, once wired, consults the standards before every stack, dependency, logging and deployment call, holds fuller documents to §10, and runs l3io's design review at its Reviewer Gate. Each load-bearing call it surfaces is recorded with `decision`.
 
-### Mode B — Review
+### `review` — through `bmad-review`
 
-Audit the target against every principle. Each finding names **severity · principle · location · remediation** and rolls up into a report (see `references/review-report.md`) with an executive summary and a severity-graded table. **Gate:** BLOCKER and MAJOR findings must be resolved or ADR-justified; MINOR auto-defers to backlog.
+Runs `bmad-review` with `lenses=l3io-design-integrity,l3io-testability,l3io-dependency-policy,l3io-observability,l3io-stack-rules` (plus `l3io-threat-design` when `l3io-sec` is installed), then grades each finding **severity · principle · location · remediation** into a report (`references/review-report.md`). **Gate:** BLOCKER and MAJOR findings must be resolved or ADR-justified; MINOR defers to the backlog. Unwired, the skill loads each lens file itself.
 
-### Mode C — Decision support
+### `decision` — decision support
 
 Identify the principle(s) in tension, weigh options against them, recommend, and record an ADR (`assets/adr-template.md`) at `{project-root}/docs/adr/NNNN-slug.md` — the one ADR home.
 
@@ -74,7 +74,7 @@ Identify the principle(s) in tension, weigh options against them, recommend, and
 
 ```bash
 uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py adr-reserve \
-  --state-root {implementation_artifacts}/state --epic n/a --slug {slug} \
+  --state-root {output_folder}/l3io --epic n/a --slug {slug} \
   --adr-dir {project-root}/docs/adr
 ```
 
@@ -93,7 +93,7 @@ earlier version of this line documented one, which would have halted on use.
 
 | Subcommand | Used by | For |
 |---|---|---|
-| `adr-reserve` | Mode C, and Mode A's initial ADR set | Allocates the next ADR number under a lock, from `l3io-pm`'s register, before the file is written. Optional: without `l3io-pm` installed there is no register and the skill falls back to the highest number on disk plus one. Full signature in the [l3io-pm reference](l3io-pm-reference.md). |
+| `adr-reserve` | `decision` | Allocates the next ADR number under a lock, from `l3io-pm`'s register, before the file is written. Optional: without `l3io-pm` installed there is no register and the skill falls back to the highest number on disk plus one. Full signature in the [l3io-pm reference](l3io-pm-reference.md). |
 
 ## Severity Model
 
@@ -103,17 +103,21 @@ earlier version of this line documented one, which would have halted on use.
 | **MAJOR** | Clear deviation; must be fixed or ADR-justified. |
 | **MINOR** | Improvement opportunity; auto-defers to backlog. |
 
-## Wiring into Core BMad
+## Wiring into BMad
 
-`assets/customize-architect.md` documents the `bmad-customize` overlays to author **in the consuming project** (the core skills live there, not in this extension repo):
+`/l3io-doctor wire` adds these entries to the team's `_bmad/custom/<skill>.toml`, each skipped while `l3io-arch` is not set up; `/l3io-doctor unwire` removes exactly them (ADR-0020):
 
-- **`bmad-architecture`** — load the standards before finalizing any architecture/technology decision; hold the design against every principle; record ADRs; produce diagrams and the docs skeleton.
-- **the story enricher, legacy `bmad-create-story`** — when drafting a story's acceptance criteria, make the technical contract explicit wherever the story implies one (interfaces/API contracts, data model, error and edge handling, observability, security controls, testability), adding one concrete technical AC per applicable dimension without expanding scope. This is the same contract `l3io-execute`'s story technical-AC gate checks, applied at authoring time.
-- **`bmad-code-review`** (and/or `l3io-sec-redteam`) — additionally check standards compliance during review; treat BLOCKER/MAJOR as gating, MINOR as backlog.
+| Host | Key | Entry |
+|---|---|---|
+| `bmad-architecture` | `finalize_reviewers` | `file:` `scripts/reviewers/epic-design-review.md` — the design review against the standards, run at every Reviewer Gate (Finalize, Validate, headless). This is the epic architecture gate 3.x ran inside `l3io-execute`. |
+| `bmad-architecture` | `external_sources` | consult `scripts/standards/` before a stack, dependency, logging or deployment call |
+| `bmad-architecture` | `doc_standards` | the documentation standard (§10) on fuller prose documents |
+| `bmad-review` | `lenses` | the five engineering lenses, `scripts/lenses/l3io-*.md` |
+| `bmad-code-review`, `bmad-build`, `bmad-build-auto` | `thorough_lenses` | the same five, in every `thorough` review |
 
-The overlays point at the standards files rather than duplicating them, keeping a single source of truth.
+The entries point at the files rather than duplicating them, so each viewpoint has one source. The legacy `bmad-customize` overlays (including one for 6.x's `bmad-create-story`) are gone with this.
 
 ## Artifacts Produced
 
 - **Review** → severity-graded findings report at `implementation_artifacts`.
-- **Design / Decision** → ADRs under `{project-root}/docs/adr/` — the one ADR home — from `assets/adr-template.md`, numbered by `adr-reserve` when l3io-pm is installed (see Mode C), plus a docs skeleton.
+- **Decision** → an ADR under `{project-root}/docs/adr/` — the one ADR home — from `assets/adr-template.md`, numbered by `adr-reserve` when l3io-pm is installed.

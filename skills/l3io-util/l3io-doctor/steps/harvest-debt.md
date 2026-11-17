@@ -60,7 +60,7 @@ xargs -0 --no-run-if-empty grep -niE '(#|//|--|;|%|/\*|<!--|'\'') ?bmad-defer:' 
 ```
 
 `$list` comes from `mktemp` with its `trap` on the next line, per
-`l3io-arch-review/references/standards-shell.md`:
+`l3io-arch-review/scripts/standards/standards-shell.md`:
 
 ```bash
 list="$(mktemp)"

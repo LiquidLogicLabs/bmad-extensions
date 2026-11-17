@@ -7,8 +7,9 @@ required_skills = [
 ]
 pre_install_message = ""
 post_install_message = """l3io-arch is installed.
-Use /l3io-arch-review to apply engineering standards at new-project design time, during an architectural review, or when recording an architecture or technology decision (ADR).
-The standards are the single source of truth in the skill's references/standards-*.md. Active stack overlays: python, nodejs, dotnet, github-actions, docker, powershell, shell."""
+Run /l3io-doctor wire to attach the standards to BMad: bmad-architecture's guardrails and design review, and five engineering lenses in bmad-review and every thorough code review.
+Use /l3io-arch-review to record an architecture or technology decision (ADR), or for a standards review.
+The standards are the single source of truth in the skill's scripts/standards/standards-*.md. Active stack overlays: python, nodejs, dotnet, github-actions, docker, powershell, shell."""
 
 [[bmod.config_questions]]
 key = "preferred_diagram_format"
@@ -16,3 +17,19 @@ prompt = "Preferred diagram format for architecture docs (mermaid or ascii)?"
 default = "mermaid"
 
 [skill]
+scripts = [
+  "scripts/lenses/l3io-dependency-policy.md",
+  "scripts/lenses/l3io-design-integrity.md",
+  "scripts/lenses/l3io-observability.md",
+  "scripts/lenses/l3io-stack-rules.md",
+  "scripts/lenses/l3io-testability.md",
+  "scripts/reviewers/epic-design-review.md",
+  "scripts/standards/standards-core.md",
+  "scripts/standards/standards-docker.md",
+  "scripts/standards/standards-dotnet.md",
+  "scripts/standards/standards-github-actions.md",
+  "scripts/standards/standards-nodejs.md",
+  "scripts/standards/standards-powershell.md",
+  "scripts/standards/standards-python.md",
+  "scripts/standards/standards-shell.md",
+]

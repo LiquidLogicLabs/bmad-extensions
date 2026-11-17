@@ -5,17 +5,25 @@ description: Engineering-standards architecture guardrails and review. Use when 
 
 # Architecture Standards & Review
 
-You apply LiquidLogicLabs engineering standards to a project's architecture. You operate in
-three modes — **design guardrails** (new project), **review** (audit an existing design or
-system), and **decision support** (weigh options, record an ADR). The standards are the
-single source of truth in `references/standards-*.md`; you do not invent rules, you apply and
-cite them.
+You apply LiquidLogicLabs engineering standards to a project's architecture. The standards
+are the single source of truth in `scripts/standards/standards-*.md`; you do not invent rules,
+you apply and cite them.
+
+Most of this module runs **inside BMad's own skills**, not here (ADR-0017, spec §14.3). Once
+`/l3io-doctor wire` has run, `bmad-architecture` consults the standards as an external source,
+applies the documentation standard, and runs l3io's design review
+(`scripts/reviewers/epic-design-review.md`) at every Reviewer Gate; and five engineering lenses
+(`scripts/lenses/l3io-*.md`) run in `bmad-review` and in every thorough review of
+`bmad-code-review`, `bmad-build` and `bmad-build-auto`. Every one of those files is declared in
+`bmod.toml`, so `bmad setup l3io-arch` installs it under `{project-root}/_bmad/l3io-arch/scripts/`
+where the wired entries load it. What stays a workflow here is **decision support**: weighing
+options and recording an ADR. The words `design` and `review` are routed to BMad's skills.
 
 A clean review on non-trivial scope is suspect — walk every principle before you conclude.
 
 ## Conventions
 
-- Bare paths (e.g. `references/standards-core.md`) resolve from the skill root.
+- Bare paths (e.g. `scripts/standards/standards-core.md`) resolve from the skill root.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - Findings use severity **BLOCKER / MAJOR / MINOR**, and each names: principle, location, remediation.
@@ -31,70 +39,64 @@ uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-ro
 
 If the resolver is missing or fails, BMad core is not installed here — stop and tell the
 user to run the BMad installer. Take module settings from `modules.l3io-arch` and the
-artifact paths from `modules.l3io-pm` (see the contract for defaults).
+artifact paths from `modules.l3io-pm` (see the contract for defaults); `{output_folder}` is
+`core.output_folder`.
 
 An absent `modules.l3io-arch` section is normal and is **not** a first-run trigger — this
 module declares no required settings. Load `assets/module-setup.md` only when the user
 explicitly passes `setup` or `configure`.
 
-1. **Always load** `references/standards-core.md` (the universal charter).
-2. **Detect the stack(s)** in scope and load the matching overlay(s):
-   - Python (`pyproject.toml`, `uv.lock`, `poetry.lock`) → `references/standards-python.md`
-   - Node.js (`package.json`) → `references/standards-nodejs.md`
-   - .NET/C# (`*.csproj`, `*.sln`) → `references/standards-dotnet.md`
-   - GitHub Actions (`.github/workflows/*`) → `references/standards-github-actions.md`
+1. **Is it wired?** `{project-root}/_bmad/custom/bmad-architecture.toml` naming
+   `_bmad/l3io-arch/scripts/` means `/l3io-doctor wire` has attached this module to BMad's
+   skills. If it does not, say so once and offer `/l3io-doctor wire` (it needs `l3io-util`).
+2. **Always load** `scripts/standards/standards-core.md` (the universal charter).
+3. **Detect the stack(s)** in scope and load the matching overlay(s) from `scripts/standards/`:
+   - Python (`pyproject.toml`, `uv.lock`, `poetry.lock`) → `scripts/standards/standards-python.md`
+   - Node.js (`package.json`) → `scripts/standards/standards-nodejs.md`
+   - .NET/C# (`*.csproj`, `*.sln`) → `scripts/standards/standards-dotnet.md`
+   - GitHub Actions (`.github/workflows/*`) → `scripts/standards/standards-github-actions.md`
    - Docker / PowerShell / shell → load the matching overlay if present.
    When the user names a stack explicitly, honor that over auto-detection.
-3. **Pick the mode** from the user's intent (or ask if ambiguous). The three words
-   `design`, `review` and `decision` name the modes directly — they are the `action`
-   values of this module's three `assets/module-help.csv` rows, so that is what bmad-help
-   hands a user who picks one from the menu. An argument that is not one of them is still
+4. **Route by intent** (ask if ambiguous). An argument that is not one of these words is still
    read as intent, never rejected:
 
-### Mode A — Design guardrails (new project)
+### `design` — design guardrails run inside `bmad-architecture`
 
-Walk `standards-core.md` §1–10 plus each loaded overlay as a **design checklist**. For the
-target project, produce:
-- A boundaries/architecture sketch honoring separation of concerns (§1) with at least a C4
-  context + one flow diagram (Mermaid preferred, ASCII fallback — §10).
-- The initial **ADR set** for every load-bearing call (stack choice, key dependencies, any
-  preview/non-GA use, logging stack, deployment mode) using `assets/adr-template.md` —
-  numbered and placed as in Mode C.
-- A `/docs` skeleton across the architectural / developer / operational axes (§10).
-- A dependency policy note (GA-over-beta §8, maintenance+license §7).
+This is no longer a workflow of its own. Hand the user to `bmad-architecture` (create or
+update intent): once wired it consults the standards before every stack, dependency, logging
+and deployment call, holds fuller documents to §10, and runs l3io's design review as a finalize
+reviewer, so its own spine, AD blocks and diagrams carry the guardrails. Unwired, offer
+`/l3io-doctor wire` first. Record each load-bearing call it surfaces with `decision` below.
 
-### Mode B — Architectural review
+### `review` — an architectural review through `bmad-review`
 
-Audit the target (whole design, a component, or a diff). For **each** principle in the loaded
-files, emit findings (`references/review-report.md` shapes the output). A finding is only valid
-when it states **severity · principle · location · concrete remediation**. Roll findings up
-into a report with an executive summary and a severity-graded table. Gate: BLOCKER and MAJOR
-findings must be resolved or ADR-justified; MINOR auto-defers to the backlog.
+Run `bmad-review` with `lenses=l3io-design-integrity,l3io-testability,l3io-dependency-policy,l3io-observability,l3io-stack-rules`
+on the target (a design, a component, or a diff); add `l3io-threat-design` when `l3io-sec` is
+installed. Then roll its findings up with `references/review-report.md`, grading each
+**BLOCKER / MAJOR / MINOR** against the principle it cites: BLOCKER and MAJOR must be resolved
+or ADR-justified; MINOR defers to Sofia's backlog. Unwired, the lenses are not in
+`bmad-review`: load each `scripts/lenses/l3io-*.md` yourself and follow it, then roll up the
+same way. To review an architecture spine, `bmad-architecture`'s Validate intent runs the same
+design review this module wires into its Reviewer Gate.
 
-### Mode C — Decision support
+### `decision` — decision support
 
 Given a decision in play, identify the principle(s) in tension, weigh the options against them,
 recommend, and **record an ADR** (`assets/adr-template.md`) at
 `{project-root}/docs/adr/NNNN-slug.md`, the one ADR home. When
 `{project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py` exists, take the number from the l3io-pm
 register:
-`uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py adr-reserve --state-root {implementation_artifacts}/state --epic n/a --slug {slug} --adr-dir {project-root}/docs/adr`
+`uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py adr-reserve --state-root {output_folder}/l3io --epic n/a --slug {slug} --adr-dir {project-root}/docs/adr`
 prints it. Without l3io-pm there is no register, so use the highest number in `docs/adr/`
 plus one. That is safe only for a single writer, which is the only case without the
 register, and `adr-reserve` skips those numbers later. Fill `Epic:` (`n/a` outside an epic)
 and `Departs from spec:` (a `path#anchor`, or `n/a`). Never let a load-bearing call go
 unrecorded.
 
-## Wiring into core BMad (customization)
-
-This module is also designed to be wired **into** the core `bmad-architecture` and
-`bmad-code-review` skills so the standards apply automatically. `assets/customize-architect.md`
-documents the `bmad-customize` overlay to author in a consuming project. Offer to set it up.
-
 ## Output
 
 - **Review** → report to `{implementation_artifacts}` (or the path the orchestrator passes).
-- **Design/Decision** → ADRs under `{project-root}/docs/adr/` (numbered by `adr-reserve` when l3io-pm is installed — Mode C) and the docs skeleton.
+- **Decision** → an ADR under `{project-root}/docs/adr/` (numbered by `adr-reserve` when l3io-pm is installed).
 
 End every non-interactive run with:
 `DONE — Blocker: N, Major: N, Minor: N | BLOCKED: [reason] | FAILED: [reason]`

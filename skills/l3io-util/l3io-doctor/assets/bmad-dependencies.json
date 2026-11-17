@@ -24,7 +24,7 @@
     { "name": "bmad-agent-architect", "status": "optional", "module": "bmm" },
     { "name": "bmad-architecture", "status": "optional", "module": "bmm",
       "fallback": "bmad-architect",
-      "reason": "nothing dispatches it — its only references are bmad-customize overlay documentation (l3io-arch-review's module.yaml, SKILL.md and assets/customize-architect.md), which is exactly 'referenced, present, self-skips when absent'. It is declared at all so check 16 has a target for the stale bmad-architect token those docs fall back from" },
+      "reason": "nothing dispatches it: /l3io-doctor wire attaches l3io-arch's design review, standards source and documentation standard to its customization (finalize_reviewers, external_sources, doc_standards), and l3io-arch-review's design mode hands the user to it. Absent, those entries sit unused in a team file nothing reads. It is declared so check 16 has a target for the stale bmad-architect token" },
     { "name": "bmad-ux", "status": "optional", "module": "bmm",
       "fallback": "bmad-ux-review" },
     { "name": "bmad-help", "status": "optional", "module": "core" },

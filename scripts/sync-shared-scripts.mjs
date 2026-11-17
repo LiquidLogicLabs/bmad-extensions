@@ -363,17 +363,38 @@ function pmStatusDeclarers() {
 // delivered to that skill by a sync group or be the skill's own file; --check fails on one the
 // payload does not contain. l3io-plan's plan-graph.py is its own (Sofia's board hook runs it),
 // and l3io-plan ships no pm_status copy, so it declares that one file and nothing else.
+// An entry ending in `/` declares every file under that directory of the skill, so a lens or a
+// standard added there is installed without an edit here: l3io-arch-review's lenses, standards
+// and design review, and l3io-sec-redteam's threat lenses, which bmad-review, the thorough code
+// review and bmad-architecture load from `_bmad/<module>/scripts/` once wired.
 const DECLARED_EXTRAS = {
-  "l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/spec-align.py"],
+  "l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/facts/spec-sync.md", "scripts/spec-align.py"],
   "l3io-plan": ["scripts/plan-graph.py"],
+  "l3io-arch-review": ["scripts/lenses/", "scripts/reviewers/", "scripts/standards/"],
+  "l3io-sec-redteam": ["scripts/lenses/"],
 };
+
+function walkFiles(dir, rel) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.name !== "__pycache__")
+    .flatMap((e) => e.isDirectory()
+      ? walkFiles(path.join(dir, e.name), `${rel}${e.name}/`)
+      : [`${rel}${e.name}`]);
+}
+
+function declaredExtras(dir) {
+  return (DECLARED_EXTRAS[path.basename(dir)] ?? []).flatMap((entry) => entry.endsWith("/")
+    ? walkFiles(path.join(dir, ...entry.split("/")), entry)
+    : [entry]);
+}
 
 function declaredScripts(dir) {
   const pkg = pmStatusShippers().has(dir)
     ? walkPy(path.join(sharedDir, PM_STATUS_PKG))
       .map((relPy) => ["scripts", PM_STATUS_PKG, ...relPy.split(path.sep)].join("/"))
     : [];
-  return [...pkg, ...(DECLARED_EXTRAS[path.basename(dir)] ?? [])].sort();
+  return [...pkg, ...declaredExtras(dir)].sort();
 }
 
 // The generated form, one entry per line so a new module is a one-line diff. Written as the last

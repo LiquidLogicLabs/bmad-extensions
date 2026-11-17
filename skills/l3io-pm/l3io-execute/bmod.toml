@@ -3,6 +3,7 @@ bmod = "bmod-l3io-pm"
 source = "github:LiquidLogicLabs/bmad-extensions/skills/l3io-pm"
 scripts = [
   "scripts/facts/ac-dimensions.md",
+  "scripts/facts/spec-sync.md",
   "scripts/pm_status/__init__.py",
   "scripts/pm_status/__main__.py",
   "scripts/pm_status/adr/__init__.py",

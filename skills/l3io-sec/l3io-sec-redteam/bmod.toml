@@ -17,3 +17,11 @@ prompt = "How many days before platform best practices cache entries are refresh
 default = "30"
 
 [skill]
+scripts = [
+  "scripts/lenses/l3io-ai-poisoning.md",
+  "scripts/lenses/l3io-threat-abuse.md",
+  "scripts/lenses/l3io-threat-chaos.md",
+  "scripts/lenses/l3io-threat-design.md",
+  "scripts/lenses/l3io-threat-external.md",
+  "scripts/lenses/l3io-threat-insider.md",
+]
