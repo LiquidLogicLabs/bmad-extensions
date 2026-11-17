@@ -266,6 +266,17 @@ Rules the hooks live under:
 
 ### Task 4.4: Readiness gates on Sofia's validate (item 4)
 
+**Done 2026-11-17** (`b20c1393`). `spec-align.py check-pointers --story-file`; `estimate-entries --check` in `pm_status/sidecar/estimate.py`; `DECLARED_EXTRAS` in `sync-shared-scripts.mjs` (l3io-execute declares `scripts/spec-align.py` and `scripts/facts/ac-dimensions.md`, synced from `skills/_shared/ac-dimensions.md`); three entries in `assets/wire-in.toml`. Tests: `TestV7Leaf` in `test-spec-align.py` (11), two `--check` cases in `test-pm-status-sidecar.py`, `tests/l3io-pm/test-readiness-checks.py` (8, run from the shipped hook values, `git status --porcelain` empty after each), and the extras case in `sync-shared-scripts.test.mjs`. `smoke:install` asserts both files installed, Sofia's rendered `validate-checks.md` and facts carry our entries, and both checks run from the installed paths. CLI is still 46 subcommands.
+
+- Ruling: under `--story-file`, with no `--planning-root`/`--spec-paths`, a pointer resolves against the markdown file it names anywhere under the project root (`does not exist under the project root` otherwise) — why: a v7 project's specs are its tickets and their `sources:`/`companions:`, which sit beside the ticket tree, not under a planning folder, and a leaf naturally points at its epic's `## Requirements` — cost if wrong: any markdown file under the project counts as a spec; passing `--planning-root` restores the 3.x catalog.
+- Ruling: the leaf's work type is `--work-type` (default `CODE`), given by the check agent; `business_ac_required` is read through core's `resolve_config.py` (default `"CODE,MIXED"` when the resolver or key is absent; an unknown entry exits 2 naming it); an explicit `--business` wins — why: a v7 leaf carries no work type, and the policy key names work types — cost if wrong: an agent that omits `--work-type` on a DOCS ticket is held to the CODE policy, the stricter side.
+- Ruling: `--work-type` outside `--story-file` exits 2, and `--business` defaults to `advisory` there as before — why: the 3.x modes stay byte-for-byte in behaviour — cost if wrong: none.
+- Ruling: a leaf whose frontmatter `type` is `initiative` or `epic` is refused (exit 2) — why: a container's acceptance criteria are its children's — cost if wrong: a container passed by mistake is a finding rather than a silent pass.
+- Ruling: the Set check is a new read-only `estimate-entries --check`, not prose about `l3io.toml` — why: a hand-set `estimate`/`l3io_<metric>` in `tickets.toml` also counts, which an agent reading one file would miss; it refuses `--entry`/`--class`/`--force` and never resolves the state root — cost if wrong: one flag on a 4.3 verb.
+- Ruling: the Ticket check text says an entry with no leaf file is a finding (not ready until pulled and refined) — why: the six-dimension gate is always enforced (CLAUDE.md), and an entry has nowhere to carry the sections — cost if wrong: Sofia surfaces every unpulled entry at validate; she sorts it as fix, suggest or ask.
+- Ruling: extras are a fixed per-skill list keyed by skill name, and each must be delivered to that skill by a sync group; `--check` fails `declares X, which the payload does not contain` — why: the plan's "fixed extras list"; deriving it from wire-in.toml would couple the sync to an asset — cost if wrong: a hook naming a new installed file needs one line here, and `test_checks_text_names_only_declared_paths` fails until it is added.
+- `test_checks_text_names_only_declared_paths` covers every `requires = "l3io-pm"` entry, not only the three new ones.
+
 **Files:**
 - Modify: `skills/_shared/spec-align.py`. `check-pointers` gains `--story-file F`, which reads a v7 leaf rather than a 3.x story. Business-AC policy reads `modules.l3io-pm.business_ac_required`. Never rename `TAC_HEADING`.
 - Modify: `scripts/sync-shared-scripts.mjs`.
@@ -284,17 +295,17 @@ Rules the hooks live under:
 
 `validate_after` is not written (Ruling).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `test_check_pointers_on_v7_leaf` (resolving, unresolving, and `Spec: none — reason`);
   - `test_declared_extras_generated`. Removing `facts/ac-dimensions.md` from the payload fails `--check`, naming it;
   - `test_checks_text_names_only_declared_paths`. Every path in our `checks.*` and facts values is under `_bmad/l3io-pm/scripts/`.
-- [ ] **Step 2:** Implement, sync, generate the declared lists, and wire the entries.
-- [ ] **Step 3: On the fixture:**
+- [x] **Step 2:** Implement, sync, generate the declared lists, and wire the entries.
+- [x] **Step 3: On the fixture:**
   - `bmad setup` installs `_bmad/l3io-pm/scripts/spec-align.py` and `facts/ac-dimensions.md`;
   - after wire, the rendered `bmad-agent-po` `validate-checks.md` holds our Ticket and Set lines;
   - `spec-align.py check-pointers --story-file` runs from the installed path.
-- [ ] **Step 4:** Sync, regenerate manifests, then run the gate run, including `check:bmod` (the validator reads `skill.scripts`).
-- [ ] **Step 5: Commit.** `feat(l3io-pm): readiness checks run inside Sofia's validate`.
+- [x] **Step 4:** Sync, regenerate manifests, then run the gate run, including `check:bmod` (the validator reads `skill.scripts`).
+- [x] **Step 5: Commit.** `feat(l3io-pm): readiness checks run inside Sofia's validate`.
 
 ### Task 4.5: Waves and lanes on Sofia's board, and `report` over v7's tree (item 5)
 
