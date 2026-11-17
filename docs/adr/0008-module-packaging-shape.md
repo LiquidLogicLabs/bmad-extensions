@@ -279,7 +279,7 @@ without it.
 4. **Moving text unchanged can break it, even when the text is byte-identical.** Splitting
    `l3io-help` into a router plus `steps/` was verified lossless by concatenate-and-diff: zero
    differing bytes. It was still broken. Two mode files referenced "section 5 of the main flow"
-   for a `clear-lock` remedy, and the router forbids those paths from loading step-05. A
+   for a `clear-lock` remedy (a verb since removed), and the router forbids those paths from loading step-05. A
    cross-reference is only valid if the referenced file is on the reader's load path, and
    splitting a file changes every load path in it.
 

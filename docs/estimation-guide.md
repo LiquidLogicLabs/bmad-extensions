@@ -8,7 +8,7 @@ This guide covers what you need to record metrics accurately: which numbers the 
 
 ## The five metrics
 
-Every story, sprint, and epic node records both an `estimate` block and an `actual` block. Each block covers exactly five metrics, in this order:
+Every ticket (a story on a 3.x tree) and every epic records both an `estimate` block and an `actual` block. Each block covers exactly five metrics, in this order:
 
 | Metric | What it measures | Unit | Can be N/A? |
 |---|---|---|---|
@@ -55,9 +55,9 @@ Tokens are captured **exactly** from the session transcript. Use the `pm-status.
 uv run {pm_status} usage \
   --state-root {pm_state_root} --story {story_key} --model {model}
 
-# For a sprint or an explicit time window
+# For an epic or an explicit time window (--since/--until)
 uv run {pm_status} usage \
-  --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num} --model {model}
+  --state-root {pm_state_root} --epic {epic_key} --model {model}
 ```
 
 The helper prints the four per-class totals and the exact `--tokens-*` flags to paste into `set-actual`. **Do not sum the raw transcript by hand** — a streaming transcript holds multiple records per message (inflating by ~2.6×), carries `cache_creation_input_tokens` in two forms (double-counting if both are summed), and omits subagent turns (which live in separate sidechain files). The helper avoids all three traps.
@@ -98,6 +98,24 @@ Capture whatever the runtime exposes. If token information is not available or n
 
 ---
 
+## On BMad v7: the hooks write actuals
+
+Once `/l3io-doctor wire` has run, you rarely write an actual yourself. Every `bmad-build` and
+`bmad-build-auto` run is bracketed: `build-open` before it, `build-close` after it. Under Claude,
+`build-close` reads the tokens from the session transcript over the bracket — never typed — and
+writes the ticket's actual into the sidecar beside its plan (`<stem>-plan.l3io.toml`). Under
+Codex and Copilot the agent passes the counts as `--tokens-input`/`--tokens-output`
+(`--tokens-cache-read` too under Codex), each required; under `other` tokens are `N/A`.
+`--man-hours` and `--hitl-hours` are required on every runtime. `bmad-retrospective`'s
+`epic-close` hook does the same for the epic: its closure cost, and its actual as every ticket
+plus the closure.
+
+A calibration sample is taken only when the ticket carried an estimate **before** the build: an
+estimate made afterwards is not a prediction.
+
+The examples below write an actual directly with `set-actual`, on a 3.x tree or by hand; on a v7
+ticket, `--project-root P --plan-file F` takes the place of `--state-root` and the node keys.
+
 ## Writing actuals: set-actual examples
 
 ### Claude
@@ -117,9 +135,7 @@ uv run {pm_status} set-actual \
   --tokens-input 122 --tokens-output 41 --tokens-cache-write 244 --tokens-cache-read 405 \
   --model {model}
 
-# 3. Set status and verify
-uv run {pm_status} set-status \
-  --state-root {pm_state_root} --story E001-S01-003 --status done
+# 3. Verify
 uv run {pm_status} verify \
   --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime claude
 ```
@@ -175,14 +191,14 @@ uv run {pm_status} verify \
   --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime other
 ```
 
-### Sprint and epic orchestration block
+### Epic orchestration block
 
-The orchestrator's own coordination overhead (dispatching subagents, waiting on them) goes into a separate `--block orchestration` on the parent node. This applies to sprint and epic nodes only — not to stories.
+The orchestrator's own coordination overhead (dispatching subagents, waiting on them) goes into a separate `--block orchestration` on the epic node — not on a story.
 
 ```bash
 uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
-  --node sprint --epic E001 --sprint S01 \
+  --node epic --epic E001 \
   --block orchestration \
   --runtime claude \
   --elapsed-hours 0.6 --man-hours 0 --hitl-hours 0.1 \
@@ -216,7 +232,7 @@ An **absent** field is not the same as N/A. Absence fails `verify`; an explicit 
 
 ## Cost derivation
 
-Cost is derived inside `set-actual`, `estimate-story`, and `estimate-rollup` from `tokens_k × the per-model, per-class rate table`. It is never entered directly.
+Cost is derived inside `set-actual`, `build-close`, `epic-close`, `estimate-entries`, `estimate-story` and `estimate-rollup` from `tokens_k × the per-model, per-class rate table`. It is never entered directly.
 
 The rate table (`TOKEN_RATES` in `pm-status.py`) holds per-class USD-per-million-token rates for Anthropic Claude models and OpenAI Codex/GPT models. To inspect what is in force for your project:
 
@@ -256,18 +272,18 @@ Consider `calibration redrive` after settling on one model:
   standard/elapsed_hours (claude-opus-5, gpt-5.6-terra)
 ```
 
-If a project switches runtimes mid-stream, run `calibration redrive` once the new runtime is established to rebuild scope and fix ratios from story nodes — closure and token_mix are unaffected by redrive.
+If a project switches runtimes mid-stream, run `calibration redrive` once the new runtime is established to rebuild scope and fix ratios from 3.x story nodes — closure and token_mix are unaffected by redrive.
 
 **`man_hours` and `hitl_hours` calibrate normally on every runtime** and are not affected by model mismatch.
 
 ## Calibration overview
 
-Every successful `set-actual` call derives a plan-vs-actual sample and appends it to `{implementation_artifacts}/state/pm-calibration.yaml`. After three samples in a component and classification, the system activates that component's learned ratio and applies it to future estimates automatically.
+Every closed build of an estimated ticket (`build-close`), every accepted retrospective of an estimated epic (`epic-close`), and every successful 3.x `set-actual` derives a plan-vs-actual sample and appends it to `pm-calibration.yaml` — on v7, `{output_folder}/l3io/pm-calibration.yaml` in the main checkout. After three samples in a component and classification, the system activates that component's learned ratio and applies it to future estimates automatically.
 
 Four components are learned, each per metric:
 
-- **scope** — story sizing accuracy, per classification (simple / standard / complex)
-- **closure** — sprint- and epic-level closure-phase overhead
+- **scope** — ticket sizing accuracy, per classification (simple / standard / complex)
+- **closure** — epic closure-phase overhead
 - **fix** — cost of the fix loop (requires both `clean` and `reworked` cohorts at ≥3 samples each)
 - **orchestration** — orchestrator coordination overhead as a fraction of children's actuals
 

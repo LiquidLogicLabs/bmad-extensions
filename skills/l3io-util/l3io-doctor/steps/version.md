@@ -23,7 +23,7 @@ somewhere else.
 With `--project-root` the report also lists the two `pm_status` copies BMad v7 installs, one
 per module — `_bmad/l3io-pm/scripts/pm_status/` and `_bmad/l3io-util/scripts/pm_status/` — and
 reports them disagreeing with each other as a `pm_status SKEW` finding (the health check's
-Check 25 reads the same result).
+Check 18 reads the same result).
 
 The report also names the **BMad** version, read from `_bmad/_config/manifest.yaml` →
 `installation.version` (the key BMad's own installer writes). That half needs

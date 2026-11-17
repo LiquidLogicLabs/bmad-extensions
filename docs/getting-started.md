@@ -4,18 +4,18 @@ Installation and first-run guide for `bmad-l3io-extensions`.
 
 ## What this adds to BMad
 
-BMad supplies the agent primitives — story creation, dev, code review, QA, retrospective. This
-package adds the layer above them:
+BMad v7 supplies the planning and build primitives — Sofia (`bmad-agent-po`) for tickets,
+`bmad-build-auto` for building and reviewing one, `bmad-retrospective` for judging an epic. This
+package attaches to them through their own hooks and adds:
 
-- **Orchestration** — dependency-aware phased planning across epics and sprints, so work runs
-  in an order that respects what blocks what, and in parallel only where that is safe.
-- **Closure discipline** — sprint and epic closure that refuses to sign off while any
-  Critical, High or Medium finding is unresolved. Low findings defer to a tracked backlog
-  rather than being forgotten.
-- **Estimates that learn** — every plan point and closeout records an estimate *and* an
-  actual, and future estimates calibrate from that history with no setup.
-- **Spec alignment** — acceptance criteria carry pointers back to the spec sections they came
-  from, and accepted departures are written back to the spec instead of silently diverging.
+- **An unattended run** — `/l3io-execute` builds an initiative's tickets in dependency-ordered
+  waves, one worktree per epic where the project allows it, and stops only where v7 says you
+  decide.
+- **Estimates that learn** — every ticket and epic records an estimate *and* an actual, measured
+  by hooks on every build and retrospective, and future estimates calibrate from that history
+  with no setup.
+- **Readiness checks** — acceptance criteria carry pointers back to the spec sections they came
+  from, checked inside Sofia's validate.
 
 Everything runs in short-lived subagents that hand off through files on disk. That is a cost
 decision, not an aesthetic one: a session's spend grows with the turns it accumulates, so many
@@ -27,7 +27,7 @@ short agents beat one long one.
 |---|---|
 | **Developer** running the work | This guide, then [First Run](#first-run) and the [l3io-pm reference](l3io-pm-reference.md) |
 | **Project manager** tracking it | [Checking Progress](#checking-progress), then the [estimation guide](estimation-guide.md) for how estimates, actuals and calibration work |
-| **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the state contract, and the pre-execution gates |
+| **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the hooks, and the sidecar state contract |
 | **Contributor** to this package | [CONTRIBUTING.md](../CONTRIBUTING.md) — note that `skills/_shared/` holds the only editable copies of shared files |
 
 New to the five skills? [Skills and sequence](skills-and-sequence.md) explains why each one
@@ -46,15 +46,9 @@ a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar term
   `spec-align.py`) are invoked as `uv run`, which provisions their dependencies from an inline
   PEP 723 header — there is nothing else to install, but without `uv` the first status write
   fails.
-- Required BMad skills present, from the `bmm` module. Each site below resolves between two
-  names in a deliberately chosen order — for some the 6.12 name is tried first, for others the
-  legacy name is tried first because its presence is positive evidence about the install; no
-  fixed minimum BMad version is required: `bmad-code-review`, `bmad-qa-generate-e2e-tests`,
-  `bmad-retrospective`, `bmad-review` (adversarial lens, tried first; legacy `bmad-review-adversarial-general` used only when `bmad-review` is absent — a disjoint pair, so order is immaterial in practice), and legacy `bmad-check-implementation-readiness` (readiness gate, preferred when installed, since its presence is itself evidence that `intent=readiness` may not be understood on that install; `bmad-sprint-planning intent=readiness` is used only when the legacy skill is absent).
-- The legacy `bmad-create-story` / `bmad-dev-story` skills are preferred for story enrichment
-  and implementation when installed; this package runs its own in-package agent in their place
-  when either is absent, so no shim flag is needed either way.
-- Optional — UX review: legacy `bmad-ux-review` is preferred when installed, because it is purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when `bmad-ux-review` is absent. UX review phases are skipped gracefully when neither is present.
+- Required BMad v7 skills present, from its `method` module: `bmad-agent-po` (Sofia — the
+  ticket tree), `bmad-build-auto` (one run per ticket) and `bmad-retrospective` (one per epic).
+  `/l3io-doctor check-deps` shows what resolved in your project.
 - **WebSearch permission** granted in your IDE if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
 
 Node.js is **not** needed to use the skills — only to develop this package itself, where
@@ -69,9 +63,9 @@ ships all four together so a standard install always carries `l3io-util`.
 
 | Module | Install if you want |
 |--------|---------------------|
-| **l3io-pm** | Sprint and epic orchestration |
-| **l3io-util** | **Required with `l3io-pm`.** Project state diagnostics, the progress dashboard, legacy layout migration, and the version report. |
-| **l3io-sec** | Adversarial security review (standalone or automatic inside l3io-pm closure) |
+| **l3io-pm** | Unattended runs over BMad v7 initiatives, per-ticket estimates, waves and lanes |
+| **l3io-util** | **Required with `l3io-pm`.** Diagnostics, `wire`/`unwire` for l3io's hooks, the progress dashboard, legacy layout migration, and the version report. |
+| **l3io-sec** | Adversarial security review |
 | **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
 All four modules are installed by the same `npx bmad-method install` command. No module
@@ -238,7 +232,7 @@ After upgrading, your `_bmad/custom/config.toml` and `config.user.toml` override
 ### Upgrading from 1.x
 
 The installer refreshes skills; it does not migrate your data. Run `/l3io-doctor` once
-before any sprint or epic run — it inspects the project and applies every migration you
+before any run — it inspects the project and applies every migration you
 need, in dependency order, behind one confirmation.
 
 The 1.x → 2.x jump renamed and merged several skills and changed the state layout twice.
@@ -247,95 +241,47 @@ sequence, backups and rollback, and current deprecations.
 
 ## Before Running l3io-pm
 
-Before your first sprint or epic run, verify:
+Before your first run, verify:
 
-1. State exists under `{implementation_artifacts}/state/` in the sharded layout — one
-   directory per epic, placed in the folder named for its status:
+1. BMad v7 is installed with Sofia (`bmad-agent-po`), `bmad-build-auto` and
+   `bmad-retrospective`, and `bmad setup` has run for `l3io-pm` and `l3io-util`.
+2. `/l3io-doctor wire` has run. It adds l3io's hooks to the team's `_bmad/custom/<skill>.toml`
+   files — estimates on Sofia's ticket procedures, readiness checks in her validate, waves and
+   lanes on her board, measurement on every build and retrospective — and never overwrites a
+   team value. `/l3io-doctor unwire` removes exactly what it added.
+3. Sofia has planned an initiative: its epics and tickets exist, refined, under
+   `{output_folder}`.
+4. If you are unsure what shape your project is in, run `/l3io-doctor` — with no argument it
+   reports findings and proposes the right actions in order. A project coming from l3io 3.x
+   should read [Upgrading](upgrading.md) first.
 
-   ```
-   state/planned/epic-005/epic.yaml            ← not started
-   state/active/epic-001/epic.yaml             ← in progress
-   state/active/epic-001/sprint-01/sprint.yaml
-   state/active/epic-001/sprint-01/E001-S01-001.yaml
-   state/archived/epic-002/epic.yaml           ← done
-   ```
+### Optional: estimate and order the work first
 
-   One bare node per file; children are discovered by listing the directory. If you are
-   upgrading from a legacy layout — a flat `sprint-status.yaml`, the three-file split, or a
-   per-epic `_bmad/state/` tree — run `/l3io-doctor` first and let it sequence the
-   migration; see [Upgrading](upgrading.md). Originals are preserved as `.legacy`.
-2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
-3. If you are unsure what shape your project is in, run `/l3io-doctor` — with no
-   argument it reports findings and proposes the right actions in order
+Sofia's hooks estimate new and changed tickets as she writes them. To estimate an initiative or
+epic yourself:
 
-Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review` → `done`.
-
-### Optional: generate an execution plan first
-
-If you have multiple epics, run `/l3io-plan` before starting execution. It validates
-readiness, elaborates thin stories, estimates, reads `depends_on` declarations, and produces
-a phased parallel-optimized plan — which epics to run first, which can run in parallel, and
-the critical path. It writes a dated snapshot plus the stable `plan-output-meta.yaml`
-pointer that `/l3io-execute` reads.
-
-To declare dependencies, add `depends_on` to the epic or story node file. Nodes are stored
-**bare** — there is no `epics:` or `stories:` wrapper, and keys are zero-padded:
-
-```yaml
-# state/planned/epic-003/epic.yaml — E003 waits for E001 and E002
-key: 'E003'
-depends_on: ['E001', 'E002']
+```
+/l3io-plan estimate _bmad-output/initiative-shop
 ```
 
-```yaml
-# state/planned/epic-003/sprint-01/E003-S01-001.yaml — blocks on a story in another epic
-key: 'E003-S01-001'
-epic: 'E003'
-sprint: 'S01'
-depends_on: ['E001-S02-003']
+To see the order the epics may run in, and which epic closures will pause the run:
+
+```
+/l3io-plan waves
 ```
 
-### Optional: reshape a plan that is legal but badly grouped
-
-A plan can pass every validation and still be the wrong shape — a longer critical path than it
-needs, or work scattered across epics that depend on each other. `/l3io-plan reorg` measures the
-plan you have, proposes **one** improvement with the evidence behind it (critical path,
-cross-epic dependency count, epic and story counts), and renders it as a plan summary you can
-accept or reject in about a minute. Nothing is applied until you say yes.
-
-What it may change is deliberately narrow:
-
-- **Planned work only.** Epics in `planned/`, their sprints and their stories. Active and
-  archived work is read — an epic in flight still constrains what can be scheduled against it —
-  and never written.
-- **Placement and grouping only.** It moves, regroups and retires work that already exists; it
-  never adds, splits, re-estimates, or edits a story's title or `depends_on`.
-- **Nothing is deleted.** Retiring an epic archives it with the reason recorded.
-
-A moved story is re-keyed to its new home — `E007-S02-004` becomes something like
-`E003-S01-005` — with the old key appended to `previous_keys` and the vacated key never
-reissued. Its story document travels with the state node, and inbound `depends_on` and backlog
-references are repointed.
-
-Every reorg is journaled, so undo is conversational: ask to "undo that reorg" and the skill
-resolves which entry you mean and inverts it. There is no undo keyword. Undo restores
-*placement*, not keys — key numbers never go backwards, so a story comes home to its original
-sprint under a new number with the whole journey in `previous_keys` — and it refuses outright if
-the planned tree's shape has changed since, because it would otherwise replay placements derived
-from a plan that no longer exists.
-
-Reorg writes state but never a plan snapshot, which is immutable once written. Run `/l3io-plan`
-afterwards for a snapshot that reflects the new shape.
+Dependencies are v7's: the initiative's `[[epic]] after`, each ticket's `after`, and each epic
+file's own `after`. Change them through Sofia's REFINE, REPLAN and BOARD.
 
 ### Optional: set up for several developers at once
 
-Skip this if one person runs the plan. Lanes are off by default and stay completely inert —
+Skip this if one person runs the work. Lanes are off by default and stay completely inert —
 no prompt, no proposal, no extra field — until you ask for them.
 
 Everything else in this package relies on `flock` to keep concurrent agents from colliding, and
-a `flock` guards one filesystem. Two developers with their **own clones** share none, and state
-is committed to git, so between developers concurrency is mediated by `git merge` instead. Lanes
-are how the plan is partitioned so that merge has nothing to decide.
+a `flock` guards one filesystem. Two developers with their **own clones** share none, so between
+developers concurrency is mediated by `git merge` instead. Lanes partition the epics so that
+merge has nothing to decide.
 
 Turn them on by running `bmad setup l3io-pm` and answering its question about how many developers will
 work this project. The answer is recorded as `lane_count` in the committed team config layer —
@@ -350,40 +296,32 @@ With `lane_count` above 1, `/l3io-plan lanes` proposes the partition:
 /l3io-plan lanes
 ```
 
-It groups the epics into that many lanes, then reports two numbers that are different
-objectives — the **cross-lane dependencies** it had to accept, which turn two parallel
-developers into a queue, and the **phases each lane is idle in**, because a partition can be
+It groups the initiative's epics into that many lanes, then reports two numbers that are
+different objectives — the **cross-lane dependencies** it had to accept, which turn two parallel
+developers into a queue, and the **waves each lane is idle in**, because a partition can be
 perfect by connectivity and still leave one developer waiting for another to finish. If more
 lanes than the work supports costs crossings, the proposal says what fewer would have cost.
-It warns and never refuses; sometimes accepting the serialisation is the right call.
 
-On your agreement it writes each epic's lane for you — the skill runs
-`pm-status.py set-field --state-root S --epic E001 --field lane --value 2` per epic; do not edit
-the node files by hand. The rule is **one epic, one lane**: sprints and stories inherit the lane
-from the directory they live in, and `set-field` refuses `lane` on a sprint or story outright.
-Moving work between lanes therefore means moving a story between epics, which is a reorg and
-gets a reorg's full scrutiny. Re-run `/l3io-plan lanes` any time to see one lane's view of the
-current plan — a filter over the plan you have, never a second document that could go stale.
+On your agreement it writes each epic's lane with `pm-status.py set-lane`, into the initiative's
+`l3io.toml`, and commits it. The rule is **one epic, one lane**: a ticket never carries one, so
+moving work between lanes means moving a ticket between epics, through Sofia's BOARD. Re-run
+`/l3io-plan lanes` any time to see one lane's view — a filter over the waves, never a second
+document that could go stale.
 
 Three things make a shared run safe, and the mode restates all of them:
 
 - **Commit and push everything before execution begins.** That does not remove the merge; it
   bounds it to a known surface by making everyone fork from one commit.
-- **Add one line to `.gitattributes`** — `{implementation_artifacts}/state/events.jsonl
-  merge=union`. The event log is append-only, so union is literally the right semantics. This
-  was measured: two clones, two lanes, real work, then a merge — one `add/add` conflict on that
-  file without the line, **zero conflicts with it**, all four events preserved, and the epic
-  directories merged clean with nothing for git to reconcile.
-- **Reserve ADR numbers before the fork.** `state/adr-register.yaml` has a single global
-  allocator and is the one genuine collision; a block reserved by whoever assembles the
-  assignment, and committed in the push everyone starts from, needs no lock at all.
+- **Add one line to `.gitattributes`** for l3io's `events.jsonl` with `merge=union`. The event
+  log is append-only, so union is literally the right semantics; measured on two clones, it
+  turned the one conflict they produced into none, with every event preserved.
+- **Reserve ADR numbers before the fork.** `adr-register.yaml` has a single global allocator
+  and is the one genuine collision; a block reserved with `adr-reserve --count`, and committed
+  in the push everyone starts from, needs no lock at all.
 
-What lanes do **not** solve is source-file collisions. The dependency graph proves two epics
-have no `depends_on` between them. It says nothing about whether both of them rewrite
-`auth/session.py`. Two lanes can be perfectly independent in the plan and still spend a week
-diverging on the same file — the failure that makes teams abandon parallel work, and the one
-invisible to every signal here. Partition the work with lanes; agree the file boundaries
-between yourselves.
+What lanes do **not** solve is source-file collisions. The dependency graph proves two epics do
+not wait on each other. It says nothing about whether both of them rewrite `auth/session.py`.
+Partition the work with lanes; agree the file boundaries between yourselves.
 
 ## First Run
 
@@ -413,12 +351,12 @@ Every build records **actuals** beside the ticket's estimate for all five metric
 observed figure), human-attention (hitl) hours, tokens, and token cost — through l3io's hooks on
 `bmad-build-auto`, and every retrospective records the epic's. Cost is never entered directly;
 it is derived from the captured tokens and the model's rate table. See the
-[PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics
+[PM reference](l3io-pm-reference.md#metrics-contract) for the full metrics
 contract and calibration details.
 
 ## Checking Progress
 
-A full epic run is long. Three ways to see where it is, all read-only.
+A full run is long. Two ways to see where it is, both read-only.
 
 **Ask, at any time:**
 
@@ -426,49 +364,22 @@ A full epic run is long. Three ways to see where it is, all read-only.
 /l3io-doctor stats
 ```
 
-This renders the plan-aware tree — which phase, which
-epic, which sprint, and which stories are in flight, with how long each has sat in its current
-status and a `⚠ stuck` marker past the threshold (4h for a story in `review` or `in-progress`):
-
-```
-PLAN plan-2026-08-17-v2.yaml   readiness=green
-
-Phase 1/2 (parallel)  █████░░░░░  1/2 epics done
-  E001 Foundation               in-progress  8/12 stories
-    S02    in-progress  3/7
-      E001-S02-004         review         7.5h  ⚠ stuck
-      E001-S02-005         in-progress    1.1h
-```
+This renders the initiative's epics and tickets with their v7 status, each epic's lane, and
+estimates against actuals from l3io's sidecars, plus any build whose bracket has been open past
+the stall threshold.
 
 **Watch it live**, in a second terminal, while a run is in progress:
 
 ```bash
 uv run _bmad/l3io-pm/scripts/pm_status/__main__.py report \
-  --state-root {implementation_artifacts}/state \
-  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --project-root . --initiative-dir _bmad-output/initiative-shop \
   --watch 15
 ```
 
-This is the only way to get per-sprint detail during a *parallel* phase: the run itself
-suppresses those renders, because several epics reporting at once would interleave into
-unreadable output.
-
-**Read the committed report.** `{implementation_artifacts}/progress-report.md` is regenerated
-at every sprint and epic closure, so it is diffable in git and shareable with people who do
-not run the CLI. It is a generated view — never hand-edit it.
-
-Pass `--all` to any of these to include finished, archived epics; by default they count toward
-each phase's progress bar but are not listed.
-
-Dwell times display with a `~` prefix until `{implementation_artifacts}/state/events.jsonl`
-has recorded transitions — before then they are derived from `updated_at`, which any field
-write refreshes, so they are approximate. The log starts recording on your next run.
+This is the only way to get per-ticket detail during a *parallel* wave: each epic runs in its
+own session, and several reporting at once would interleave into unreadable output.
 
 ## Using l3io-sec
-
-### Automatic (inside l3io-pm)
-
-`l3io-sec-redteam` runs automatically during both sprint closure and epic closure — as long as the skill is installed. No separate invocation needed.
 
 ### Standalone
 
@@ -480,54 +391,29 @@ Invoke directly for ad hoc reviews:
 
 On first run it initializes its sanctum (persistent memory) at `{project-root}/_bmad/memory/l3io-sec-redteam/`. On subsequent runs it loads its identity from the sanctum and asks for scope and target.
 
-To run a scoped analysis against a specific sprint or epic, provide the scope when prompted. The skill loads relevant platform research cache topics, runs all five threat lenses, and writes a report.
+To run a scoped analysis against a specific epic or the whole solution, provide the scope when prompted. The skill loads relevant platform research cache topics, runs all five threat lenses, and writes a report.
 
 ## Using l3io-util
 
-Run with no argument any time you want a health check, or when you have a legacy layout or
-flat artifacts to reorganize:
+Run with no argument any time you want a health check:
 
 ```
 /l3io-doctor
 ```
 
-The skill scans `{implementation_artifacts}` and `{planning_artifacts}` flat roots, classifies each file, and presents a dry-run move table before making any changes:
+It scans the project, reports what it finds, and proposes every fix in order behind one
+confirmation. The diagnostic itself is safe to run any time.
+
+Modes worth knowing:
 
 ```
-DRY RUN — Artifact Cleanup
-Source                     → Destination                       Class           Status
-1-0-story.md               → epic-001/sprint-01/stories/...   story           move
-epic-1-sprint-1-retro.md   → epic-001/sprint-01/closure/...   sprint-closure  move
-```
-
-Confirm to execute. Ambiguous references are never auto-updated — they are flagged for manual review.
-
-The layout reorganization is a once-per-project operation; a second run on an already-clean
-layout produces zero moves. The diagnostic itself is safe to run any time.
-
-Two modes worth knowing:
-
-```
-/l3io-doctor migrate-state    # legacy layout → sharded state tree (run this first)
-/l3io-doctor stats            # plan-aware progress dashboard, read-only
+/l3io-doctor wire             # add l3io's hooks to BMad's skills (unwire removes them)
+/l3io-doctor stats            # progress dashboard over a v7 initiative, read-only
+/l3io-doctor migrate-state    # a legacy l3io state layout → the 3.x sharded tree
 ```
 
 > `/l3io-util-cleanup` was renamed to `/l3io-doctor` in 2.1.0. The old name's deprecated
 > forwarder was removed in 3.0.0 — see [Upgrading](upgrading.md).
-
-To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout as a one-time explicit migration (the original is preserved as `sprint-status.yaml.legacy`):
-
-```
-/l3io-doctor split-status
-```
-
-If a PM skill detects a legacy `sprint-status.yaml`, it halts and tells you to run `/l3io-doctor migrate-state` — it never splits it automatically.
-
-> **`split-status` alone is not enough.** The three-file layout it produces is still a legacy
-> shape that the PM skills cannot read. It exists only so `reconcile-status` can tidy a messy
-> flat file before `migrate-state` consumes it — so always follow it with `migrate-state`, or
-> let the health check sequence the whole migration for you. See
-> [Upgrading](upgrading.md) for the full ordered sequence.
 
 To sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog (report-only until you confirm the merge):
 
@@ -535,4 +421,4 @@ To sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest
 /l3io-doctor harvest-debt
 ```
 
-A `bmad-defer:` marker is a one-line comment a developer (or a dev subagent) leaves on a deliberate simplification — `// bmad-defer: <what was simplified>. ceiling: <limit>. upgrade: <trigger>.` — recognized across every common language's comment syntax. Harvesting turns those crumbs into tracked backlog items so they don't rot silently; markers that name no upgrade trigger are flagged at a higher severity. Sprint closure also harvests the markers in each sprint's changed files automatically, so this command is for whole-tree or on-demand sweeps.
+A `bmad-defer:` marker is a one-line comment a developer (or a dev subagent) leaves on a deliberate simplification — `// bmad-defer: <what was simplified>. ceiling: <limit>. upgrade: <trigger>.` — recognized across every common language's comment syntax. Harvesting turns those crumbs into tracked backlog items so they don't rot silently; markers that name no upgrade trigger are flagged at a higher severity.

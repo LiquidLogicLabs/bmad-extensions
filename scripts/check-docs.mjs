@@ -14,18 +14,16 @@
 // belong in review, not here — a checker that cries wolf gets switched off.
 //
 //   1. skill-names   every l3io-* skill named in docs resolves to a real skills/ directory
-//   2. gating-tables every mirrored phase table matches the authoritative matrix, cell for cell
 //   3. section-refs  every "<file>.md §N" cross-reference resolves to a section bearing that number
 //   4. cli-surface   documented pm-status.py and spec-align.py subcommands and the real CLIs
 //                    agree, both ways -- across the live docs, every runtime directive under
 //                    skills/ (where an invocation's long flags are checked against the
-//                    INVOKED SUBCOMMAND's own option set), and the activation digest's CLI
-//                    synopsis. Read the Known gaps block below before believing any wider
+//                    INVOKED SUBCOMMAND's own option set). Read the Known gaps block below
+//                    before believing any wider
 //                    claim about its reach
 //   5. config-values values quoted in prose match the defaults customize.toml ships
 //   6. status-values --status filters named in skill phrase tables are real state folders
 //   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
-//   8. digest-size   the activation digest stays inside its byte budget
 //   9. authoring-paths no runtime directive tells an agent to read skills/_shared/ (not
 //                    installed) instead of the installed references/assets/steps path
 //  10. cli-docstring pm-status.py's and spec-align.py's own module docstrings name every
@@ -34,8 +32,8 @@
 //                    continued lines joined, fenced or not) passes --source and --description
 //  12. pm-status-size every .py under skills/_shared/pm_status/ stays within the 1,500-line
 //                    per-file limit ADR-0001 sets — __main__.py included, since Task 12
-//  13. spec-align-contract spec-align.py's spec kinds match layout-cleanup.md heuristic 5, and
-//                    its six DIMENSIONS match the enrichment prompt's layout block
+//  13. spec-align-contract spec-align.py's DIMENSIONS and BUSINESS_DIMENSIONS match the
+//                    canonical layout block in skills/_shared/ac-dimensions.md
 //  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
 //  15. doctor-mode-count  the doctor's stated mode count equals the modes it actually has
 //  16. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
@@ -170,7 +168,7 @@
 //                    package while porting, which carried the collision faithfully rather
 //                    than diverging. Derived from the same table check 25 reads.
 //
-// RETIRED on the v7 branch (ADR-0014), each because the 6.x artifact it compared is gone. The
+// RETIRED on the v7 branch, each because the artifact it compared is gone. The
 // numbers are not reused, so a reference to "check 36" means the same thing on both lines:
 //   (23) marketplace-deps  compared `.claude-plugin/marketplace.json`'s `dependencies` block to
 //                    the inventory. v7 does not read marketplace.json and this branch deletes
@@ -179,6 +177,12 @@
 //   (35) forwarder-version-oracle  judged a DEPRECATED forwarder's rename version. v7 retires a
 //                    skill through `retired.toml` instead, and the branch ships no forwarder;
 //                    `validate_manifests.py` and scripts/tests/retired.test.mjs guard that file.
+//   (2) gating-tables  compared the work-type phase matrix in step-01-classify-work.md with the
+//                    tables mirroring it. Task 4.8 deleted the matrix with the 3.x plan phases
+//                    it gated; v7's tickets carry no work type and l3io gates no phase.
+//   (8) digest-size  held step-00-digest.md, the digest dispatched 3.x subagents loaded, to a
+//                    byte budget. Task 4.8 deleted the digest with the last step that dispatched
+//                    a subagent to read it.
 //   (38) probe-manifest-parity  required every tool-directory probe to also test
 //                    `_bmad/_config/skill-manifest.csv`. v7 writes no such file (its
 //                    `migrate_v6.py` lists it as a 6.x leftover), so the rule would force a
@@ -227,9 +231,6 @@
 //   CLOSED  a flag that exists somewhere in the CLI but not on the subcommand it is given to
 //           (`set-status --scope story`) — flags are judged against the invoked subcommand's
 //           own option set. See argparseSurface() / pmStatusSubcommandOptions().
-//   CLOSED  step-00-digest.md's CLI synopsis, a second copy of the CLI surface that every
-//           dispatched subagent loads on its own and nothing verified. See
-//           checkDigestCliSynopsis().
 //   CLOSED  SHORT OPTIONS in a skills/ invocation. `set-status -s done` is now reported.
 //           argparse is the source: pm-status.py registers no short option on any subcommand
 //           today, so every `-x` is wrong — but the set is READ, not assumed, so the day one
@@ -480,58 +481,6 @@ function checkSkillNames() {
     }
   }
   if (verbose) console.log(`  skill-names:    ${checked} reference(s) checked`);
-}
-
-// ---------------------------------------------------------------------------
-// 2. Mirrored phase tables match the authoritative matrix.
-//
-// The matrix in steps/shared/step-01-classify-work.md §4 is the single source of truth for
-// which review phases run per work type. Two docs mirror it for readability and say so.
-// Caught in practice: five copies disagreed, and turning UX review off for DOCS updated
-// three of them.
-//
-// Compared by the leading phase-name word so cosmetic labelling differs freely —
-// "Red team (l3io-sec)" and "Red team (`l3io-sec-redteam`)" are the same row.
-// ---------------------------------------------------------------------------
-const MATRIX_SOURCE = "skills/_shared/steps/shared/step-01-classify-work.md";
-const MATRIX_MIRRORS = ["docs/architecture.md", "docs/l3io-pm-reference.md"];
-
-function phaseRows(text) {
-  const rows = new Map();
-  for (const line of text.split("\n")) {
-    const m = line.match(
-      /^\|\s*([A-Z][^|]*?)\s*\|\s*(run|skip)\s*\|\s*(run|skip)\s*\|\s*(run|skip)\s*\|\s*(run|skip)\s*\|/,
-    );
-    if (m) rows.set(normalisePhase(m[1]), [m[2], m[3], m[4], m[5]]);
-  }
-  return rows;
-}
-
-// "Red team (`l3io-sec`)" -> "red team";  "Sprint architectural drift" -> "sprint architectural drift"
-const normalisePhase = (label) =>
-  label.replace(/\(.*?\)/g, "").replace(/`/g, "").trim().toLowerCase();
-
-function checkGatingTables() {
-  const source = phaseRows(read(MATRIX_SOURCE));
-  if (source.size === 0) {
-    failures.push(`${MATRIX_SOURCE}: no phase matrix found — has the matrix moved?`);
-    return;
-  }
-  let compared = 0;
-  for (const mirror of MATRIX_MIRRORS) {
-    if (!exists(mirror)) continue;
-    for (const [phase, cells] of phaseRows(read(mirror))) {
-      if (!source.has(phase)) continue; // mirrors may omit rows; they must not contradict
-      compared += 1;
-      const want = source.get(phase);
-      if (cells.join() === want.join()) continue;
-      failures.push(
-        `${mirror}: phase '${phase}' is [${cells.join(", ")}] but the matrix in\n` +
-          `      ${MATRIX_SOURCE} says [${want.join(", ")}] (CODE, DOCS, CONFIG, MIXED)`,
-      );
-    }
-  }
-  if (verbose) console.log(`  gating-tables:  ${compared} mirrored row(s) compared against the matrix`);
 }
 
 // ---------------------------------------------------------------------------
@@ -880,7 +829,6 @@ function checkCliSurface() {
   // special-case them.
   checkPmStatusInvocations();
   checkModuleReferenceCoverage();
-  checkDigestCliSynopsis();
   checkSpecAlignSurface();
 }
 
@@ -1349,122 +1297,6 @@ function pmStatusSubcommandOptions() {
   return out;
 }
 
-// 4 (continued). The activation digest's CLI synopsis.
-//
-// Why this exists (M-2(2) of the whole-branch review). `steps/shared/step-00-digest.md`
-// carries a fenced synopsis block that is a SECOND COPY of pm-status.py's CLI surface, and
-// CLAUDE.md says dispatched subagents load the digest ON ITS OWN -- so for every subagent in
-// the system it is not a summary of the CLI reference, it IS the CLI reference. Check 10
-// guards pm-status.py's own module docstring; nothing guarded this copy. Measured before this
-// arm existed: a fabricated subcommand and a bogus flag planted in the block left all six
-// gates green. Same shape as the duplicated clear-lock remedy that motivated the invocation
-// arm, at larger blast radius.
-//
-// Scope, derived: every `steps/shared/step-00-digest.md` under skills/ -- the _shared source
-// and each synced copy -- found by walking, never listed. A skill that gains a digest is
-// covered on arrival, and a sync that half-lands is caught here as well as by check:scripts.
-//
-// Parsing. The block is located by its heading, not by line number. Inside it an entry starts
-// at column 0 and continues through the indented lines beneath it; the entry's first token is
-// the subcommand and every later `--flag` is a flag claim.
-//
-// Flags are judged PER SUBCOMMAND, with one deliberate exclusion: parenthesised spans are
-// stripped first. The synopsis uses `(...)` for two different things -- alternation over real
-// flags, `(--story KEY | --epic ID)`, and prose notes that legitimately name ANOTHER
-// subcommand's flags, `archive-epic ... (alias for move-epic --to archived)`. Telling those
-// apart needs judgement, and a checker that cries wolf gets switched off, so parenthesised
-// flags are not judged at all. Everything outside parentheses is, exactly.
-const DIGEST_BASENAME = "steps/shared/step-00-digest.md";
-const DIGEST_SYNOPSIS_HEADING = "### The calls a sprint or epic run makes";
-
-// A flag token in prose: `--tokens-*`, `--cost*` and `--elapsed-hours*` are globs standing for
-// a family, not options, so a `*` immediately after the name disqualifies it.
-function synopsisFlags(text) {
-  const stripped = text.replace(/\([^)]*\)/g, " ");
-  const out = [];
-  for (const m of stripped.matchAll(/--[a-z0-9]+(?:-[a-z0-9]+)*/g)) {
-    if (stripped[m.index + m[0].length] === "*") continue;
-    out.push(m[0]);
-  }
-  return out;
-}
-
-function checkDigestCliSynopsis() {
-  const real = cliSubcommands();
-  const bySub = pmStatusSubcommandOptions();
-  const union = pmStatusLongOptions();
-  const offenders = [];
-  let files = 0;
-  let entries = 0;
-  let flagsChecked = 0;
-
-  for (const rel of allSkillDocs()) {
-    if (!rel.replaceAll("\\", "/").endsWith(DIGEST_BASENAME)) continue;
-    const text = read(rel);
-    const at = text.indexOf(DIGEST_SYNOPSIS_HEADING);
-    if (at < 0) {
-      offenders.push(`${rel}: has no '${DIGEST_SYNOPSIS_HEADING}' section — the CLI synopsis ` +
-        `every dispatched subagent reads is the thing this arm guards; if it moved, move ` +
-        `this heading with it`);
-      continue;
-    }
-    files += 1;
-    const after = text.slice(at);
-    const fence = after.match(/```[a-z]*\n([\s\S]*?)\n```/);
-    if (!fence) {
-      offenders.push(`${rel}: '${DIGEST_SYNOPSIS_HEADING}' is not followed by a fenced block`);
-      continue;
-    }
-    const blockStartLine = text.slice(0, at + after.indexOf(fence[0])).split("\n").length;
-
-    // Entries: a line starting at column 0 opens one; indented lines continue it.
-    const blockLines = fence[1].split("\n");
-    const blockEntries = [];
-    for (let i = 0; i < blockLines.length; i++) {
-      const line = blockLines[i];
-      if (line.trim() === "") continue;
-      if (/^\s/.test(line)) {
-        if (blockEntries.length) blockEntries[blockEntries.length - 1].text += " " + line;
-        continue;
-      }
-      blockEntries.push({ text: line, line: blockStartLine + i + 1 });
-    }
-
-    for (const entry of blockEntries) {
-      const sub = entry.text.trim().split(/\s+/)[0];
-      if (!/^[a-z][a-z-]*$/.test(sub)) continue;
-      entries += 1;
-      if (!real.has(sub)) {
-        offenders.push(`${rel}:${entry.line}: the subagent CLI synopsis documents ` +
-          `subcommand '${sub}', which pm-status.py does not have\n      CLI has: ` +
-          `${[...real].sort().join(", ")}`);
-        continue;
-      }
-      const allowed = bySub.get(sub) || union;
-      for (const flag of synopsisFlags(entry.text)) {
-        flagsChecked += 1;
-        if (allowed.has(flag)) continue;
-        offenders.push(`${rel}:${entry.line}: the subagent CLI synopsis gives '${sub}' the ` +
-          `flag '${flag}', which pm-status.py does not register on that subcommand\n` +
-          `      ${sub} takes: ${[...allowed].sort().join(" ")}`);
-      }
-    }
-  }
-
-  if (files === 0) {
-    offenders.push(`no ${DIGEST_BASENAME} found under skills/ — the arm that guards the ` +
-      `subagent CLI synopsis has nothing to check, which is a scope failure, not a pass`);
-  }
-  if (offenders.length) {
-    failures.push(`the activation digest's CLI synopsis does not match pm-status.py:\n      ` +
-      `${offenders.join("\n      ")}`);
-  }
-  if (verbose) {
-    console.log(`  digest-synopsis: ${entries} synopsis entr(ies) and ${flagsChecked} flag(s) ` +
-      `across ${files} digest cop(ies) checked`);
-  }
-}
-
 // The logical lines of a markdown file, each paired with the 1-based number of the physical
 // line it started on. Two things continue a line:
 //   - a trailing `\`, which is a shell continuation (check 11 joins these too);
@@ -1621,12 +1453,14 @@ function* pmStatusCommands(rel) {
 // `<sub> --status <value>` is written, each entry here names a flag that must ALSO appear
 // on the same command with a nonempty value. The rule is portable across siblings: it
 // codifies "runtime exit-2 rules that reviewers cannot see at land time," so a step file
-// author who writes `set-status --status blocked` without --reason fails CI rather than
-// runtime. Sourced from the story-lifecycle blocked design doc §10 addendum.
+// author who writes `import-node --status blocked` without --reason fails CI rather than
+// runtime (cmd_import_node exits 2 on a blocked story with no reason). Sourced from the
+// story-lifecycle blocked design doc §10 addendum, whose verb was set-status until that
+// verb retired in 4.x.
 //
 // Extend by adding to the map; the enforcement code below is data-driven.
 const REQUIRED_FLAGS_PER_STATUS = {
-  "set-status": {
+  "import-node": {
     "blocked": ["--reason"],
   },
 };
@@ -2266,60 +2100,6 @@ function checkMetricList() {
 }
 
 // ---------------------------------------------------------------------------
-// 8. The activation digest stays inside its byte budget.
-//
-// Why a byte count is worth gating: step-00-activate.md §8 exists BECAUSE the two deep
-// references were too expensive to load per subagent (59,398 B -> 4,960 B at commit 7b9c0ca).
-// Every subagent re-pays this section, and the orchestrator re-pays it on every prompt-cache
-// re-creation, so growth here is multiplied by invocation count. It has already crept back to
-// 8,580 B once, absorbing the five-metric model one reasonable-looking paragraph at a time.
-//
-// This is a RATCHET, not a target. Raising DIGEST_BUDGET is a deliberate act with a reason in
-// the commit message; lowering it as content moves out is free and encouraged. The check says
-// nothing about whether the content is good — only that adding to it is a decision someone
-// made on purpose.
-const DIGEST_FILE = "skills/_shared/steps/shared/step-00-digest.md";
-// Raised 9,600 -> 10,400 on 2026-08-19 for the never-poll clause. Deliberate, per this
-// check's own rule: the addition is measured at roughly $250 per run (one story spent ~130
-// of its 263 turns on one-line status polls), which is worth far more than the ~650 B it
-// costs every agent. The supporting evidence was pushed out to
-// steps/execute/step-05-epic-loop.md §5 first, so what remains resident is the operative
-// rule and a citation -- raising the number was the last resort, not the first.
-//
-// Raised 10,400 -> 12,400 on 2026-08-25 for the clauses and the read-cost section
-// the production report (docs/superpowers/specs/2026-08-25-l3io-production-findings.md,
-// findings 8 and 9) showed were missing: ending a turn on a question, arming a wait
-// after the final line, and what a read actually costs. Each was observed live; two
-// of them stranded a run.
-//
-// Sized ONCE for both this task's contract clauses (~750 B) and Task 6's "What a read
-// costs" section (~900 B) against a 10,396 B baseline, rather than raised twice. A
-// budget that yields once per commit is not a budget. Deliberate, per the
-// raise-and-say-why instruction in the failure message below.
-const DIGEST_BUDGET = 12800; // raised 200 B (2026-09-25): set-status gains --reason (required with --status blocked) and --resolution (required on blocked -> done). Both are load-bearing for dispatched subagents whose set-status calls exit 2 at runtime otherwise, per 2026-09-25 story-lifecycle-blocked design
-
-function checkDigestSize() {
-  if (!exists(DIGEST_FILE)) {
-    failures.push(`${DIGEST_FILE}: not found — has the activation step moved?`);
-    return;
-  }
-  const bytes = Buffer.byteLength(read(DIGEST_FILE), "utf8");
-  if (bytes > DIGEST_BUDGET) {
-    failures.push(
-      `${DIGEST_FILE}: activation digest is ${bytes} B, over its ${DIGEST_BUDGET} B budget ` +
-        `by ${bytes - DIGEST_BUDGET} B\n` +
-        `      Every subagent re-pays this section and the orchestrator re-pays it on every\n` +
-        `      prompt-cache re-creation. Either move the addition to a reference and cite it\n` +
-        `      from the routing table, or raise DIGEST_BUDGET in scripts/check-docs.mjs and\n` +
-        `      say why in the commit message.`,
-    );
-  }
-  if (verbose) {
-    console.log(`  digest-size:    ${bytes} B / ${DIGEST_BUDGET} B budget`);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // 9. No runtime directive points at an authoring path.
 //
 // skills/_shared/ is where shared files are authored; it does not exist in an
@@ -2543,15 +2323,12 @@ function checkPmStatusSize() {
 // ---------------------------------------------------------------------------
 // 13. spec-align.py's contract with the docs it mirrors.
 //
-// Its spec kinds are copied from doctor's layout-cleanup heuristic 5 (the spec says one source
-// of truth), and its DIMENSIONS (six) and BUSINESS_DIMENSIONS must be the headings the
-// enrichment prompt (step-03-story-elaboration) tells the agent to write under
-// '## Technical acceptance criteria' / '## Business acceptance criteria' -- check-pointers rejects
-// any other name, so a drift here blocks every story.
+// Its DIMENSIONS (six) and BUSINESS_DIMENSIONS must be the headings the canonical reference
+// (skills/_shared/ac-dimensions.md, Sofia's persistent fact on v7) tells REFINE to write under
+// '## Technical acceptance criteria' / '## Business acceptance criteria' -- check-pointers
+// rejects any other name, so a drift here blocks every ticket.
 // ---------------------------------------------------------------------------
-const LAYOUT_CLEANUP = `${skillRel("l3io-doctor")}/steps/clean-layout.md`;
-const ELABORATION = "skills/_shared/steps/plan/step-03-story-elaboration.md";
-const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
+const AC_DIMENSIONS = "skills/_shared/ac-dimensions.md";
 
 function pyTuple(src, name) {
   const m = src.match(new RegExp(`^${name} = \\(([\\s\\S]*?)^\\)`, "m"));
@@ -2561,26 +2338,11 @@ function pyTuple(src, name) {
 function checkSpecAlignContract() {
   if (!exists(SPEC_ALIGN)) return;
   const src = read(SPEC_ALIGN);
-  const kindsBlock = pyTuple(src, "KINDS");
   const dimsBlock = pyTuple(src, "DIMENSIONS");
   const bdimsBlock = pyTuple(src, "BUSINESS_DIMENSIONS");
-  if (!kindsBlock || !dimsBlock || !bdimsBlock) {
-    failures.push(`${SPEC_ALIGN}: KINDS, DIMENSIONS or BUSINESS_DIMENSIONS is no longer a literal tuple`);
+  if (!dimsBlock || !bdimsBlock) {
+    failures.push(`${SPEC_ALIGN}: DIMENSIONS or BUSINESS_DIMENSIONS is no longer a literal tuple`);
     return;
-  }
-  const kinds = {};
-  for (const m of kindsBlock.matchAll(/\(\s*"([a-z]+)",\s*\(([^)]*)\)\s*\)/g)) {
-    kinds[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
-  }
-  const doctor = read(LAYOUT_CLEANUP).split("\n");
-  for (const [kind, label] of Object.entries(KIND_LABELS)) {
-    const line = doctor.find((l) => l.includes(`**${label}**:`));
-    const theirs = line ? [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1]).sort() : [];
-    const ours = kinds[kind] || [];
-    if (JSON.stringify(theirs) !== JSON.stringify(ours)) {
-      failures.push(`${kind} patterns differ: ${SPEC_ALIGN} has [${ours.join(", ")}], ` +
-        `${LAYOUT_CLEANUP} heuristic 5 has [${theirs.join(", ")}]`);
-    }
   }
   const dims = [...dimsBlock.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   const bdims = [...bdimsBlock.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
@@ -2599,22 +2361,22 @@ function checkSpecAlignContract() {
   }
 
   for (const [file, heading, names, label] of [
-    [ELABORATION, "Technical acceptance criteria", dims, "DIMENSIONS"],
-    [ELABORATION, "Business acceptance criteria", bdims, "BUSINESS_DIMENSIONS"],
+    [AC_DIMENSIONS, "Technical acceptance criteria", dims, "DIMENSIONS"],
+    [AC_DIMENSIONS, "Business acceptance criteria", bdims, "BUSINESS_DIMENSIONS"],
   ]) {
     const prompt = promptLayout(file, heading, names.length);
     if (prompt === null) {
-      failures.push(`${file}: no '## ${heading}' layout block in the enrichment prompt — ` +
+      failures.push(`${file}: no '## ${heading}' layout block — ` +
         `${SPEC_ALIGN} check-pointers requires it`);
       continue;
     }
     if (JSON.stringify(prompt) !== JSON.stringify(names)) {
-      failures.push(`dimensions differ: ${SPEC_ALIGN} ${label} is [${names.join(", ")}], the ` +
-        `enrichment prompt in ${file} lays out [${prompt.join(", ")}]`);
+      failures.push(`dimensions differ: ${SPEC_ALIGN} ${label} is [${names.join(", ")}], ` +
+        `${file} lays out [${prompt.join(", ")}]`);
     }
   }
-  if (verbose) console.log(`  spec-align-contract: ${Object.keys(KIND_LABELS).length} kinds, ` +
-    `${dims.length} technical + ${bdims.length} business dimensions, 1 prompt`);
+  if (verbose) console.log(`  spec-align-contract: ` +
+    `${dims.length} technical + ${bdims.length} business dimensions`);
 }
 
 // ---------------------------------------------------------------------------
@@ -5285,13 +5047,11 @@ function checkResolverInvariant() {
 
 if (isMain) {
 checkSkillNames();
-checkGatingTables();
 checkSectionRefs();
 checkCliSurface();
 checkConfigValues();
 checkStatusValues();
 checkMetricList();
-checkDigestSize();
 checkAuthoringPathDirectives();
 checkCliDocstring();
 checkAppendIssuePointer();

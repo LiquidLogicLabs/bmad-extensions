@@ -1,15 +1,20 @@
 # l3io-pm Reference
 
-Full reference for the PM orchestration module — two skills that cover the delivery lifecycle from planning through epic closure.
+Full reference for the PM module on BMad v7 — two skills that cover the delivery lifecycle
+from estimation through epic closure, attached to v7's own planning, build and retrospective
+skills. Sofia (`bmad-agent-po`) owns the work-item tree (ADR-0015); there
+is no sprint level (ADR-0016).
 
 ## Skills Overview
 
 | Skill | Role |
 |-------|------|
-| `l3io-plan` | Validates readiness, elaborates thin stories, estimates, builds the dependency graph, and writes a phased execution plan |
-| `l3io-execute` | Runs the plan — full, single epic, or single sprint. Includes the pre-execution architecture gate, the per-story dev loop, and sprint/epic closure |
+| `l3io-plan` | Estimates a v7 initiative's or epic's tickets into l3io's sidecars (`estimate`), orders an initiative's epics into waves (`waves`), and partitions them across developers (`lanes`) |
+| `l3io-execute` | The unattended run over a v7 initiative or epic: one `bmad-build-auto` run per ticket, in wave order, one `bmad-retrospective` per epic, pausing at every epic gate for the user |
 
-`l3io-execute` is **one skill in two modes**, not two skills. In normal mode it orchestrates epics; for each sprint it dispatches a *headless* subagent invocation of itself. There is no separate sprint-execute or epic-execute skill.
+Shaping the plan is Sofia's: REFINE elaborates tickets, REPLAN reshapes the plan, BOARD moves
+work. `l3io-execute` has one internal mode besides the run: `epic-session`, which the
+orchestrator starts in an epic's own worktree.
 
 ## Configuration
 
@@ -45,15 +50,16 @@ setup.
 | Variable | Key | Default | Description |
 |----------|-----|---------|-------------|
 | `output_folder` | `core.output_folder` | `{project-root}/_bmad-output` | Root directory for all generated output |
-| `implementation_artifacts` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` | Root for state, stories, closure outputs, and tests |
-| `planning_artifacts` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` | Root for planning documents and plan snapshots |
+| `implementation_artifacts` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` | Root of a 3.x artifact and state tree; read by `/l3io-doctor migrate-state` |
+| `planning_artifacts` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` | Root for planning documents |
 
 BMad v7's core config carries only `project_name` and `output_folder`, so the skills read no
 user name or language setting: they address the user as "you" and respond in the language
 the conversation is held in.
 
 All four modules read the artifact paths from the **`l3io-pm`** section — they share one
-artifact tree, so it has one home.
+artifact tree, so it has one home. On v7, l3io's own project-wide files live in
+`{output_folder}/l3io/` of the main checkout.
 
 ### Workflow customization
 
@@ -72,7 +78,6 @@ Scalars override; arrays append. The root key is `[workflow]` for both PM skills
 | `activation_steps_prepend` | `[]` | Extra steps to run before the skill's own activation |
 | `activation_steps_append` | `[]` | Extra steps to run after activation |
 | `persistent_facts` | `["file:{project-root}/project-context.md", "file:{project-root}/docs/project-context.md"]` | Files always loaded into skill context |
-| `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (`l3io-plan`). Self-monitored, not mechanically enforced |
 
 **`l3io-execute`:**
 
@@ -80,50 +85,23 @@ Scalars override; arrays append. The root key is `[workflow]` for both PM skills
 |-----|---------|-------------|
 | `max_parallel_subagents` | `4` | Maximum epics of one wave run at once, each in its own worktree and agent session. Capped at 1 by `dispatch-plan.py` when the project does not commit `_bmad/` (ADR-0022) |
 
-**`l3io-plan`:**
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `auto_elaborate` | `false` | `true` elaborates thin stories without confirmation; `false` prompts first |
-| `include_estimates` | `true` | `false` skips the estimate step entirely |
-| `plan_output` | `"markdown"` | `"markdown"` writes `plan-{date}-v{n}.yaml`; `"console"` prints a summary only |
-
 ## Plan Reference
 
-`l3io-plan` is read-only with respect to code — it validates, elaborates, estimates, and plans. It does not execute work.
+`l3io-plan` writes no code and no v7 file. Its only writes are l3io's sidecars: estimates in an
+epic's `l3io.toml`, lanes in an initiative's `l3io.toml`.
 
 ### Modes
 
-| Invocation | Steps run |
+| Invocation | What it does |
 |---|---|
-| `/l3io-plan` | Full plan: readiness check → story elaboration → load state → dependency graph → estimate → plan output |
-| `/l3io-plan estimate` | Estimate only, all scope |
-| `/l3io-plan estimate E{nnn}` | Estimate only, one epic |
-| `/l3io-plan estimate E{nnn}-S{nn}` | Estimate only, one sprint |
-| `/l3io-plan reorg` | Propose a better **shape** for a plan that is already legal: measure → target placement → validate → derive operations → apply. Writes planned work only, archives rather than deletes, and journals every reorg so "undo that reorg" works |
-| `/l3io-plan lanes` | Who owns what when several developers share one plan. Proposes a partition, shows a lane's view, carries the two-clone protocol. **Inert** unless `lane_count` > 1 |
+| `/l3io-plan estimate [<folder>]` | Estimates every entry of each epic under a v7 initiative or epic folder (default: the active initiative) with `estimate-entries`, and rolls each epic up. The class of each new entry is the agent's judgement, confirmed by the user; an estimate is never typed. Sofia's `tickets_after`, `refine_after` and `replan_after` hooks run the same command |
+| `/l3io-plan waves [<folder>]` | An initiative's epics (or a parent initiative's initiatives) in the order they may run, with each dependency's reason, and the `gates`: epics whose closure a later wave waits on. Read-only |
+| `/l3io-plan lanes` | Which lane owns each epic when several developers share an initiative: proposes a partition, writes it with `set-lane` on confirmation, shows a lane's view. **Inert** unless `lane_count` > 1 |
 
-Story elaboration is a no-op when readiness is already green. It is **not** gated by
-`work_type`: since ADR-0009 the only suppressing type is `DOCS`, and even there `work_type`
-selects the enricher's vocabulary rather than whether the step runs. (This line claimed
-`DOCS` **or** `CONFIG` until 3.4.1 — the same stale claim ADR-0009 corrected elsewhere.)
+Sofia's menu carries the same three as `l3io-estimate`, `l3io-waves` and `l3io-lanes`, and her
+board shows waves and lanes after every board operation, once `/l3io-doctor wire` has run.
 
-### Output
-
-Full plan mode writes an **immutable, versioned snapshot** plus a stable pointer:
-
-| File | Purpose |
-|---|---|
-| `{planning_artifacts}/plan-{date}-v{n}.yaml` | The plan snapshot — the only source for the phases list. Immutable once written; version auto-increments per day, resets on a new date, and a re-check before writing refuses to overwrite an existing file. Its per-phase `estimate` blocks are a point-in-time report stamped `estimates_as_of`; estimates are authoritative in the state node files, not here |
-| `{planning_artifacts}/plan-output-meta.yaml` | Stable pointer — `current_plan`, `generated`, `readiness`, `phase_count`. Written only after the snapshot it names is confirmed. Deliberately carries no per-phase data: `l3io-execute` resolves the plan through this file but reads phases from the snapshot |
-| `{planning_artifacts}/readiness-report.md` | Per-epic readiness with gap detail |
-| `{planning_artifacts}/elaboration-summary.md` | Which stories were elaborated, and any deviations |
-
-Each phase in the snapshot carries a roll-up estimate. For **parallel** phases wall-clock (`elapsed_hours`) is `max(epic.elapsed_hours)`; for **sequential** phases it is the sum. Man-hours, hitl-hours, tokens, and cost always sum.
-
-`arch_gate_summary.ran` is always `false` at plan time — the architecture gate runs in `l3io-execute`, not here.
-
-### Lanes — several developers, one plan
+### Lanes — several developers, one initiative
 
 Each developer works their **own clone**. That is the whole problem: every `flock` in
 `pm-status.py` guards one filesystem, and two clones share none, so between developers
@@ -132,70 +110,43 @@ concurrency is mediated by `git merge` rather than by locks.
 | Fact | Where | Committed |
 |---|---|---|
 | How many lanes this project runs | `modules.l3io-pm.lane_count`, asked at setup | yes — team |
-| Which lane owns an epic | `lane:` on `epic.yaml` (1–999) | yes — state |
+| Which lane owns an epic | `[epic.<slug>] lane` in the initiative's `l3io.toml` (1..`lane_count`) | yes |
 | **Which lane you are** | `modules.l3io-pm.lane`, **user layer** | **no — gitignored** |
 
-**`1 epic = 1 lane`.** Sprints and stories inherit their lane from the directory they live in,
-so disjoint ownership means disjoint paths and git has nothing to reconcile in the state tree.
-Moving work between lanes means moving a story between epics — a reorg, which re-keys it.
+**`1 epic = 1 lane`.** A ticket never carries a lane. Moving work between lanes means moving a
+ticket between epics, which is Sofia's BOARD.
 
 **A lane is a number because a word cannot be screened.** `backend` and `sarah` are the same
-shape, so any pattern permitting the first permits the second. Numbering makes "a lane is a
-slot, never a person" mechanical; `set-field` refuses anything else, and refuses `lane` on a
-sprint or story.
+shape, so any pattern permitting the first permits the second. `set-lane` refuses anything but
+a number in `1..lane_count`, and refuses outright while lanes are off.
 
 **`lane_count` absent or `1` means lanes are off** — no prompt, no proposal, no finding. An
 absent module config section is a valid permanent state, so a single-developer project cannot
 tell the feature exists.
 
-Four state files are shared and merge differently: `events.jsonl` wants `merge=union` — literally
-its semantics, since it is append-only — but **the extension cannot ship a `.gitattributes`
-into your repository**, so `/l3io-plan lanes` offers to add the line instead; `pm-calibration.yaml`
-loses at worst a sample, degrading an estimate without corrupting state; `issues.yaml`
-allocates **per-epic**, so disjoint owners never collide semantically; and `adr-register.yaml`
-is a global allocator whose answer is `adr-reserve --count` **before** the fork rather than a
-merge strategy after it.
+The shared state files merge differently: `events.jsonl` wants `merge=union` — literally its
+semantics, since it is append-only — but **the extension cannot ship a `.gitattributes` into
+your repository**, so `/l3io-plan lanes` offers to add the line instead; `pm-calibration.yaml`
+loses at worst a sample; and `adr-register.yaml` is a global allocator whose answer is
+`adr-reserve --count` **before** the fork rather than a merge strategy after it.
 
-**What lanes do not solve:** source-file collisions. The dependency graph proves two epics have
-no `depends_on` between them and says nothing about whether both rewrite the same module.
-Lanes partition work, not code.
+**What lanes do not solve:** source-file collisions. The dependency graph proves two epics do
+not wait on each other and says nothing about whether both rewrite the same module. Lanes
+partition work, not code.
 
-### The scripts `l3io-plan` ships
+### The script `l3io-plan` ships
 
-Single-consumer, so they live in the skill rather than `skills/_shared/` (ADR-0001). Each reads
-`pm-status.py dump-plan` output on **stdin** and assembles no state paths of its own, which is
-what lets them live outside `pm-status.py` at all (check 26).
+`plan-graph.py` is single-consumer, so it lives in the skill rather than `skills/_shared/`
+(ADR-0001). `l3io-plan` declares it, so v7 installs it at
+`_bmad/l3io-pm/scripts/plan-graph.py`, where Sofia's board hook runs it. It reads v7's
+`tickets.py status` JSON on stdin (`--status-json -`) and writes nothing.
 
-| Script | Modes | Purpose |
-|---|---|---|
-| `plan-graph.py` | `analyze` | Measured findings over the plan graph — cycles, dangling and unbacked cross-epic dependencies, coupling, cross-lane edges, chain depth, sprint load |
-| | `phases` | The execution order: epics grouped into phases, `parallel` true when a phase holds more than one. This is what the snapshot carries and `l3io-execute` reads |
-| | `partition` | `--lanes N` — propose which lane owns which epic, reporting **both** cross-lane edges and per-lane idle phases |
-| `reorg-validate.py` | `--stage structure\|balance` | Judge a reorg target whole. `balance` additionally refuses any row that changes a story's epic, so a balancing pass cannot undo a structural one |
-| `reorg-derive.py` | — | Diff current against target to compute the ordered operation list. Nobody writes operations; they are derived |
+| Mode | Purpose |
+|---|---|
+| `waves` | Topological waves over `[[epic]] after`, each entry's cross-epic `after` and each epic file's own `after`, keeping every `needs` reason; `gates` lists the epics a later wave waits on for **closure** |
+| `lanes` | With `--lanes-toml` and `--lanes N`: the current partition per lane, or a proposed one with its cross-lane edges and per-lane idle waves |
 
-`plan-graph.py` takes **networkx**; `pm-status.py` deliberately takes no graph library, because
-its import costs ~616 ms against 92 call sites while `plan-graph.py` runs once per plan.
-
-### Declaring dependencies
-
-Both fields are optional and default to `[]`.
-
-**Epic-level** — in `state/{status}/epic-{nnn}/epic.yaml`; prerequisite epics that must be `done` before this epic starts:
-
-```yaml
-key: 'E003'
-depends_on: ['E001', 'E002']
-```
-
-**Story-level** — in that story's own node file; globally-unique story keys, cross-epic supported:
-
-```yaml
-key: 'E003-S01-001'
-depends_on: ['E001-S02-003']
-```
-
-`l3io-plan` validates that all referenced keys exist and detects cycles before writing the plan.
+It takes **networkx**; `pm-status.py` deliberately takes no graph library.
 
 ## Execute Reference
 
@@ -277,272 +228,131 @@ phases. Phase 5 of the v7 readiness plan re-homes the gate on `bmad-architecture
 ## Relationship to bmad-loop
 
 `bmad-loop` is a separate third-party BMad module — an unattended per-story orchestrator that
-drives `bmad-build-auto` (BMad's autonomous dev primitive, formerly `bmad-dev-auto`). It ships
-three skills of its own: `bmad-loop-setup`, `bmad-loop-sweep`, `bmad-loop-resolve`. When a
-project has bmad-loop installed alongside this package, `l3io-doctor check-deps` reports
-each of them under `related_present`.
+drives `bmad-build-auto`. It ships three skills of its own: `bmad-loop-setup`,
+`bmad-loop-sweep`, `bmad-loop-resolve`. When a project has bmad-loop installed alongside this
+package, `l3io-doctor check-deps` reports each of them under `related_present`.
 
-**The two overlap. Neither replaces the other.** Both drive an unattended dev loop over a queue
-of stories, and both write status back to disk. The tables below name what each covers so a
-user does not have to reason about it from the outside.
+**Both drive `bmad-build-auto` unattended. Neither replaces the other.**
 
 | Concern | `l3io-execute` | `bmad-loop` |
 |---|---|---|
-| Scope of one run | Whole epic (all sprints, all stories), or a plan phase spanning multiple epics | One story per invocation |
-| Story queue | Sharded state tree under `{implementation_artifacts}/state/` — this package's own layout | `sprint-status.yaml` (base BMad's legacy flat layout) OR a typed `stories.yaml` (bmad-loop's own shape) |
-| Parallelism | Up to `max_parallel_subagents` (default 4) epics per phase; sprints within an epic are always sequential so calibration feeds forward | Strictly sequential — `max_parallel` is clamped to 1 in current versions |
-| Review | A separate `bmad-code-review` step per story, plus a fix loop capped at `max_fix_iterations` (default 3), plus sprint- and epic-level closure reviews that block on any Critical/High/Medium finding | Review integrated inside `bmad-build-auto`'s single unattended pass; halt/blocked terminal states surface externally |
-| Deferred work | `state/issues.yaml` and `state/issues-resolved.yaml`, keyed `BL-E{nnn}-{nnn}`, with lifecycle managed by `pm-status.py` | `deferred-work.md` ledger, triaged by `bmad-loop sweep` |
-| Estimation | Bottom-up roll-up per story, sprint, epic across five metrics with calibrated ratios per component (scope / closure / fix / orchestration) | None — bmad-loop does not model estimates |
-| Cross-story orchestration | Dependency-aware phased planning across epics (`l3io-plan`) — bmad-loop's readme explicitly excludes this scope | None — bmad-loop's readme states it does not choose the next story, repeat across a backlog, coordinate epics, or run a retrospective |
-| Status vocabulary | `backlog / ready-for-dev / in-progress / review / done` (no `blocked`) | `draft / ready-for-dev / in-progress / in-review / done / blocked` |
+| Scope of one run | A v7 initiative or epic, in wave order | One story per invocation |
+| Work queue | v7's ticket tree, through Sofia's `tickets.py` | `sprint-status.yaml` or bmad-loop's own `stories.yaml` |
+| Parallelism | Up to `max_parallel_subagents` (default 4) epics per wave, one worktree each, when the project commits `_bmad/` | Strictly sequential |
+| Review | `bmad-build-auto`'s own, invoked `thorough`; the epic's acceptance is `bmad-retrospective`'s verdict | `bmad-build-auto`'s own |
+| Estimation | Per ticket and epic across five metrics, with calibrated ratios | None |
+| Measurement | Every build bracketed by l3io's hooks; actuals in sidecars | None |
 
-**Interoperation today.** The two state trees are independent. A project can run `l3io-execute`
-without bmad-loop (that is the default). A project can run bmad-loop without this package (bmad-loop
-consumes base BMad's `bmad-build-auto` directly and needs nothing from us). A project with both
-installed can use either flow at any time; neither reads the other's tracking file.
-
-**When to reach for which.**
-
-- **`l3io-execute`** — an epic with multiple sprints, or a plan phase spanning multiple epics,
-  where you want dependency-aware execution, calibrated estimates that learn, closure-level
-  quality gates across the whole scope, and a fix loop that iterates a story with explicit
-  review discipline. Reach here for the "run the plan" case.
-- **`bmad-loop`** — a single story you want to hand off unattended, with `bmad-build-auto`'s
-  integrated review, in a project that either doesn't need epic-level orchestration yet or is
-  outside this package's flow. Reach here for the "just build this one thing" case.
-
-**Not yet built (deferred as follow-ups).**
-
-- A plan exporter in `l3io-plan` that writes a bmad-loop-compatible `stories.yaml` alongside
-  the normal plan output.
-- An opt-in mode for `l3io-execute` that dispatches to `bmad-build-auto` instead of the
-  current `bmad-dev-story`+separate-review chain, when the user prefers `bmad-build-auto`'s
-  integrated pass. Non-trivial — status vocabularies, commit discipline, and calibration
-  timing would all need adaptation. Neither is on the roadmap; both are named here so a future
-  contributor knows the space has been considered.
+**When to reach for which.** `l3io-execute` for an initiative or epic of Sofia's tickets, where
+you want dependency-ordered waves, measured actuals and estimates that learn. `bmad-loop` for a
+single story outside v7's ticket tree.
 
 ## Paths Reference
 
-Epic directories are 3-digit zero-padded, sprints 2-digit. Zero-padding makes lexical order the correct processing order.
+v7 owns the tree; l3io's files sit beside it. Never construct one of these paths by hand — every
+write goes through `pm-status.py`, and the canonical contract is the sidecar section of
+`status-files.md`.
 
 | Path | Description |
 |------|-------------|
-| `{implementation_artifacts}/state/{planned,active,archived}/epic-{nnn}/epic.yaml` | Epic node — one bare node per file, no `sprints:` list |
-| `{implementation_artifacts}/state/.../epic-{nnn}/sprint-{nn}/sprint.yaml` | Sprint node — no `stories:` list |
-| `{implementation_artifacts}/state/.../sprint-{nn}/E{nnn}-S{nn}-{nnn}.yaml` | Story node |
-| `{implementation_artifacts}/state/issues.yaml` | Flat deferred-issue list |
-| `{implementation_artifacts}/state/events.jsonl` | Append-only transition log — committed; the source of per-status dwell time |
-| `{implementation_artifacts}/state/pm-calibration.yaml` | Learned calibration ratios — committed |
-| `{implementation_artifacts}/progress-report.md` | Generated progress report — a **view**, regenerated at closure boundaries; never hand-edit |
-| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story-key}[-{slug}].md` | Story markdown. `{story-key}` prefix is canonical; optional trailing `-{slug}` (e.g. `E032-S01-001-centralized-file-config.md`) is a UX convenience and does not affect the state key |
-| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/closure/` | Sprint closure outputs |
-| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/tests/` | Sprint-scoped QA evidence |
-| `{implementation_artifacts}/epic-{nnn}/arch/` | Arch-gate review output (`arch-gate-review.md`); ADRs live in `{project-root}/docs/adr/` (ADR-0005) |
-| `{implementation_artifacts}/epic-{nnn}/epic-closure/` | Epic closure outputs |
-| `{implementation_artifacts}/epic-{nnn}/tests/` | Epic-scoped fix verification |
-| `{planning_artifacts}/plan-{date}-v{n}.yaml` | Plan snapshot |
-| `{planning_artifacts}/plan-output-meta.yaml` | Stable plan pointer |
+| `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` |
+| `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class`, `fingerprint`, `estimated_at`, `estimate`; `[epic]` with `estimate`, `actual`, `closure`, `closure_runs`, `retro_verdict`, `orchestration` |
+| `<…>/tickets/<stem>-plan.l3io.toml` | Beside v7's `<stem>-plan.md`: a ticket's `actual`, `fix_iterations`, `completion_evidence`, `dispatch` brackets |
+| `{output_folder}/l3io/events.jsonl` | Append-only event log, in the main checkout — committed |
+| `{output_folder}/l3io/pm-calibration.yaml` | Learned calibration ratios — committed |
+| `{output_folder}/l3io/adr-register.yaml` | ADR number allocator — committed |
+| `{output_folder}/l3io/.notices.yaml` | One-time notices — gitignored |
+| `{output_folder}/l3io/.inflight/` | Open build brackets — ignores itself |
 
-**Never construct a state path by hand.** All node operations address state by key through `pm-status.py`; `references/status-files.md` is the canonical contract.
+`{output_folder}` here is always the **main checkout's**, resolved through `git rev-parse
+--git-common-dir`, so every worktree shares one state root.
 
-## State Schema
+## Sidecar Schema
 
-One bare node per file — no `epics:` wrapper. The directory structure replaces the `sprints:` and `stories:` lists; children are discovered by listing the directory. Child files carry redundant `epic:`/`sprint:` back-references deliberately, so each file is self-describing and `verify --scope epic` can catch a file sitting in the wrong directory.
+```toml
+# <initiative>/tickets/epic-cart/tickets/l3io.toml
+[entry.3]
+class = "standard"
+fingerprint = "…"
+estimated_at = "2026-11-17T10:00:00Z"
 
-Keys: epic `E{nnn}`, sprint `S{nn}`, story `E{nnn}-S{nn}-{nnn}`, backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global). Node fields use `key:`, never `id:`. A backlog item's trailing `{nnn}` is allocated by `append-issue` itself, under a lock, from the highest existing number for its epic — never chosen by the caller; `--key` is optional, and an explicit `--key` naming an item that already exists is refused (exit 2) rather than silently reassigned. Allocating past `BL-E{nnn}-999` is refused (exit 2, nothing written) — a three-digit suffix cannot name a higher number, and keys are never reused.
+[entry.3.estimate]             # class band x calibrated scope ratio x fix factor
+# … the five metrics in canonical order; cost derived from tokens_k x the model's rates
 
-```yaml
-# state/active/epic-001/epic.yaml
-_lock:                        # machine metadata; always the first key when present
-  session_id: 'claude-session-abc123'
-  claimed_at: '2026-08-16T10:00:00Z'
-  ttl_minutes: 30
-key: 'E001'
-title: 'Epic 001 — Foundation'
-goal: 'Stand up the core platform'
-status: in-progress
-depends_on: []                # epic keys; read by l3io-plan
-estimate:                     # ranges at epic/sprint level
-  man_hours_low: 40
-  man_hours_high: 60
-  hitl_hours_low: 6
-  hitl_hours_high: 10
-  elapsed_hours_low: 8
-  elapsed_hours_high: 12
-  tokens_k_min: 2000
-  tokens_k_max: 3200
-  cost_low: 8.25               # derived from tokens_k_min/max x rates; never entered
-  cost_high: 13.20
-  model: claude-opus-5         # the rate card that priced the range
-  confidence: medium
-actual:                       # all five METRIC_FIELDS required
-  elapsed_hours: 11.5
-  man_hours: 52                # counterfactual re-assessment, not observed
-  hitl_hours: 7.2
-  tokens_k: {total: 2840, input: 420, output: 140, cache_write: 850, cache_read: 1430}
-  cost: 6.98                   # derived from tokens_k x the model's rate table; written by the tool
-  model: claude-sonnet-5
+[epic]
+retro_verdict = "accepted"
+
+[epic.estimate]                # Σ entries + epic closure band + orchestration band
+# … the five metrics
+
+[epic.actual]                  # every ticket sidecar + the closure
+# … the five metrics
 ```
 
-```yaml
-# state/active/epic-001/sprint-01/E001-S01-003.yaml
-key: 'E001-S01-003'
-epic: 'E001'                  # back-references; path must agree
-sprint: 'S01'
-title: 'Implement token ledger'
-status: review
-classification: complex
-estimate:                     # single values at story level
-  man_hours: 6
-  hitl_hours: 0.8
-  elapsed_hours: 1.5
-  tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
-  cost: 1.32                   # derived; never entered
-  model: claude-opus-5
-  confidence: high
-actual:
-  elapsed_hours: 1.8
-  man_hours: 7                 # counterfactual re-assessment, not observed
-  hitl_hours: 0.5
-  tokens_k: {total: 355, input: 53, output: 18, cache_write: 107, cache_read: 177}
-  cost: 1.47
-  model: claude-opus-5
-```
+A hand-set `estimate` or `l3io_<name>` key on a `tickets.toml` entry is read as an override and
+never written.
 
-### Lifecycles
+### Statuses
 
-```
-story:  backlog → ready-for-dev → in-progress → review → done
-epic:   backlog → in-progress → done
-```
-
-| Status | Set when |
-|--------|----------|
-| `backlog` | Initial state |
-| `ready-for-dev` | Story prep and the technical-AC gate complete |
-| `in-progress` | Development started |
-| `review` | Development complete, entering code review |
-| `done` | Review clean, completion evidence and actuals written |
+Status is v7's, written by Sofia and by `bmad-build-auto`; l3io writes none. `built` satisfies an
+entry's `after`; `done` is set on the user's word — by `l3io-execute` after an accepted
+retrospective verdict, through the store (`tickets.py mark <ref> done` on `repo`, the store's
+`write` then `mirror` on a tracker).
 
 ### Backlog
 
-Open items live in `issues.yaml`; resolved items move, whole, to `issues-resolved.yaml`
-with their `resolution`, `resolved_at`, `ref`, and `note`. Keys come from a per-epic `next:`
-high-water mark — `max(next[epic], highest suffix in either file + 1)` — so a resolved or
-deleted key is never handed out again. Every change goes through a `pm-status.py` verb under
-`issues_lock`; `append-issue` skips a content duplicate of an open item, or of a resolved
-`wontfix`, `duplicate`, or `obsolete` item whose severity is at least the new finding's; a
-finding above that item's severity is appended as re-raised, and one that matches a `fixed`
-item as a recurrence. The newest resolved match decides.
+Until the backlog moves to v7's `backlog/` folder, the issue verbs below still keep the 3.x
+ledger: open items in `state/issues.yaml`, resolved items moved whole to
+`state/issues-resolved.yaml` with their `resolution`, `resolved_at`, `ref` and `note`. Keys come
+from a per-epic `next:` high-water mark, so a resolved or deleted key is never handed out again.
+Every change goes through a `pm-status.py` verb under `issues_lock`. `/l3io-doctor triage`
+audits the backlog and resolves what is already fixed, on confirmation. Full design:
+`docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md`.
 
-```mermaid
-stateDiagram-v2
-    [*] --> backlog: append-issue
-    backlog --> scheduled: promote-issue
-    backlog --> resolved: resolve-issue
-    scheduled --> resolved: story done (fixed)
-    scheduled --> resolved: resolve-issue
-    scheduled --> backlog: repair-issue unschedule
-    resolved --> scheduled: repair-issue reopen
-```
-
-```yaml
-backlog:
-  - key: BL-E001-004
-    epic: '001'
-    sprint: '02'                # '' for an epic-level deferral
-    title: 'Issue title'
-    source: 'code-review (E001-S02-003)'
-    severity: Low
-    status: backlog             # backlog | scheduled (then also story:, scheduled_at:)
-    description: 'See {sprint_root}/closure/review-E001-S02-003.md'
-```
-
-`/l3io-plan` offers open items for promotion before readiness; `/l3io-doctor triage`
-audits the backlog (`audit-issues`, then `scripts/audit-backlog.py`) and resolves what is
-already fixed, on confirmation. Full design: `docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md`.
-
-### Severity vocabularies
-
-Four vocabularies are in play, and only one is enforced by code. The backlog's is:
-`append-issue` and `update-issue` take `--severity` as an argparse choice of
-**`Low` / `Medium` / `High` / `Critical`**, so anything else is rejected before a write. The
-three upstream vocabularies are asserted only in their own reviewing skills' references and in
-step-file prose — an out-of-vocabulary severity word from a reviewer would not be caught by any
-gate.
-
-| Source | Its severities | What reaches the backlog |
-|---|---|---|
-| `l3io-arch-review` | BLOCKER / MAJOR / MINOR | MINOR → `Low`. BLOCKER and MAJOR reach it **never** |
-| `l3io-sec-redteam` | CRITICAL / HIGH / MEDIUM / LOW / OBSERVATION | LOW → `Low`. OBSERVATION is noted in the closure report and has no backlog form at all |
-| `bmad-code-review`, legacy `bmad-review-adversarial-general` | CRITICAL / HIGH / MEDIUM / LOW | Pass-through — the same four words, so LOW → `Low` with no translation |
-| legacy `bmad-ux-review` | HIGH / MEDIUM / LOW *(as the step files use it)* | HIGH is fixed; MEDIUM and LOW defer |
-
-**Blocking severities have no backlog equivalent, by design.** An arch BLOCKER or MAJOR, and a
-redteam CRITICAL or HIGH, gate the run rather than deferring: they are resolved in code, or
-justified by an accepted ADR, or the run halts `BLOCKED`. There is deliberately no path that
-files one as a backlog item and proceeds — so if you are looking for the severity such a finding
-would carry, there isn't one.
-
-Two known rough edges, stated rather than smoothed over: epic closure specifies handling for a
-redteam MEDIUM ("fix in place, or record an accepted ADR") while **sprint** closure's redteam
-section names only CRITICAL/HIGH and LOW, leaving sprint-level MEDIUM unspecified; and the
-step files name no CRITICAL tier for legacy `bmad-ux-review`.
+The backlog's severities are an argparse choice of **`Low` / `Medium` / `High` / `Critical`**
+on `append-issue` and `update-issue`, so anything else is rejected before a write. Reviewer
+vocabularies (`l3io-arch-review`'s BLOCKER/MAJOR/MINOR, `l3io-sec-redteam`'s
+CRITICAL/HIGH/MEDIUM/LOW/OBSERVATION) live only in their skills' references.
 
 ### `pm-status.py` subcommands
 
 | Subcommand | Addressing |
 |---|---|
-| `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
-| `set-estimate`, `set-actual`, `add-test-run`, `verify` on v7's tree | `--project-root P` in place of `--state-root`, and a v7 address in place of the node keys: `set-estimate --ticket-dir DIR --entry ID` writes `[entry.<id>].estimate` in that epic's `tickets/l3io.toml`; `set-actual`, `add-test-run` and `verify --scope story` take `--plan-file PATH` and address the ticket sidecar `<plan-stem>.l3io.toml` beside the plan. Project-wide files go to the main checkout's `{output_folder}/l3io/`. Mixing the schemes is exit 2; an unknown entry or a missing plan is exit 3. A ticket's `set-actual` records no calibration sample. No v7 file is ever written; a hand-set `estimate` or `l3io_<name>` on a `tickets.toml` entry is read as an override (`status-files.md` §12) |
+| `set-actual`, `set-estimate`, `verify` on a 3.x tree | `--state-root` + node keys (`--story KEY`, or `--epic ID`). `set-actual` takes `--node story\|epic` and `--block {actual,orchestration}`. Kept for `/l3io-doctor migrate-state` until Phase 6 |
+| `set-estimate`, `set-actual`, `add-test-run`, `verify` on v7's tree | `--project-root P` and a v7 address: `set-estimate --ticket-dir DIR --entry ID` writes `[entry.<id>].estimate` in that epic's `tickets/l3io.toml`; `set-actual`, `add-test-run` and `verify --scope story` take `--plan-file PATH` and address the ticket sidecar `<plan-stem>.l3io.toml` beside the plan. Project-wide files go to the main checkout's `{output_folder}/l3io/`. Mixing the schemes is exit 2; an unknown entry or a missing plan is exit 3. A ticket's `set-actual` records no calibration sample. No v7 file is ever written; a hand-set `estimate` or `l3io_<name>` on a `tickets.toml` entry is read as an override (`status-files.md` §12) |
 | `sidecar-reconcile` | `--project-root P --initiative-dir D [--moved-json J]` — after `tickets.py move` (whose stdout is `J`: the JSON, a file holding it, or `-`), repoints `[entry.<old_id>]` to `[entry.<id>]` in the destination's `l3io.toml` and moves `<plan-stem>.l3io.toml` beside the moved plan. Without `--moved-json`, sweeps `D` for orphans: a plan sidecar whose plan is gone moves beside the one same-named plan elsewhere in `D`; an `[entry.<id>]` no `tickets.toml` holds is reported. One line per action. Commits the sidecars it changed (a moved one's old path as a deletion), and nothing else, as `chore(l3io): reconcile sidecars`. Exit 0, 2 on usage, 1 when the commit failed. Never writes a v7 file |
 | `estimate-entries` | `--project-root P --ticket-dir D [--entry ID …] [--class ID=CLASS …] [--force] [--check] [--model M] [--token-rates JSON]` — `--check` (Sofia's validate Set check) writes nothing, prints `entry <id> (<title>): no estimate` for each entry with neither our estimate nor a hand-set one, and exits 1 when there is any, 0 otherwise; it refuses `--entry`, `--class` and `--force` (exit 2). Otherwise: Sofia's slice, refine and replan hooks and `/l3io-plan estimate <folder>`. Writes `[entry.<id>]` in `D`'s `l3io.toml` (`class`, `fingerprint`, `estimated_at`, and the `estimate` that `estimate-story` computes: class band × calibrated scope ratio × fix factor, cost priced from the tokens) for every entry that is new, whose `description`/`verify`/`covers` changed, whose `--class` differs from the recorded one, that `--entry` names, or every entry under `--force`. Never an entry with a hand-set `estimate` or `l3io_<metric>` in `tickets.toml`; a hand-set `l3io_class` is used as the class. Then recomputes `[epic].estimate` as Σ entries + the epic closure band + the orchestration band, with no sprint term, and drops it when no entry is left. Reads `tickets.toml` directly, read-only. An entry to write with no class is exit 2 naming each, with nothing written. One JSON line per entry written, then one for the epic. Commits `l3io.toml` as `chore(l3io): estimates <epic>`. Exit 0; 2 on usage; 3 for an `--entry` `D` does not list; 1 when the commit failed |
 | `set-lane` | `--project-root P --initiative-dir D --epic SLUG --lane N` — assigns a BMad v7 epic to a lane: writes `[epic.<SLUG>].lane` in the initiative's `l3io.toml`, beside its `tickets.toml`, and nothing else, then commits it as `chore(l3io): lane <SLUG>`. `N` is a number in `1..lane_count` (`modules.l3io-pm.lane_count`, read through core's resolver), never a name; the verb refuses while lanes are off (`lane_count` unset or 1). Called by `/l3io-plan lanes` after the user confirms a partition. Exit 0; 2 on usage; 3 for an epic the initiative does not list; 1 when the commit failed |
 | `build-open` | `--project-root P --agent {bmad-build,bmad-build-auto} [--plan-file F] [--session-id ID]` — the `activation_steps_prepend` hook `/l3io-doctor wire` gives `bmad-build` and `bmad-build-auto`. Opens the build's measurement bracket as one file in `{output_folder}/l3io/.inflight/`, a spool that ignores itself, so no tracked or untracked file appears and `bmad-build-auto`'s clean-tree check still passes. It appends no event. The bracket key is `--session-id`, else the Claude session id, else the agent plus the worktree. An earlier open under the same key, or for the same plan, is retired as `abandoned` and recorded at the next close |
 | `build-close` | `--project-root P --agent A [--plan-file F] --runtime {claude,codex,copilot,other} [--model M] --man-hours H --hitl-hours H [--test-run 'CMD=EXIT' …] [--token-rates JSON] [--tokens-input K --tokens-output K [--tokens-cache-read K]] [--session-id ID]` — the `on_complete` hook. Appends the bracket's `dispatch_open`/`dispatch_close` pair (and each abandoned bracket's, with `outcome: abandoned`), adds the bracket to the ticket sidecar's `dispatch` list and writes `[actual]` as the sum of that list: tokens read from the Claude transcript over the bracket (never typed); under `codex` the `--tokens-input`/`--tokens-output`/`--tokens-cache-read` counts with `--model`, under `copilot` `--tokens-input`/`--tokens-output` with `cost` `N/A`, each refused with exit 2 before any write when a count is missing, as `set-actual` refuses `N/A` there (metrics-contract.md §3); `N/A` under `other`; `cost` derived. Records each `--test-run` as `add-test-run` does. Takes one calibration sample when the plan reads `built` or `done` and its entry carries an estimate in `l3io.toml`; otherwise says why on stderr. Then commits each path it wrote inside the current worktree, and nothing else, as `chore(l3io): actuals <ticket>`. With no plan file it records the events only. Exit 0; 2 on usage; 4 when no bracket was open (the close is recorded as `unmatched`); 1 when the commit failed |
 | `epic-close` | `--project-root P --epic-dir D --retro-file F --runtime {claude,codex,copilot,other} [--model M] --man-hours H --hitl-hours H [--since ISO] [--token-rates JSON] [--tokens-input K --tokens-output K [--tokens-cache-read K]] [--session-id ID]` — the `on_complete` hook `/l3io-doctor wire` gives `bmad-retrospective`. Appends one record to `[[epic.closure_runs]]` in the epic's `l3io.toml` (the retrospective's window, `man_hours`, `hitl_hours`, tokens and verdict) and writes `[epic.closure]` as the sum of those runs and `[epic.actual]` as every ticket sidecar under `D/tickets/` plus the closure, five metrics each, `cost` derived; one part with no token count makes a sum's tokens `N/A`. The window starts at `--since`, else at the first turn of this Claude session that touched `F`, and never before this epic's previous closure run or the last build of one of its tickets in this session; under codex, copilot and other `--since` is required, and tokens are taken as `build-close` takes them. Reads `verdict` from `F`'s frontmatter into `[epic].retro_verdict`, and takes one `closure` calibration sample per epic when `[epic].estimate` exists and the verdict is `accepted` or `accepted-with-open-items`. Writes **no status** and no v7 file, then commits what it wrote as `chore(l3io): epic close <slug>`, leaving the retrospective document as it was. Exit 2 on usage (a missing or unknown verdict, a document naming another epic, no window) with nothing written, 3 when `F` does not exist, 1 when the commit failed |
-| `set-status`, `set-actual` extras | `--no-events` skips the verb's own event (`set-status`'s `status` event, `set-actual`'s `actual` event); the done hook's `issue_resolved` events are still written; `--session-id ID` stamps it; `set-status --status done` on a story resolves the backlog items its `resolves:` lists (a failure warns, never fails the call); a key already resolved prints `ok <key> already resolved (<resolution>)`; `resolved <key> …` is printed only for a new resolution |
-| `set-field` extras | Refuses any field in `DERIVED_NODE_FIELDS`, any sub-path of one (e.g. `status.x`, `resolves.x`), **and any parent path that contains one** (e.g. `--field completion_evidence`, which would silently discard `completion_evidence.test_runs`) — outright (exit 2), naming the contained field and the verb that writes it — currently `completion_evidence.tests_passing` (use `add-test-run`), `status` (use `set-status`), and `resolves` (use `promote-issue`), rather than asserted directly |
-| `add-test-run` | `--state-root --story KEY --command CMD --exit-code N` — appends `{command, exit_code}` to `completion_evidence.test_runs` and derives `completion_evidence.tests_passing` from the **last run of each distinct command** (the full history is kept in `test_runs`, so a failing run you then fixed is superseded by its passing re-run) |
-| `story-doc-init` | `--state-root --artifacts-root A --story KEY` — creates the story markdown skeleton from its state node if absent; the only writer of that skeleton. |
-| `import-node` | `--state-root S` + (`--story KEY` \| `--epic ID [--sprint ID]`) `--status S` + optional `--title`, `--classification`, `--origin {inferred}`, `--origin-note`, `--no-events`, `--session-id` — creates a missing state node from a migration record; idempotent by SKIP (an existing node is left exactly as-is, no event appended); exit 3 when a sprint or story's parent epic is absent. |
-| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
-| `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
-| `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file. Prints the children's actuals plus a `spend/` breakout by story / closure / orchestration |
-| `list-epics` | `--state-root [--format {keys,json}]` — read-only enumeration of every epic in the state tree with its bucket. `keys` (default) prints one `E{nnn}` per line, sorted, buckets flattened; `json` prints `[{key, bucket, status}, …]` with bucket in `active`/`planned`/`archived` order. An absent or empty state root exits 0 with empty output. |
-| `list-stories` | `--state-root --epic E [--sprint S] [--format {keys,json}]` — read-only enumeration of story node files under an epic, optionally scoped to one sprint. Filters out `epic.yaml`/`sprint.yaml` and any `.yaml` whose stem does not parse as `E{nnn}-S{nn}-{nnn}`. Absent epic exits 3; absent sprint (a sprint the epic has not created) exits 0 with empty output. |
-| `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--status planned,active,archived` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given. `--status` narrows the **display** only (default `planned,active`); totals, phase denominators, and the spend breakout always cover every epic. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration, plus a stalled-dispatch section (`--stall-minutes`, default 15). Over a BMad v7 initiative it takes `--project-root P --initiative-dir D [--status-json F]` instead of `--state-root`: v7's `tickets.py status` (from `F`, else the installed `_bmad/method/scripts/tickets.py`) plus each epic's lane, estimates and per-ticket actuals from l3io's sidecars, and as stalled every build whose bracket is still open in `{output_folder}/l3io/.inflight/` past `--stall-minutes`, beside any open `dispatch` pair; `--all`, `--status` and `--plan` are 3.x only (exit 2) |
-| `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch open/close into `events.jsonl`; feeds `report`'s stalled-dispatch flags |
-| `set-lock`, `check-lock` | `--state-root --epic ID --session-id ID` (epics only) — `--session-id` is **required** on both; `set-lock` also takes optional `--ttl-minutes N` (default 30) |
-| `clear-lock` | `--state-root --epic ID` (epics only) — takes no `--session-id` |
+| `set-actual` extras | `--no-events` skips the verb's own `actual` event; `--session-id ID` stamps it; `--no-calibrate` skips the calibration sample. Refuses a `--cost*` flag (exit 2), and under `--runtime claude` refuses `--tokens-na` |
+| `add-test-run` | `--project-root P --plan-file F` (v7) or `--state-root --story KEY` (3.x), plus `--command CMD --exit-code N` — appends `{command, exit_code}` to `completion_evidence.test_runs` and derives `completion_evidence.tests_passing` from the **last run of each distinct command** (the full history is kept, so a failing run you then fixed is superseded by its passing re-run). `tests_passing` has no other writer |
+| `import-node` | `--state-root S` + (`--story KEY` \| `--epic ID [--sprint ID]`) `--status S` + optional `--title`, `--classification`, `--goal`, `--superseded-by`, repeatable `--depends-on KEY`, `--origin {inferred}`, `--origin-note`, `--reason` (required for a blocked story), `--no-events`, `--session-id` — creates a missing 3.x state node from a migration record; the only writer `migrate-engine.py` uses. Idempotent by SKIP (an existing node is left exactly as-is, no event appended); exit 3 when a sprint or story's parent epic is absent |
+| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` — a 3.x story's estimate: class band × calibrated scope ratio × fix factor. `estimate-entries` computes the same for a v7 entry |
+| `estimate-rollup` | `--state-root --epic ID` — a 3.x epic's estimate: Σ story estimates + the epic closure band + the orchestration band |
+| `report` | `--project-root P --initiative-dir D` + optional `--status-json F`, `--format {tree,json,md}`, `--out FILE`, `--watch SECS`, `--stall-minutes M` (default 15) — the progress view over a BMad v7 initiative: v7's `tickets.py status` (from `F`, else the installed `_bmad/method/scripts/tickets.py`) plus each epic's lane, estimates and per-ticket actuals from l3io's sidecars. A build whose bracket is still open in `{output_folder}/l3io/.inflight/` past `--stall-minutes` is reported as stalled. Read-only unless `--out` is given |
+| `dispatch` | `--state-root --event {open,close} --agent NAME` + optional node keys and `--session-id` — records a subagent dispatch open/close into `events.jsonl`. On v7, `build-open`/`build-close` record each build's pair themselves |
 | `notice` | `--state-root --key KEY` — records a one-time-ever advisory notice in `{state-root}/.notices.yaml` under flock, keyed on `KEY` alone. Not session-scoped: there is no cross-invocation session identifier available (`{session_id}` is bound fresh per skill invocation and no `notice` caller is ever a dispatched subagent that could inherit one), so a per-session key would never repeat — this fires at most once **ever** per project, per key, which is correct for an advisory whose trigger condition (an absent config section) is itself a permanent state until the project is configured. Exit `0` = not yet emitted for `KEY` (and now recorded); exit `1` = already emitted — permanently, for that key; exit `2` = a usage error (blank `--key`) **or** an unexpected failure while recording (lock/I/O) — deliberately never `1`, so a crash can never be mistaken for the harmless "already said" outcome and silently swallowed. Advisory only on the READ side: a damaged or unparseable `.notices.yaml` is treated as empty rather than blocking the caller, but a failure actually writing it is reported, not treated as success. No pruning — a project's set of distinct notice keys stays small by construction |
 | `sync-agent-instructions` | `--runtime {claude,codex,copilot,other} --project-root P [--body-file F] [--version V] (--apply \| --remove \| --check)` — creates, replaces or removes the marker-wrapped l3io block in the running harness's AI instruction file (`CLAUDE.md`, `.github/copilot-instructions.md`, or `AGENTS.md`), never a file for a harness that is not running and never deleting the file. **Two halves, and both are load-bearing:** it never CREATES a block in another harness's file — an `AGENTS.md` with no block of ours is left byte-identical, even when it exists with other content — and it always REFRESHES one already there, because that block carries our marker and our version, so a stale copy of our own instructions is not neutrality. It refreshes rather than removes, since a project may still use the other harness; `--remove` strips the block from every file that has one. The read-modify-write runs under a lock on `_bmad/.agent-instructions.lock`. Exit `0` = acted or already correct; exit `1` = `--check` found no block; exit `2` = usage error, an undecodable file, or ambiguous markers (nothing written); exit `3` = this harness's block is current but ANOTHER harness's file holds a stale copy, naming the file and both versions — `--apply` repairs it. A block elsewhere does not satisfy exit 1 for this harness |
-| `dump-plan` | `--state-root` — the planned tree plus read-only context, as JSON. Read-only; takes no lock. Planned epics carry `depends_on`, `estimate` and per-story `classification`; **active and archived appear as keys and dependencies only**, because they are read-only input and a consumer able to see their estimates would be tempted to re-plan them. This is the one read interface for anything needing a plan's shape: check 26 forbids any file under `skills/` from assembling a state path, so `l3io-plan`'s reorg analyzer asks for the tree rather than walking it. |
-| `retire-epic` | `--state-root --epic ID --reason TEXT` — `move-epic --to archived` plus `retired_reason` and `retired_at` on the epic node. **Epic-level only**: `planned/`/`active/`/`archived/` are folders of epic directories, so a single retired story has nowhere to go. Refuses an empty reason — an epic retired without one leaves nobody able to judge later whether it should come back. **Never deletes.** |
-| `reparent-story` | `--state-root --artifacts-root --story K --to-epic E --to-sprint SP` — moves a **planned** story to another sprint, re-keying it. Both trees move together (state node and story document, preserving an optional `-slug`), inbound `depends_on` and both backlog story-key fields (`story` and `ref`, in `issues.yaml` and `issues-resolved.yaml`) are repointed, the old key is appended to `previous_keys`, and the source sprint's key high-water is raised so the vacated key is never reissued — a reused key would silently attach that key's history to different work. Refuses a story outside `planned/`: its actuals, calibration samples and `events.jsonl` history are keyed to its current key and are not moved. Refuses a **destination** outside `planned/` for the same reason — `sprint_file` resolves through every bucket, so gating only the source would let planned work land in an archived epic, sitting under `archived/` while still reading `status: backlog`. |
-| `reorg-log` | `--state-root [--hash] [--record FILE] [--list] [--show ID] [--format text\|json]` — the reorg journal (`state/reorg-log.yaml`, committed). `--hash` prints the planned tree's **placement** digest — epic/sprint/story placement only, so re-estimating between a reorg and its undo does not invalidate the undo, while a story added or removed does. Capture it **before** applying the first operation and carry it as the record's `pre_hash`; `--record` appends one reorg's rationale and operations and prints its id (`R0001`). A record whose operations include a kind `reorg-undo` cannot invert, or that omits a field undo needs, is **refused** — an entry that looks undoable and is not is worse than no entry. |
-| `reorg-undo` | `--state-root --artifacts-root --id R0001 [--check]` — inverts a recorded reorg through the same `reparent-story`/`move-epic` primitives, in **reverse** operation order so an epic is un-retired before work moves back into it. **Refuses** when the placement digest no longer matches what was recorded: an undo replays placements derived from a plan that no longer exists. Restores **placement, not keys** — the allocator's high-water never decreases, so a story returns to its original sprint with a new number and the whole journey stays in `previous_keys`. A sprint the reorg created is left standing, empty; deletion is the one thing this never does unasked. `--check` tests the guard and reports without moving anything. |
-| `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility; must equal `<state-root>/issues.yaml`). `--key` is optional: omitted, the key is allocated as max(`next[epic]`, highest suffix in either issue file + 1); given, it is canonicalized, must match `--epic`, and exits 2 if it exists in either file. `--allow-duplicate` forces a content duplicate. `--kind {defect,spec-change,spec-proposal}` (default `defect`, written only when not the default) with `--ref` — required for the spec kinds, and a commit SHA for `spec-change`; `promote-issue` refuses spec items (they are confirmed or rejected in `/l3io-doctor triage`). |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. `--kind {defect,spec-change,spec-proposal}` filters by kind (no `kind` = defect). |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete,deferred}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. `deferred` records a decision taken and not actioned — it exists because the pre-3.0 open status of the same name was a *disposition*, and no open status can hold one; it needs `--note`. |
-| `import-actual` | `--state-root --node story\|sprint\|epic` plus the node keys, and any of `--elapsed-hours`/`--man-hours`/`--hitl-hours`. An actual **observed elsewhere**, for a migration. `runtime=other`, `tokens=N/A` and no calibration sample are FIXED: `--runtime`, `--tokens-*`, `--model` and `--calibrate` are absent from the surface, so a call that would claim Claude provenance or poison the learned ratios is a usage error rather than a silent one. Delegates to `set-actual`, which is unchanged. |
+| `import-actual` | `--state-root --node` + node keys, and any of `--elapsed-hours`/`--man-hours`/`--hitl-hours`. An actual **observed elsewhere**, for a migration. `runtime=other`, `tokens=N/A` and no calibration sample are FIXED: `--runtime`, `--tokens-*`, `--model` and `--calibrate` are absent from the surface, so a call that would claim Claude provenance or poison the learned ratios is a usage error rather than a silent one. Delegates to `set-actual` |
 | `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). A key in neither issue file exits 3 naming both (`{key} is in neither {open_path} nor {resolved_path}`); a resolved key exits 2. Setting it to the severity it already has is a no-op: prints `OK update-issue {key} severity {S} unchanged` — with ` (note not recorded)` appended when `--note` was given, since the note lives only in the event a no-op does not write — writes nothing, and appends no event. |
-| `promote-issue` | `--state-root --artifacts-root A --key K [--key K2…] --epic E --sprint S --classification C` + optional `--title` (required with several keys; a key repeated in one call is refused with exit 2 rather than deduped — collapsing it would skip that requirement, and `schedule-issue` still dedups because nothing downstream of it reads the count), `--model`, `--token-rates`, `--session-id`, `--cause`. Refuses archived epics, sprints not in `backlog`, a retry that would resume an interrupted promotion into a different epic/sprint than the one it partly completed (exit 2, naming the epic/sprint to retry with), and a foreign epic lock — live (exit 5) or one it cannot evaluate (not a mapping, no `session_id` — including a whitespace-only one, which is treated as absent, not as a padded match for the caller's own — a `claimed_at` that is missing, unparseable, or has no timezone, or a non-integer `ttl_minutes`; exit 5, naming `clear-lock` for an abandoned lock). Also refuses (exit 2), before any write: a resumable claimant's story node with a malformed `key:` field (`story node {path} has a malformed key {key!r} -- fix it by hand, then rerun`), and any story node it walks that fails to parse, is not a mapping, or is not valid UTF-8 (`{path} does not parse: ... -- fix the file by hand`, or `is not a mapping (it holds a list\|a scalar)`, or `is not valid UTF-8 (...)`). A claim by a story under `archived/` that is not `done` is ignored — a dead claim is never resumed, so a re-promotion mints a new story. |
-| `schedule-issue` | `--state-root --key K [--key K2…] --story E{nnn}-S{nn}-{nnn}` + optional `--session-id`, `--cause`. Attaches open backlog items to a story that **already exists** — the counterpart to `promote-issue`, which only ever creates one. Appends each key to the story's `resolves:` and marks the items `scheduled`. Nothing else could do this: `repair-issue --action link` is gated on audit finding 1d, which fires only when the story already names the key, so it repairs a half-finished scheduling and cannot create one; `set-field --field resolves` coerces only `NUMERIC_NODE_FIELDS` and would write a raw string into a list field. Idempotent by skip for a key already scheduled to **this** story (the batch that drives this verb must be safe to re-run); exit 2 for one scheduled to a different story, rather than moving it and orphaning the old story's `resolves`. Refuses (exit 2) a story that is `done` or whose epic is under `archived/` — checked separately, because a story under `archived/` can still read `status: backlog`, which is how open items come to be keyed to an epic archived out from under them. Exit 3 for an absent story or epic, exit 4 on a back-reference mismatch, exit 5 on a foreign epic lock. Writes the story node first, so an interrupted run leaves finding 1d (repairable with `repair-issue --action link`) rather than 1e, which has no single-key repair. Does **not** re-estimate the story or roll up its parents: the estimate was set by whoever sized it, and attaching a finding its acceptance criteria already imply is not a resize. |
-| `audit-issues` | `--state-root [--format {text,json}]` — read-only integrity findings 1a–1l (key in both files, broken scheduling, missed done hook, unlinked promotion, stale `next`, bad status, archived undone story, double claim, duplicate/non-canonical key, fixed-but-reverted, unknown `kind` or a spec item with no `ref`, a story key left behind by a re-key); a key with a resolved entry is not evaluated for 1b/1c/1d/1f/1g — its stale open copy shows as 1a, and 1h and 1j still apply — and a key duplicated within one file (1i) is not evaluated for 1b/1c/1d/1f/1g either; 1d/1h ignore a dead claim (a story under `archived/` that is not `done`); 1j fires only when the ref story's `resolves:` lists the key; exit 4 when any is found, and on a malformed issue file, or a story node that fails to parse, is not a mapping, or is not valid UTF-8, `--format json` prints `{"findings": [], "error": MSG}` (no new finding id — the same error channel covers all of these). **1e** covers three shapes: the canonical `next[epic]` at or below the highest key suffix, or not an integer; any non-canonical alias key (`1`, `'1'`, `'01'`, `'E001'` for `'001'`) whatever its value — `allocate` reads only the canonical key; and any value (alias or canonical) above the BL key space, 1000 — `next` stops mattering past `BL-E{nnn}-999`. An alias above 1000 reports both, and both carry the hand-fix `repair` (`report only -- fix it by hand; reseed refuses a value above 1000`), because `reseed` refuses that case; an alias at or below 1000 names `repair-issue --action reseed`. **1k** covers a `kind` value outside `defect`/`spec-change`/`spec-proposal`, or a `spec-change`/`spec-proposal` item with no `ref`. **1l** covers a `story` or `ref` field still holding a story key that no story carries any more **and** that at least one story records in `previous_keys` — the residue of a `reparent-story`. It names the heir when exactly one story records the old key, whose repair is the repoint action, and is report-only when several do, since which story the reference means is then not derivable. A scheduled item with an heir reports as 1l and **not** 1b, because repointing restores the scheduling that 1b's repair discards; a dangling key no story records at all is 1b only, since there unscheduling is the correct answer and nothing is being hidden. |
-| `set-depends-on` | `--state-root` and either `--epic E` or `--story KEY`, plus repeatable `--add KEY`. The one LIST-shaped field: epic keys on an epic node, story keys on a story node (`status-files.md` §11) — the wrong shape for the node is refused. **The value must be a YAML list even for a single dependency** — `['E001']`, never `'E001'`; a scalar is refused (exit 2, naming the file) by both `pm-status.py` and `plan-graph.py`, and is never coerced, since a bare string could have meant one key or several. The refusal exists because a string *iterates character by character*: `'E001'` was read as the four keys `E`,`0`,`0`,`1`, all of which the unknown-key filter then dropped, leaving the epic with **no** dependencies and its phase marked `parallel: true`. `set-field` cannot write it, because a list routed through `--value` is stored as the string `"['E001']"` and a later reader takes it for a scalar. Idempotent and order-preserving; all-or-nothing, since every key is validated before anything is written — a half-applied dependency list silently reorders a plan phase. A sprint node has no `depends_on`: exit 2. |
-| `repair-issue` | `--state-root --key K --action {unschedule,link,repoint,reseed,reopen,normalize-status,normalize-keys}` + `--story` for link, `--all-legacy` for normalize-status (which then takes no `--key`), and `normalize-keys` takes no `--key` either — structural repairs, each refused (exit 2) unless its `audit-issues` finding holds (1b/1g, 1d, 1l, 1e, 1j); `unschedule`/`link` also refuse a key that already has a resolved entry (audit finding 1a: rerun `resolve-issue` to clear the stale open copy); `reseed` merges non-canonical aliases of the epic's `next` key into the canonical key by max and never lowers it, but refuses outright (exit 2, nothing written) when any of the epic's alias or canonical values exceeds 1000 — that case is report-only, fixed by hand; `repoint` rewrites every stale story-key field (`story`, `ref`) on the one item the key resolves to — the resolved entry when there is one, because repointing an open copy a `resolve-issue` rerun is about to delete is work thrown away — and refuses (exit 2) when 1l does not hold or when more than one story records the old key; it writes an `issue_repointed` event; `unschedule` writes an `issue_unscheduled` event; `link` writes an `issue_scheduled` event carrying `via: repair-link` (promote's own `issue_scheduled` event carries no `via`); `normalize-status` maps a pre-3.0 legacy open status (`deferred`) to its current equivalent (`backlog`) and refuses (exit 2) any status not in `LEGACY_OPEN_STATUSES`, writing an `issue_status_normalized` event — `--all-legacy` applies it to every legacy item in one pass under one lock, gating each item individually; `normalize-keys` rewrites every stored `epic`/`sprint` to its canonical form across `issues.yaml` (both lists) and `adr-register.yaml`, whole-file by construction because the canonical form of a key is not a judgement call — it repairs records written when `--epic 3`/`03`/`E3`/`e003` were all accepted and all stored verbatim. |
+| `promote-issue` | `--state-root --artifacts-root A --key K [--key K2…] --epic E --sprint S --classification {simple,standard,complex}` + optional `--title` (required with several keys), `--model`, `--token-rates`, `--session-id`, `--cause`. Creates a 3.x story for open backlog items and marks them `scheduled`. Refuses archived epics, sprints not in `backlog`, a retry that would resume an interrupted promotion into a different epic/sprint, a foreign epic `_lock` (exit 5), and a story node that fails to parse (exit 2, nothing written). Spec items are refused: they are confirmed or rejected in `/l3io-doctor triage` |
+| `schedule-issue` | `--state-root --key K [--key K2…] --story E{nnn}-S{nn}-{nnn}` + optional `--session-id`, `--cause`. Attaches open backlog items to a 3.x story that **already exists** — the counterpart to `promote-issue`, which only ever creates one. Appends each key to the story's `resolves:` and marks the items `scheduled`. Idempotent by skip for a key already scheduled to **this** story; exit 2 for one scheduled to a different story, or a story that is `done` or under `archived/`; exit 3 for an absent story or epic, 4 on a back-reference mismatch, 5 on a foreign epic lock. Does not re-estimate the story |
+| `audit-issues` | `--state-root [--format {text,json}]` — read-only integrity findings 1a–1l over the two issue files and the story nodes they name (key in both files, broken scheduling, missed done hook, unlinked promotion, stale `next`, bad status, archived undone story, double claim, duplicate/non-canonical key, fixed-but-reverted, unknown `kind` or a spec item with no `ref`, a story key left behind by a re-key). Each finding names its repair. Exit 4 when any is found; a malformed file is reported through `--format json`'s `error` field |
+| `repair-issue` | `--state-root --key K --action {unschedule,link,repoint,reseed,reopen,normalize-status,normalize-keys}` + `--story` for link, `--all-legacy` for normalize-status (which then takes no `--key`); `normalize-keys` takes no `--key` either — structural repairs, each refused (exit 2) unless its `audit-issues` finding holds. Each writes its own event. `reseed` never lowers a `next` and refuses a value above 1000; `repoint` refuses when more than one story records the old key |
 | `calibration show` | `--state-root [--format {text,json}]` |
-| `calibration redrive` | `--state-root` — rebuilds `scope` and `fix` from the story nodes on disk, replacing rather than appending. Use after a defect has skewed a batch of samples: a stored sample is a bare ratio, but the nodes still hold every input `derive_story_sample` needs, so the samples can simply be derived again instead of discarded and waited for. `closure`, `orchestration` and `token_mix` derive from other inputs and are left untouched; the previous file is kept as `pm-calibration.yaml.pre-redrive` |
+| `calibration redrive` | `--state-root` — rebuilds `scope` and `fix` from the 3.x story nodes on disk, replacing rather than appending. Use after a defect has skewed a batch of samples: the nodes still hold every input a sample needs, so the samples can be derived again instead of discarded. `closure`, `orchestration` and `token_mix` are left untouched; the previous file is kept as `pm-calibration.yaml.pre-redrive` |
 | `rates` | optional `--model ID` (all models if omitted) `--token-rates JSON` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 rather than guessing a default |
-| `adr-reserve` | `--state-root --epic ID --slug SLUG` + optional `--count N` (default 1) and `--adr-dir D` (the one ADR home to scan; default `<git top-level>/docs/adr`) — reserves `N` sequential ADR numbers under a lock in `{state-root}/adr-register.yaml` and prints one zero-padded number per line. The first number is the larger of the register's `next` and the highest ADR number already on disk — in `--adr-dir` and in the old per-epic home `epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` the one ADR home cannot be located, so it refuses (exit 2, nothing on stdout, register untouched) rather than allocate from a scan that never saw `docs/adr/`. Called once per batch before any ADR subagent is dispatched (`step-04-arch-gate.md` §6), so parallel agents are handed distinct numbers instead of each deriving one from a directory listing that only shows who has finished |
+| `adr-reserve` | `--state-root --epic ID --slug SLUG` + optional `--count N` (default 1) and `--adr-dir D` (the one ADR home to scan; default `<git top-level>/docs/adr`) — reserves `N` sequential ADR numbers under a lock in `{state-root}/adr-register.yaml` and prints one zero-padded number per line. The first number is the larger of the register's `next` and the highest ADR number already on disk — in `--adr-dir` and in the old per-epic home `epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` the one ADR home cannot be located, so it refuses (exit 2, nothing on stdout, register untouched) rather than allocate from a scan that never saw `docs/adr/`. Reserve before dispatching parallel ADR authors, so each is handed a distinct number instead of deriving one from a directory listing that only shows who has finished |
 | `usage` | **no argument resolves this session's own transcript** from `$CLAUDE_CODE_SESSION_ID` (every record carries a `sessionId`; the file is named for it). Otherwise one or more transcript `.jsonl` files **or directories**, whose identity is verified before anything is summed — a file with no `sessionId`, one belonging to another session, or one mixing sessions is **refused with exit 2** rather than guessed at; `--claude-session ID` sets the expected session (this is the Claude session uuid, *not* the l3io run `--session-id`), and `--allow-unidentified` overrides deliberately and labels the output UNVERIFIED. Plus optional `--model ID` `--token-rates JSON` `--format text\|json` — sums a session transcript's real per-class token usage and prints the `--tokens-*` flags to paste into `set-actual` (read-only). Use it instead of reading `usage` fields by hand: it deduplicates the many records a single streaming message writes (a real transcript held 2,482 assistant records for 953 distinct ids), reads only the flat `cache_creation_input_tokens` rather than adding the nested `cache_creation` mapping that repeats the same tokens, and counts `isSidechain` subagent turns rather than dropping them. Reports `files`/`records`/`unique`/`sidechain` so the read is checkable. **Identity is not scope**: a session transcript spans everything that session ever did, so a bare total is the session's, not a node's — one observed file totalled ~66× the sprint being closed. Scope it with `--story`/`--sprint`/`--epic` plus `--state-root` (the window is read back from that node's `dispatch_open`/`dispatch_close` pair, first open to last close so fix iterations are included), or `--since`/`--until` directly. Unscoped, the command still prints the total but labels it and **withholds the `--tokens-*` flags**, because those flags are what gets pasted into `set-actual`. Subagent turns live in `<session-id>/subagents/agent-*.jsonl`, not the parent file, and are resolved automatically |
 
-Exit codes: `0` success · `1` notice already emitted for this key (`notice` only) · `2` usage error, or for `notice` an unexpected recording failure · `3` node not found · `4` verification failure · `5` epic locked by another session.
+Exit codes: `0` success · `1` notice already emitted for this key (`notice`), a `--check` that found something, or a commit that failed after the write (the verbs that commit) · `2` usage error, or for `notice` an unexpected recording failure · `3` node, entry or plan not found · `4` verification failure, or `build-close` with no open bracket · `5` epic locked by another session (issue verbs on a 3.x tree).
 
-`verify --scope epic` checks **structural integrity** (every sprint directory has a `sprint.yaml`; every back-reference matches its directory — a *missing* back-reference fails exactly like a mismatched one). It deliberately does not check completion, since an in-progress epic legitimately holds unfinished stories. `verify --scope story|sprint` checks **completion** of one node. Activation runs the epic scope only.
+`verify` on a v7 ticket (`--project-root P --plan-file F --scope story`) judges the plan sidecar's actuals and completion evidence; status is the plan's and v7's. On a 3.x tree, `--scope epic` checks structural integrity and the node scopes check completion of one node.
 
 ### `spec-align.py` subcommands
 
@@ -571,74 +381,66 @@ Global flags go before the subcommand: `--project-root`, `--planning-root`, `--i
 
 ### Legacy migration
 
-Read resolution counts layout matches rather than stopping at the first hit — two populated layouts block rather than silently forking state. Legacy flat `sprint-status.yaml` and legacy `_bmad/state/` both migrate via `/l3io-doctor migrate-state` (original preserved as `.legacy`).
+A 3.x state tree (`{implementation_artifacts}/state/`), a flat `sprint-status.yaml` or a legacy
+`_bmad/state/` tree is read only by `/l3io-doctor migrate-state` (original preserved as
+`.legacy`), until Phase 6 replaces it with a migration onto v7's tree.
 
 ## Progress Reporting
 
-Answers "which phase, which epic, which sprint, which stories are in flight" during a long-running execute. One builder in `pm-status.py` walks the state tree, joins it against the plan snapshot, and returns one model; every surface renders that model and computes nothing itself.
+`pm-status.py report --project-root P --initiative-dir D` answers "which epics, which tickets,
+what has it cost" during a long run. It reads v7's `tickets.py status` for every state and
+l3io's sidecars for lanes, estimates and actuals, and every surface renders that one model.
 
 ### The event log
 
-`{implementation_artifacts}/state/events.jsonl` is append-only, one JSON object per line, written automatically by `set-status` and `set-actual` under `flock`:
-
-```json
-{"ts":"2026-08-17T10:42:31Z","event":"status","node":"story","key":"E001-S02-004",
- "epic":"E001","sprint":"S02","from":"in-progress","to":"review","session":null}
-```
-
-`event` is `status` or `actual`. It exists because **`updated_at` cannot answer dwell time** — it records only the last write and is overwritten by any field change, so it cannot distinguish "entered review 20 minutes ago" from "had its estimate patched 20 minutes ago".
+`{output_folder}/l3io/events.jsonl` is append-only, one JSON object per line, under `flock`.
+`build-close` appends each build's `dispatch_open`/`dispatch_close` pair; `set-actual` and
+`dispatch` append their own events. It lives in the main checkout, so every worktree of a run
+appends to one log.
 
 Three deliberate properties:
 
-- **The write is automatic, not flag-driven.** The path derives from `--state-root`. An earlier optional `--ledger` flag and `progress` subcommand did the same job opt-in, and are exactly why no progress trail was ever populated — nothing passed them. Both have been removed. `--no-events` opts out per call.
-- **One project-level log, not one per sprint.** Per-sprint files would fragment the timeline and turn cross-epic velocity into a multi-file join.
-- **Telemetry never blocks the primary record.** A failed append warns on stderr and returns 0, the same contract as calibration sampling.
+- **The write is automatic, not flag-driven.** An earlier optional `--ledger` flag and
+  `progress` subcommand did the same job opt-in, and no progress trail was ever populated —
+  nothing passed them. Both have been removed.
+- **One project-level log.** Per-epic files would fragment the timeline and turn cross-epic
+  velocity into a multi-file join.
+- **Telemetry never blocks the primary record.** A failed append warns on stderr and returns 0,
+  the same contract as calibration sampling.
 
-Never read it to determine current status — the node files are authoritative and the log is history.
+Never read it to determine current status — status is v7's.
 
-### Dwell time and stuck flags
+### Stalled builds
 
-Dwell is the time a node has been in its *current* status. It is **exact** when the event log recorded the transition into that status, and **approximate** (rendered with a `~` prefix) when derived from `updated_at`. Projects predating the log show approximate figures throughout and a footnote saying so.
-
-| Level | Status | Threshold |
-|---|---|---|
-| Story | `in-progress` | 4h |
-| Story | `review` | 4h |
-| Story | `ready-for-dev` | never flagged — waiting is normal |
-| Sprint | `in-progress` | 24h |
-| Epic | `in-progress` | 72h |
-
-Thresholds are fixed in this iteration; the calibration data needed to tune them is what this view generates. Epic-level staleness reuses `_lock.ttl_minutes` rather than introducing a second definition.
-
-Each node's `flags` describe only that node — an epic is not marked stuck because one of its stories is. The flat aggregate lives at the model's top-level `flags`, which also carries `placement`, `stale-lock`, and `unreadable` entries.
+`build-open` writes the open bracket to `{output_folder}/l3io/.inflight/` and nothing else, so
+until `build-close` runs the spool is the only place a build exists. `report` lists every
+bracket open longer than `--stall-minutes` (default 15) as stalled. An interactive `bmad-build`
+that was abandoned leaves its bracket open; the next `build-open` for the same plan closes it as
+`abandoned`.
 
 ### Surfaces
 
 | Surface | Invocation |
 |---|---|
-| CLI | `pm-status.py report --state-root S [--plan P] [--format tree\|json\|md] [--out F] [--all] [--watch N]`; over a BMad v7 initiative, `report --project-root P --initiative-dir D [--status-json F] [--format …] [--stall-minutes M]`: `tickets.py status` plus each epic's lane, estimates and ticket actuals from l3io's sidecars, and a build whose bracket is still open in the `.inflight` spool past `--stall-minutes` reported as stalled |
-| Execute | Renders at phase start/end, and at sprint boundaries only when the phase holds a single epic |
+| CLI | `pm-status.py report --project-root P --initiative-dir D [--status-json F] [--format tree\|json\|md] [--out F] [--watch N] [--stall-minutes M]` |
 | Doctor | `/l3io-doctor stats` |
 
-Archived epics count toward each phase's denominator but are listed only with `--all`, so `Phase 1/3 ████████░░ 2/3 epics done` stays correct with no archived rows shown.
-
-**Render points are limited to where execution is serialized.** A parallel phase runs several epic subagents at once; each printing a tree would interleave into unreadable output, and subagent stdout is buried behind the one-line `DONE — [metrics]` contract anyway. Nothing is lost — every transition still lands in the event log, so `report --watch 15` in a second terminal gives full-resolution live detail while the run's own output stays legible.
-
-The `md` report regenerates at sprint and epic closure boundaries, not per transition: closure is a natural commit point, whereas per-transition regeneration would churn git on every status move and put parallel subagents in contention over one file. It is a generated view carrying a header that says so.
+**A parallel wave prints no tree.** Several epic sessions printing at once would interleave, and
+each ends with one status line anyway. Every build still lands in the event log and the
+sidecars, so `report --watch 15` in a second terminal gives live detail while the run's own
+output stays legible.
 
 ### Degradation
 
 | Condition | Behavior |
 |---|---|
-| No `events.jsonl` | Falls back to `updated_at`; dwell marked approximate |
-| No plan pointer or dangling snapshot | State hierarchy with `plan: null`, no phase framing |
-| Legacy state layout | Callers short-circuit to the `migrate-state` recommendation |
+| No sidecar for an epic or ticket | Shown with no estimate or actual |
+| `tickets.py` not installed | Pass `--status-json F` from wherever Sofia runs; otherwise exit 2 |
 | `pm_status` not installed (`bmad setup` not yet run) | `stats` falls back to counts only |
-| Unparseable node file | Skipped, recorded as an `unreadable` flag, walk continues |
 
 ## Metrics Contract
 
-Every planning point and closeout — story, sprint, epic, retrospective — records an `estimate` and an `actual` for all five metrics, `METRIC_FIELDS` in canonical order: **`elapsed_hours`** (AI wall-clock), **`man_hours`** (counterfactual — what a developer would have taken to do this work by hand, re-assessed at closure from the delivered diff/tests/scope, never observed), **`hitl_hours`** (human attention actually spent supervising — observable), **`tokens_k`** (a mapping: `total` plus the `input`/`output`/`cache_write`/`cache_read` classes), and **`cost`**. A sprint or epic does not sign off with any block or individual metric missing.
+Every planning point and closeout — ticket (or 3.x story), epic, and the epic's retrospective — records an `estimate` and an `actual` for all five metrics, `METRIC_FIELDS` in canonical order: **`elapsed_hours`** (AI wall-clock), **`man_hours`** (counterfactual — what a developer would have taken to do this work by hand, re-assessed at closure from the delivered diff/tests/scope, never observed), **`hitl_hours`** (human attention actually spent supervising — observable), **`tokens_k`** (a mapping: `total` plus the `input`/`output`/`cache_write`/`cache_read` classes), and **`cost`**. An epic does not close with any block or individual metric missing.
 
 **`cost` is derived, never entered.** It is computed once, at capture time, as `Σ(class tokens × the model's per-class rate) / 1000`, keyed by `--model`, and frozen on the node. `set-actual` and `set-estimate` reject a `--cost`/`--cost-low`/`--cost-high` flag outright (exit 2); the only way to change a recorded cost is to fix the token counts or the rate table and re-derive it. `set-actual`'s `--cost*` rejection runs first, on every node kind, before the node is resolved and before any epic lock is taken — so on a missing or misplaced node it now exits 2 rather than the 3/4 a caller would otherwise get, and it never waits behind an epic-lock holder or creates a lock file. `verify` recomputes `cost` from the stored `tokens_k` and `model` and fails if they disagree (tolerance $0.005) — a hand-edited cost cannot survive `verify`.
 
@@ -646,7 +448,7 @@ Enforcement is at write time, not by convention: under `--runtime claude`, `set-
 
 **Runtime-aware capture**, detected via `$CLAUDE_CODE_SESSION_ID` being set in the environment (the same signal `pm-status.py` reads as `CLAUDE_SESSION_ENV`, and the same one the `usage` subcommand resolves this session's transcript from — see above):
 
-- **Under Claude** — tokens are read **exactly** from the session transcript `usage` fields, split into the four classes, scoped by session id across the orchestrator and all subagent transcripts, and passed as `--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read` (in thousands) with `--model`; `set-actual` derives `cost` from them. Never estimated.
+- **Under Claude** — tokens are read **exactly** from the session transcript `usage` fields, split into the four classes. `build-close` and `epic-close` read the transcript themselves over the build bracket or the retrospective's window; a direct `set-actual` takes them as `--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read` (in thousands) with `--model`. `cost` is derived from them. Never estimated.
 - **Under other runtimes** (e.g. Copilot) — read the runtime's usage source if one exists; otherwise pass `--tokens-na` to record both `tokens_k` and `cost` as **`N/A`**. Never guessed or back-filled. `N/A` under a non-Claude runtime is expected behavior, not an error.
 
 `elapsed_hours`, `man_hours`, and `hitl_hours` are captured in every runtime — none of the three has an `N/A` path.
@@ -656,14 +458,13 @@ Enforcement is at write time, not by convention: under `--runtime claude`, `set-
 Estimates are a strict **bottom-up roll-up**:
 
 ```
-story.estimate  = base_band(classification) × scope_ratio × fix_mult
-sprint.estimate = Σ story.estimate + calibrated sprint-closure band + calibrated orchestration band
-epic.estimate   = Σ sprint.estimate  + calibrated epic-closure band + calibrated orchestration band
+entry.estimate = base_band(class) × scope_ratio × fix_mult
+epic.estimate  = Σ entry.estimate + calibrated epic-closure band + calibrated orchestration band
 ```
 
-Sprint and epic estimates are *defined as* the sum of their children plus closure plus orchestration, so they reconcile by construction rather than via a parallel formula that could drift. `cost` has no band of its own: it is priced from the rolled-up `tokens_k` total (split across classes by the observed mix, or a cold-start assumption below three samples) through the model's rate table — the same relationship a story estimate already has between its `tokens_k` and `cost`.
+An epic estimate is *defined as* the sum of its entries plus closure plus orchestration, so it reconciles by construction rather than via a parallel formula that could drift. `cost` has no band of its own: it is priced from the rolled-up `tokens_k` total (split across classes by the observed mix, or a cold-start assumption below three samples) through the model's rate table — the same relationship an entry estimate already has between its `tokens_k` and `cost`. There is no sprint term (ADR-0016).
 
-Cold-start base bands per story (`BASE_BANDS` in `pm-status.py`; no `cost` row, for the reason above):
+Cold-start base bands per entry (`BASE_BANDS` in `pm-status.py`; no `cost` row, for the reason above):
 
 | Classification | man_hours | hitl_hours | elapsed_hours | tokens_k |
 |---|---|---|---|---|
@@ -683,20 +484,20 @@ Calibration learns from plan-vs-actual deltas and applies corrections to future 
 
 | Component | Learned per | Measures |
 |---|---|---|
-| `scope` | classification × metric | Story sizing vs **fix-excluded** actuals |
-| `closure` | level (sprint, epic) × metric | Closure bands vs real closure consumption |
+| `scope` | classification × metric | Entry sizing vs **fix-excluded** actuals |
+| `closure` | epic × metric | The epic-closure band vs real closure consumption |
 | `fix` | classification | Observed `avg_fix_factor`, which replaces the static reserve once learned |
-| `orchestration` | level (sprint, epic) × metric | A **fraction** of children's actuals (not a ratio — the band ships unseeded, so there is nothing to measure a ratio against until real observations exist) |
+| `orchestration` | epic × metric | A **fraction** of children's actuals (not a ratio — the band ships unseeded, so there is nothing to measure a ratio against until real observations exist) |
 
 `scope`, `closure`, and `orchestration` each activate at **≥3 samples**, independently per metric, using an exponential-decay weighted rolling average (decay 0.8, most recent = 1.0). `fix` needs **both** its `clean` and `reworked` cohorts at ≥3 samples — one cohort alone cannot form a ratio. Until active, a component uses its cold-start prior: ratio 1.0 for `scope`/`closure`, fix reserve 1.25, and *nothing* for `orchestration` (no cold-start band exists for it).
 
-Story samples are emitted by `set-actual --node story` as a side effect of a successful write (`--no-calibrate` suppresses it); closure samples are emitted per sprint/epic by `set-actual --node sprint|epic`; orchestration samples are emitted by `set-actual --block orchestration --node sprint|epic`. The scope-vs-fix split of measured actuals backs the fix portion out via `fix_factor` (approach A, using `completion_evidence.fix_iterations`).
+Scope samples are taken by `build-close`, one per ticket, only when the plan reads `built` or `done` and the entry carried an estimate before the build — an estimate made afterwards is not a prediction; on a 3.x tree, by `set-actual --node story` (`--no-calibrate` suppresses it). Closure samples are taken by `epic-close`, one per epic, only with an `[epic].estimate` and an accepted verdict, and by `set-actual --node epic`; orchestration samples by `set-actual --block orchestration --node epic`. The scope-vs-fix split of measured actuals backs the fix portion out via `fix_factor` (approach A, using `completion_evidence.fix_iterations`).
 
-**`tokens_k` ratios only accumulate from runs with real actuals** — Claude runs; `N/A` entries are skipped, never guessed. **`cost` never calibrates at all** — `CALIBRATED_METRIC_FIELDS` is `METRIC_FIELDS` minus `cost`, because a derived value must not learn its own independent correction. `elapsed_hours`, `man_hours`, and `hitl_hours` accumulate from every run. The observed token *mix* across classes (`token_mix`) is tracked separately as a derived statistic, not a calibration component — it feeds how a banded `tokens_k` total is split across classes at estimate time, once ≥3 story samples carry class data; below that, a cold-start assumption (`{input: 0.15, output: 0.05, cache_write: 0.30, cache_read: 0.50}`) is used instead.
+**`tokens_k` ratios only accumulate from runs with real actuals** — Claude runs; `N/A` entries are skipped, never guessed. **`cost` never calibrates at all** — `CALIBRATED_METRIC_FIELDS` is `METRIC_FIELDS` minus `cost`, because a derived value must not learn its own independent correction. `elapsed_hours`, `man_hours`, and `hitl_hours` accumulate from every run. The observed token *mix* across classes (`token_mix`) is tracked separately as a derived statistic, not a calibration component — it feeds how a banded `tokens_k` total is split across classes at estimate time, once ≥3 scope samples carry class data; below that, a cold-start assumption (`{input: 0.15, output: 0.05, cache_write: 0.30, cache_read: 0.50}`) is used instead.
 
 ### Calibration file
 
-`{implementation_artifacts}/state/pm-calibration.yaml` (`version: 2`). **Commit it** — learned ratios are team knowledge and expensive to rebuild. A legacy `version: 1` file is auto-migrated on first write, with the original kept as `pm-calibration.yaml.v1`.
+`{output_folder}/l3io/pm-calibration.yaml` in the main checkout (`version: 2`). **Commit it** — learned ratios are team knowledge and expensive to rebuild. A legacy `version: 1` file is auto-migrated on first write, with the original kept as `pm-calibration.yaml.v1`.
 
 A pre-existing `version: 2` file written before this metrics rework additionally goes through an in-place **metrics migration** (`pm-status.py calibration migrate-metrics`, also run automatically by the first `set-actual` that touches it): `cost` samples are dropped (derived now, never independently calibrated); `time_hours` samples are renamed `elapsed_hours`; `man_hours` samples and the whole `fix` block are quarantined under a `legacy` block, since the metric's definition changed from observed human attention to counterfactual developer effort and old samples are not comparable; a `tokens_k` weighted ratio outside 0.5–2.0 is flagged (not dropped) as possibly contaminated by orchestration overhead that leaked into story samples under the old rules; and `token_mix` is seeded empty by this migration, but only on a pass that actually found and moved legacy content (a brand-new project's first, no-op pass does not seed it). `orchestration` is unaffected by this migration — it is always present via a separate mechanism (`new_calibration` on a fresh file, backfilled by `load_calibration` on an older one), independent of whether any legacy content was found. This runs once, gated on a `metrics_migrated_at` marker (not a `version` bump — the schema version stays 2), and the file beforehand is preserved as `pm-calibration.yaml.pre-metrics`.
 
@@ -708,12 +509,10 @@ scope:                    # per classification × per metric; raw ratio samples,
   simple:   { man_hours: {samples: [1.02, 1.14, 0.98]}, hitl_hours: {...}, elapsed_hours: {...}, tokens_k: {...} }
   standard: { ... }
   complex:  { ... }
-closure:                  # per level × per metric
-  sprint:   { man_hours: {samples: [1.18, 1.05, 1.22, 0.97]}, ... }
-  epic:     { ... }
-orchestration:            # per level × per metric; FRACTION of children's actuals, not a ratio
-  sprint:   { man_hours: {samples: [0.08, 0.11, 0.09]}, ... }
-  epic:     { ... }
+closure:                  # per metric
+  epic:     { man_hours: {samples: [1.18, 1.05, 1.22, 0.97]}, ... }
+orchestration:            # per metric; FRACTION of children's actuals, not a ratio
+  epic:     { man_hours: {samples: [0.08, 0.11, 0.09]}, ... }
 fix:                      # per classification; running mean per cohort, not a sample list
   simple:   { clean: {mean_man_hours: 3.1, samples: 4}, reworked: {mean_man_hours: 4.2, samples: 3} }
   standard: { ... }
@@ -732,7 +531,7 @@ Because `pm-calibration.yaml` is a cross-epic aggregate that sharding cannot sha
 ### Announcement format
 
 ```
-Calibration:  scope.complex ×1.35 (n=3) · fix.complex ×1.50 (n=3) · closure.sprint ×0.95 (n=4)
+Calibration:  scope.complex ×1.35 (n=3) · fix.complex ×1.50 (n=3) · closure.epic ×0.95 (n=4)
 ```
 
 Before any component reaches 3 samples:
@@ -745,9 +544,6 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 
 | Phase | Skill invoked |
 |-------|--------------|
-| Readiness check (plan, 3.x) | legacy `bmad-check-implementation-readiness`, **preferred when installed**; `bmad-sprint-planning intent=readiness` used only when the legacy name is absent |
-| Elaboration (plan, 3.x) | legacy `bmad-create-story` when installed, else this package's in-package agent |
+| Ticket tree, refinement, replanning, tracker sync, status | `bmad-agent-po` (Sofia): `tickets.py`, and the Tracker sync and Status procedures of her `board.md`; l3io's estimate, readiness and board hooks ride her procedures |
 | Build, review and fix (execute) | `bmad-build-auto`, invoked `thorough` — one run per ticket |
 | Epic closure (execute) | `bmad-retrospective -H <slug>` |
-| Ticket tree, tracker sync, status (execute) | `bmad-agent-po` (Sofia): `tickets.py`, and the Tracker sync and Status procedures of her `board.md` |
-

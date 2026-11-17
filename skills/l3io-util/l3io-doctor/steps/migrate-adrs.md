@@ -1,7 +1,7 @@
 ## Migrate ADRs Mode
 
 Moves ADRs from the old per-epic home, `{implementation_artifacts}/epic-*/arch/adr-NNNN-*.md`,
-to `{project-root}/docs/adr/NNNN-slug.md`, the one ADR home. Health Check 15 detects them. A
+to `{project-root}/docs/adr/NNNN-slug.md`, the one ADR home. Health Check 10 detects them. A
 project that never migrates keeps working: `adr-reserve` and `spec-align.py adrs` still read
 the old home.
 

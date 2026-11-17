@@ -65,15 +65,15 @@ _STORY_FILE_RE = re.compile(r"^E\d{3}-S\d{2}-(\d{3})(?:-[^.]*)?\.(yaml|md)$")
 def _unevaluable_lock_reason(lock, session_id):
     """Why promote cannot evaluate a present `_lock`, or None when it can (Ruling 24).
 
-    promote is a write verb, like set-lock, so it fails safe: a foreign lock whose shape it
-    cannot read refuses, even where check-lock (a read) reports such a lock FREE. A lock
-    naming this session is this session's own and is not refused -- set-lock re-claims its
-    own lock the same way, whatever else the block holds. Everything this returns None for
-    is exactly what `_check_lock_verdict` can judge without raising.
+    promote is a write verb, so it fails safe: a foreign lock whose shape it cannot read
+    refuses, even where `_check_lock_verdict` (a read) calls such a lock FREE. A lock naming
+    this session is this session's own and is not refused, whatever else the block holds.
+    Everything this returns None for is exactly what `_check_lock_verdict` can judge without
+    raising.
 
-    The holder is compared to the caller EXACTLY (Ruling F2), as `_check_lock_verdict` and
-    cmd_set_lock compare it: a hand-edited 'me ' is foreign to `me` in all three paths, so a
-    padded id fails safe. Only the presence check strips, reading a whitespace-only
+    The holder is compared to the caller EXACTLY (Ruling F2), as `_check_lock_verdict`
+    compares it: a hand-edited 'me ' is foreign to `me` in both paths, so a padded id fails
+    safe. Only the presence check strips, reading a whitespace-only
     session_id as missing."""
     if not isinstance(lock, dict):
         return "not a mapping"
@@ -98,10 +98,9 @@ def _foreign_lock_error(epath: str, session_id, epic_key: str):
     """PMError(5) when the epic's `_lock` blocks this session, else None.
 
     A lock promote cannot evaluate (`_unevaluable_lock_reason`) refuses, naming the epic
-    and clear-lock for an abandoned one (Ruling 24). A well-formed lock gets check-lock's
-    own verdict (`_check_lock_verdict`, carryover 16), so promote shares its TTL semantics:
-    a stale lock -- including any `ttl_minutes: 0` -- does not block. An absent or null
-    `_lock` is no lock, as set-lock reads it."""
+    and how to drop an abandoned one (Ruling 24). A well-formed lock gets
+    `_check_lock_verdict`'s TTL semantics (carryover 16): a stale lock -- including any
+    `ttl_minutes: 0` -- does not block. An absent or null `_lock` is no lock."""
     _, data = load_node(epath)
     lock = (data or {}).get("_lock")
     if lock is None:
@@ -109,8 +108,8 @@ def _foreign_lock_error(epath: str, session_id, epic_key: str):
     why = _unevaluable_lock_reason(lock, session_id)
     if why:
         return PMError(5, f"epic {epic_key} holds a _lock that cannot be evaluated ({why}) "
-                          f"-- refusing to write; if the lock is abandoned, remove it with "
-                          f"clear-lock --epic {epic_key}")
+                          f"-- refusing to write; if the lock is abandoned, delete the _lock "
+                          f"block from {epath}")
     code, line = _check_lock_verdict(lock, session_id)
     if code == 0:
         return None
@@ -236,8 +235,7 @@ def _walk_story_nodes(state_root):
 def _dead_claim(status_dir, node) -> bool:
     """A story under archived/ that is not `done` is ignored as a claimant, because its
     epic is closed: promote's resume and audit 1d/1h skip it. If that story is later marked
-    `done` (cmd_set_status has no archived guard, and an issue-mirror pull can run `set-status done`),
-    the claim revives, and audit 1h reports the double listing; audit 1g still reports an
+    `done` (a 3.x status write had no archived guard), the claim revives, and audit 1h reports the double listing; audit 1g still reports an
     item SCHEDULED to it (1g is keyed on the item's `story:`)."""
     return status_dir == "archived" and str(node.get("status", "")) != "done"
 
@@ -357,7 +355,7 @@ def _promote_issue(args) -> int:
         # repeat would disarm the one guard that makes a multi-item promotion deliberate:
         # the call asks for two items, yields one, and is never prompted for the title two
         # distinct keys would demand. The caller here is usually an agent assembling this
-        # list from a user's prose (steps/plan/step-backlog-intake.md §3), which is exactly
+        # list from a user's prose, which is exactly
         # the caller that can name one item twice.
         #
         # schedule-issue keeps the dedup on purpose: nothing downstream of it reads the key
@@ -390,7 +388,7 @@ def _promote_issue(args) -> int:
     if err:
         raise err
     with epic_node_lock(sr, epic_key):
-        # Resolve again under the lock: move-epic holds it too, so a move that landed while
+        # Resolve again under the lock: a 3.x epic move held it too, so a move that landed while
         # this call waited has moved the directory the paths above name, and writing
         # through them would recreate the old directory as a ghost.
         epath, spath = _promote_target(sr, epic_key, sprint_key)
@@ -444,11 +442,7 @@ def _promote_issue(args) -> int:
                            ac_lines=[f"The deferred finding {i.get('key')} is resolved: "
                                      f"{i.get('title')}" for i in items],
                            must_not_exist=not resumed)
-            _, story_sprint, _ = parse_story_key(story_key)
-            metrics.estimates.rollup_parent_estimate(sr, epic_key, story_sprint,
-                                                     model, overrides)
-            metrics.estimates.rollup_parent_estimate(sr, epic_key, None,
-                                                     model, overrides)
+            metrics.estimates.rollup_parent_estimate(sr, epic_key, model, overrides)
             for it in items:
                 it["status"] = "scheduled"
                 it["story"] = story_key
@@ -518,7 +512,7 @@ def _schedule_target(sr, epic_key, story_key):
         raise PMError(3, f"epic {epic_key} not found under {sr}")
     if os.path.basename(os.path.dirname(os.path.dirname(epath))) == "archived":
         raise PMError(2, f"epic {epic_key} is archived -- schedule into a planned or active "
-                         f"epic, or move the epic back first (move-epic)")
+                         f"epic")
     spath = story_file(sr, story_key)
     if spath is None:
         raise PMError(3, f"story {story_key} not found under {sr} -- schedule-issue attaches "
@@ -546,7 +540,7 @@ def cmd_schedule_issue(args) -> int:
     Locking mirrors promote-issue exactly, including the nesting order, so the two
     cannot deadlock against each other: an advisory `issues_lock` check to refuse fast,
     an advisory foreign-lock check, then `epic_node_lock`, a re-resolve under it because
-    move-epic holds the same lock and may have moved the directory while this call
+    an epic move under the same lock may have moved the directory while this call
     waited, a decisive foreign-lock re-check, and ONE `issues_lock` hold spanning the
     decisive item check through the schedule save (Ruling 12a) so a concurrent
     resolve-issue on the same key cannot land between the check and the write.
@@ -588,7 +582,7 @@ def _schedule_issue(args) -> int:
     if err:
         raise err
     with epic_node_lock(sr, epic_key):
-        # Re-resolve under the lock: move-epic holds it too, so a move that landed while
+        # Re-resolve under the lock: a 3.x epic move held it too, so a move that landed while
         # this call waited has moved the directory the paths above name.
         epath, spath, node = _schedule_target(sr, epic_key, args.story)
         err = _foreign_lock_error(epath, args.session_id, epic_key)    # decisive

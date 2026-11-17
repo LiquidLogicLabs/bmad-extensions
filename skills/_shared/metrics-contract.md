@@ -3,17 +3,15 @@
 This file is the single source of truth for **which** numbers l3io-pm records, **what they
 are called on disk**, **how they are captured**, **where they are enforced**, and **how
 estimates learn from them**. It is a **deep reference, consulted on demand** — do not load it
-at activation. `steps/shared/step-00-digest.md` carries the HARD RULE and the runtime
-capture rule, plus a routing table naming the section to read for each case that needs this
-file: token/cost capture detail (§3), writing an estimate or actual by hand (§4), explaining a
-calibration result (§8), or a worked example (§10).
+at activation. Read the section a case needs: token/cost capture detail (§3), writing an
+estimate or actual by hand (§4), explaining a calibration result (§8), or a worked example
+(§10).
 
 Most of what follows is now mechanized. §6 (roll-up), §7 (fix reserve), and §8 (calibration)
 describe what `estimate-story`, `estimate-rollup`, and `set-actual` do themselves — read them
 to understand or debug a number, not to perform a calculation by hand.
 
-This file outranks the digest. Where they disagree, this file is correct — and `pm-status.py`
-outranks both.
+`pm-status.py` outranks this file.
 
 `status-files.md` owns *where state lives*. This file owns *what the numbers in it mean*.
 
@@ -25,10 +23,11 @@ mechanized" is agent discipline only — no script checks it.
 
 ## 1. The HARD RULE
 
-**Every planning point and every closeout — at story, sprint, and epic level — records both
-an `estimate` block and an `actual` block, and each block covers all five metrics.**
+**Every planning point and every closeout — at ticket (story) and epic level — records both
+an `estimate` block and an `actual` block, and each block covers all five metrics.** There is
+no sprint level (ADR-0016).
 
-A story, sprint, or epic does not sign off with an estimate block missing, an actual block
+A ticket or epic does not sign off with an estimate block missing, an actual block
 missing, or any individual metric missing from either.
 
 Why it exists: estimation only improves if plan-vs-actual is captured at the same
@@ -38,12 +37,10 @@ invisible afterwards because there is no record that the sample was ever due. Th
 therefore absolute rather than best-effort, and it is checked mechanically at write time
 and again at read-back (§5).
 
-**Retrospective level.** `CLAUDE.md` states the rule at "story, sprint, epic, and
-retrospective" level. There is no retrospective *node* — retrospective data is written onto
-the sprint or epic node as `retrospective.summary`, `retrospective.velocity`,
-`retrospective.carry_over`, `retrospective.learnings` via `set-field`, and it carries no
-metric fields of its own. The retrospective's numbers **are** its sprint's or epic's
-`estimate`/`actual` blocks. Do not invent a separate metric block under `retrospective.`.
+**Retrospective level.** There is no retrospective *node*. On v7 the retrospective is
+`bmad-retrospective`'s, and `epic-close` records each run as an `[[epic.closure_runs]]` entry
+in the epic's `l3io.toml`, summed into `[epic.closure]` and folded into `[epic.actual]`
+(`status-files.md` §12). The retrospective's numbers **are** its epic's closure and actual.
 
 ## 2. The five metrics
 
@@ -159,7 +156,7 @@ estimate:
     elapsed_hours: 1.0
     tokens_k: 1.0
 
-# sprint and epic nodes — estimate is low/high ranges
+# epic nodes — estimate is low/high ranges
 estimate:
   man_hours_low: 12
   man_hours_high: 18
@@ -184,7 +181,7 @@ estimate:
     tokens_k: 0
   confidence: high
 
-# actual — identical shape at story, sprint, and epic level; always single values
+# actual — identical shape at story and epic level; always single values
 actual:
   elapsed_hours: 3.2
   man_hours: 15               # counterfactual re-assessment at closure — NOT observed
@@ -193,7 +190,7 @@ actual:
   cost: 2.02                  # derived; written by the tool, never by hand
   model: claude-sonnet-5
 
-# sprint/epic only — the orchestrator's own overhead, a SEPARATE block from `actual`
+# epic only — the orchestrator's own overhead, a SEPARATE block from `actual`
 orchestration:
   elapsed_hours: 0.6
   man_hours: 0                # AI-only overhead; no human-developer counterfactual
@@ -211,7 +208,7 @@ orchestration_sampled_at: '2026-08-16T22:41:10Z'   # separate marker for the orc
 **Divergence 1 — `tokens_k`'s shape depends on which command wrote it.** The mechanized paths
 (`estimate-story`, `estimate-rollup`, `set-actual`) always write the full mapping above. The
 **manual** `set-estimate` path writes `tokens_k` (story) / `tokens_k_min`/`tokens_k_max`
-(sprint, epic) as a **plain scalar** — it has no per-class flags, so there is nothing to build
+(epic) as a **plain scalar** — it has no per-class flags, so there is nothing to build
 a mapping from. Every reader that needs a metric's numeric value — `_estimate_metric`,
 `_actual_metric` — checks for the mapping shape first (`hasattr(v, "get")`) and falls back to
 treating a bare scalar as the total, so both shapes read correctly; but a story estimated by
@@ -439,7 +436,7 @@ timestamped similarly) and pass the extracted counts to `set-actual` via the app
 All writes go through `pm-status.py`. Never hand-edit a state file.
 
 **`set-estimate` is the direct, manual write** — pass every field yourself. The bottom-up
-flow (`step-estimate.md`) does not call it: it uses `estimate-story` (classification in,
+flow does not call it: on v7 it is `estimate-entries`, and on a 3.x tree `estimate-story` (classification in,
 band × calibrated ratio × fix factor out, `cost` priced from the resulting `tokens_k`) and
 `estimate-rollup` (children in, closure- and orchestration-widened range out, `cost` priced
 from the rolled-up `tokens_k` range) instead, so the arithmetic runs once, in `pm-status.py`,
@@ -453,9 +450,9 @@ uv run {pm_status} set-estimate --state-root {pm_state_root} \
   --man-hours 6 --hitl-hours 0.8 --elapsed-hours 1.5 --tokens-k 320 \
   --confidence high
 
-# sprint or epic estimate — ranges
+# epic estimate — ranges
 uv run {pm_status} set-estimate --state-root {pm_state_root} \
-  --epic E001 [--sprint S01] \
+  --epic E001 \
   --man-hours-low 12 --man-hours-high 18 \
   --hitl-hours-low 1.5 --hitl-hours-high 2.5 \
   --elapsed-hours-low 2.5 --elapsed-hours-high 4 \
@@ -464,15 +461,15 @@ uv run {pm_status} set-estimate --state-root {pm_state_root} \
 
 # actual — same metric flags at every level; tokens are per-class, cost is derived
 uv run {pm_status} set-actual --state-root {pm_state_root} \
-  --node {story|sprint|epic} (--story KEY | --epic ID [--sprint ID]) \
+  --node {story|epic} (--story KEY | --epic ID) \
   --runtime {runtime} \
   --elapsed-hours 3.2 --man-hours 15 --hitl-hours 1.8 \
   --tokens-input 122 --tokens-output 41 --tokens-cache-write 244 --tokens-cache-read 405 \
   --model claude-sonnet-5
 
-# orchestration block — sprint/epic only, never story; --man-hours 0 always (AI-only overhead)
+# orchestration block — epic only, never story; --man-hours 0 always (AI-only overhead)
 uv run {pm_status} set-actual --state-root {pm_state_root} \
-  --node {sprint|epic} --epic ID [--sprint ID] --block orchestration \
+  --node epic --epic ID --block orchestration \
   --runtime {runtime} \
   --elapsed-hours 0.6 --man-hours 0 --hitl-hours 0.1 \
   --tokens-input 14 --tokens-output 5 --tokens-cache-write 27 --tokens-cache-read 44 \
@@ -484,17 +481,17 @@ derived from tokens x rates and cannot be set directly." Fix the token counts or
 `modules.l3io-pm.token_rates` instead.
 
 Node kind for `set-estimate` is **inferred** from which selector flags are present
-(`--story` → story; `--epic` with or without `--sprint` → sprint/epic). `set-actual` takes
-an explicit `--node`.
+(`--story` → story; `--epic` → epic). `set-actual` takes an explicit `--node`. On v7 both take
+the ticket addresses of `status-files.md` §12 instead.
 
 **`--block {actual,orchestration}`** (default `actual`) selects which block `set-actual`
 writes. `--block orchestration` on a story node is a **usage error, exit 2** — a story's
-orchestration overhead belongs to its parent sprint, not to itself. Everything else about the
+orchestration overhead belongs to its epic, not to itself. Everything else about the
 call (flags, calibration side effect, event logging) works the same for either block; only the
 target block and which calibration component samples (§8) differ.
 
 **Flag/kind mismatches are silently ignored, not rejected.** On a story node the range
-flags are dropped; on a sprint or epic node the single-value flags are dropped. `--tokens-k`
+flags are dropped; on an epic node the single-value flags are dropped. `--tokens-k`
 and `--tokens-k-min` share an argparse destination (the alias exists for the story form), so
 passing both in one `set-estimate` call means the last one parsed wins. Use exactly the form
 that matches the node kind.
@@ -503,14 +500,14 @@ that matches the node kind.
 `medium` if every field for that kind is present, `low` otherwise. It is never derived as
 `high` — pass `--confidence high` explicitly when the calibration data justifies it (§8). The
 completeness check names only the fields `set-estimate` can actually write — the four
-calibrated metrics (story form) or their eight range keys (sprint/epic form). `cost` is in
+calibrated metrics (story form) or their eight range keys (epic form). `cost` is in
 neither list: `set-estimate` rejects `--cost*` outright, so requiring it would have made every
 hand-written estimate permanently `low` no matter how complete it was, and the derivation could
 only ever have reported one of its two values.
 
-Write the actual, the completion evidence, and the status transition as separate calls, then
-gate on `verify`. Story closeout additionally requires `completion_evidence` (written via
-`set-field`), which `verify --scope story` checks.
+Write the actual and the completion evidence as separate calls, then gate on `verify`. Story
+closeout additionally requires `completion_evidence` (`add-test-run`, and on v7 the build
+hook's `fix_iterations`), which `verify --scope story` checks. The status is v7's.
 
 ### 4b. `elapsed_hours` deferral for blocked stories
 
@@ -637,9 +634,9 @@ bucket contains mixed-model samples. See `docs/estimation-guide.md §Cross-runti
   discipline, as is the anti-anchoring read-order for `man_hours` (§2) — no script checks
   either.
 - **No metric check at epic scope.** Because `verify --scope epic` is structural, the
-  epic-level actual has no read-back gate. Close an epic by running
-  `verify --scope sprint` on every sprint, then writing the epic actual and confirming it
-  by reading the node back.
+  epic-level actual has no read-back gate on a 3.x tree. On v7 `epic-close` derives the
+  epic's actual from its tickets' sidecars and its closure runs, so there is nothing typed by
+  hand to check.
 - **No calibration enforcement.** `set-actual` derives and appends a calibration sample by
   default, but nothing forces the caller to keep that on — `--no-calibrate` suppresses it
   silently, and a derivation that fails (bad estimate shape, no comparable actual) only warns
@@ -647,18 +644,17 @@ bucket contains mixed-model samples. See `docs/estimation-guide.md §Cross-runti
 
 ## 6. The estimation roll-up
 
-**Estimates are bottom-up.** Sprint and epic estimates are *defined as* the sum of their
-children plus a closure band plus an orchestration band, so they reconcile with their children
-by construction. Do not compute a sprint or epic estimate by any independent formula —
-parallel formulas drift.
+**Estimates are bottom-up.** An epic estimate is *defined as* the sum of its tickets (stories)
+plus a closure band plus an orchestration band, so it reconciles with its children by
+construction. There is no sprint level between them (ADR-0016). Do not compute an epic
+estimate by any independent formula — parallel formulas drift.
 
 Per calibrated metric (`elapsed_hours`, `man_hours`, `hitl_hours`, `tokens_k` — never `cost`,
 which is priced separately, below):
 
 ```
 story.estimate  = base_band(classification) × scope_ratio × fix_mult
-sprint.estimate = Σ story.estimate + calibrated sprint-closure band + calibrated orchestration band
-epic.estimate   = Σ sprint.estimate  + calibrated epic-closure band + calibrated orchestration band
+epic.estimate   = Σ story.estimate + calibrated epic-closure band + calibrated orchestration band
 ```
 
 ### Attribution — which spend belongs to which block
@@ -670,7 +666,7 @@ actual comparable at all, and it is what `derive_closure_sample` and
 
 | Bucket | Where it is recorded | What belongs in it |
 |---|---|---|
-| children | each child node's own `actual` | everything a story (or, one level up, a sprint) spent on itself |
+| children | each child node's own `actual` | everything a story spent on itself |
 | closure | **inside the parent's `actual`, on top of the children's sum** | the closing level's own closure phases — adversarial analysis, QA generation, retrospective, the fix passes they trigger |
 | orchestration | the parent's separate `orchestration` block | the orchestrator's own coordination: dispatching subagents, deciding, and waiting on them |
 
@@ -704,7 +700,7 @@ home:
 |---|---|---|
 | a `bmad-build-auto` or `bmad-build` run (l3io's `build-open`/`build-close` hooks) | child | that ticket's sidecar `actual` |
 | a `bmad-retrospective` run (l3io's `epic-close` hook) | closure | the epic's own `closure`, on top of the tickets' sum |
-| `plan/step-03-story-elaboration.md` | none | planning sits outside the execution roll-up |
+| Sofia's REFINE, REPLAN or BOARD | none | planning sits outside the execution roll-up |
 
 Messages **outside every open dispatch** — deciding what to dispatch, reading a result — are
 orchestration, and land in the parent's `orchestration` block.
@@ -743,7 +739,7 @@ applies the calibrated `scope_ratio` (per metric) and `fix_factor`, and writes t
 block. See §8 for how those two multipliers are derived.
 
 Stories store the band **midpoint × ratio × fix** as a single value per metric; ranges appear
-only at sprint and epic level.
+only at epic level.
 
 **`estimate-story` records one ratio PER CALIBRATED METRIC**, as `estimate.scope_ratios`. This
 is load-bearing, not provenance: `derive_story_sample` divides the applied ratio back out so the
@@ -812,22 +808,20 @@ requiring ≥3 usable samples (`MIN_SAMPLES`), and it never appears in `CALIBRAT
 
 ### Roll-up mechanics
 
-`estimate-rollup` computes the sprint/epic range from its children plus a closure band plus an
-orchestration band:
+`estimate-rollup` (3.x tree) and `estimate-entries` (v7) compute the epic range from its
+children plus a closure band plus an orchestration band:
 
 ```bash
-uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} [--model ID] [--token-rates JSON]
 uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} [--model ID] [--token-rates JSON]
 ```
 
 For each calibrated metric:
 
-- `total` = Σ child estimate for that metric (a story's single value, or a sprint's range
-  midpoint).
+- `total` = Σ child estimate for that metric (each story's or entry's single value).
 - Closure band: apply the calibrated `closure` ratio for that level when it has activated
   (`total × (1 + ratio × band)`); otherwise the cold-start band applies at both ends, which
   is the same formula at `ratio = 1.0` (`COLD_START_CLOSURE_BAND = (0.10, 0.25)` —
-  **10%/25% at every level**, sprint and epic alike; there is no separate 15%/20% split).
+  **10%/25%**; there is no separate 15%/20% split).
 - Orchestration band: apply the calibrated `orchestration` **fraction** for that level when it
   has activated (`total × fraction × ORCH_SPREAD`, `ORCH_SPREAD = (0.8, 1.2)`); otherwise it
   contributes **nothing** — there is no cold-start prior for orchestration, unlike closure (see
@@ -900,12 +894,10 @@ What a step file needs to know inline:
   on the same node records nothing and says so — a retry is safe, and never skews a ratio.
 - **Write `completion_evidence.fix_iterations` before `set-actual`**, or the scope-versus-fix
   split cannot see it and the fix factor stays frozen at the cold-start prior, silently.
-- **It must be a number, and `set-field` now enforces that.** Stored as text the field still
-  looked right on disk while reading as `provenance=backout` on a story that needed no rework —
-  dividing its scope ratio by a 1.25 fix factor it never incurred, and leaving the `clean`
-  cohort empty so `fix` could never activate. `set-field` coerces the value and rejects
-  anything that is not a non-negative whole number, an unsubstituted template placeholder
-  included. To repair samples already recorded that way, run `pm-status.py calibration
+- **It must be a number.** Stored as text the field once looked right on disk while reading as
+  `provenance=backout` on a story that needed no rework — dividing its scope ratio by a 1.25
+  fix factor it never incurred, and leaving the `clean` cohort empty so `fix` could never
+  activate. The build hook writes it as an integer. To repair samples already recorded that way, run `pm-status.py calibration
   redrive --state-root S`: the nodes still hold every input, so `scope` and `fix` are derived
   again rather than discarded.
 - **The file** is `{implementation_artifacts}/state/pm-calibration.yaml`, committed, shared
@@ -915,7 +907,7 @@ What a step file needs to know inline:
 
 Documented rather than papered over. In each case the code is authoritative.
 
-1. **"This is enforced, not optional" is true at story and sprint level only.** There is no
+1. **"This is enforced, not optional" is true at story (ticket) level only.** There is no
    read-back gate on an epic's `actual` block (`verify --scope epic` is structural), and no
    gate on any `estimate` block at any level.
 
@@ -974,7 +966,7 @@ metric. The sample derivation reads these back individually; a single recorded n
 not reconstruct four different corrections.
 
 **Actual.** The story runs under Claude, needs **one** fix iteration
-(`completion_evidence.fix_iterations: 1`, written via `set-field` before closeout). The
+(`completion_evidence.fix_iterations: 1`, recorded before closeout). The
 closing agent first re-assesses `man_hours` — reviewing the delivered diff and tests, before
 reading the estimate above — and settles on 18.2 as the counterfactual developer-hours figure.
 Compute hours (6.1) and human-attention hours (0.9) are read from the run itself, and the four
@@ -987,9 +979,6 @@ uv run {pm_status} set-actual --state-root {pm_state_root} \
   --tokens-input 26 --tokens-output 9 --tokens-cache-write 51 --tokens-cache-read 85 \
   --model claude-opus-5
 # OK set-actual E001-S01-003 ['cost', 'elapsed_hours', 'hitl_hours', 'man_hours', 'model', 'tokens_k'] [scope+4 metrics, provenance=backout, class=complex]
-
-uv run {pm_status} set-status --state-root {pm_state_root} \
-  --story E001-S01-003 --status done
 
 uv run {pm_status} verify --state-root {pm_state_root} \
   --scope story --story E001-S01-003 --runtime claude
@@ -1033,11 +1022,11 @@ A second `set-actual` on this story would record nothing: the node now carries
 `calibration_sampled_at`, and the call reports `sample already recorded at … — skipped
 (replay)`.
 
-**Orchestration, at sprint closure.** Suppose this story's sprint closes with an
-`orchestration` block recording `elapsed_hours: 0.6`, and the sprint's children (this story
+**Orchestration, at epic closure.** Suppose this story's epic closes with an
+`orchestration` block recording `elapsed_hours: 0.6`, and the epic's children (this story
 plus its siblings) sum to `elapsed_hours: 5.4` in their own `actual` blocks. Assuming
-`orchestration.sprint.elapsed_hours` has already cleared 3 samples elsewhere, the sample this
+`orchestration.epic.elapsed_hours` has already cleared 3 samples elsewhere, the sample this
 closure adds is `0.6 / 5.4 = 0.1111` — a fraction, appended to
-`orchestration.sprint.elapsed_hours.samples`, not divided against any estimate (there is
+`orchestration.epic.elapsed_hours.samples`, not divided against any estimate (there is
 nothing to divide out — see §8). If any sibling story is missing its `elapsed_hours` actual,
 this metric is skipped for this sample entirely, rather than computed from a partial sum.

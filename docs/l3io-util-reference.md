@@ -4,8 +4,8 @@ Project state diagnostics, progress reporting, and housekeeping utilities for BM
 
 ## Overview
 
-`l3io-util` provides project state diagnostics, the plan-aware progress dashboard, one-time
-migrations, and repeatable maintenance for BMad PM artifacts and state files. It is
+`l3io-util` provides project state diagnostics, the progress dashboard over BMad v7
+initiatives, one-time migrations, and repeatable maintenance for l3io's files. It is
 standalone — no orchestrator relationship. Run the single skill `/l3io-doctor` with no
 argument for a **project health check** that scans for all known issues and proposes the
 right actions in priority order behind one confirmation, or pass a keyword to jump straight
@@ -21,7 +21,7 @@ Skill: `/l3io-doctor [command]`.
 
 ## Configuration
 
-Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `core.*` for shared settings, `modules.l3io-util.*` for this module, and `modules.l3io-pm.*` for the artifact paths it reorganizes. No section is required; every value has a default.
+Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `core.*` for shared settings, `modules.l3io-util.*` for this module, and `modules.l3io-pm.*` for the artifact paths it reads. No section is required; every value has a default.
 
 **Runs `l3io-util`'s own `pm_status` copy.** This skill declares the `pm_status` package in its `bmod.toml` (`[skill] scripts`), and BMad v7's `bmad setup l3io-util` installs it at `{project-root}/_bmad/l3io-util/scripts/pm_status/__main__.py`, rebuilding it on every setup. Before dispatching to any mode (skipping only for `help`/`?`), activation checks that copy exists and halts naming `bmad setup l3io-util` when it does not — several modes invoke it directly, and a missing copy would otherwise fail inside `uv run` with a traceback that names nothing the user can act on.
 
@@ -40,29 +40,23 @@ Key settings (with defaults):
 |---------|--------------|
 | *(no argument)* | Project health check — runs all checks and, after one confirmation, executes the flagged actions in priority order. |
 | `check` / `status` | Same scan as the health check, but reports the findings table and exits without changing anything. |
-| `stats` (aliases `backlog`, `issues`) | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, a live-view hint, and (per affected epic) the stale-lock `clear-lock` remedy, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). Step ST4 then lists the consolidated `backlog:` list per item, grouped by severity — items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. The `backlog` and `issues` aliases land here and always print that table; it was a separate mode until it was folded in, since it made the same single `list-issues --all` call `stats` already makes. |
+| `stats` (aliases `backlog`, `issues`) | Progress dashboard over BMad v7's work-item tree. For each initiative under `{output_folder}` (or the one named) it runs `pm-status.py report --project-root … --initiative-dir …`, which reads v7's own `tickets.py status` and joins l3io's sidecars, the event log and the build spool: each epic's status, lane and built count, the tickets not yet `done`, estimates and actuals, `tickets.py`'s problems, and any build whose bracket has been open past `--stall-minutes` (default 15). It then appends backlog size by severity and calibration state from `{output_folder}/l3io/pm-calibration.yaml`, and the per-item backlog table grouped by severity — items carry a `kind`: `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which `triage`'s spec pass resolves. The `backlog` and `issues` aliases always print that table; all of it comes from one `list-issues --all` call. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). |
 | `check-deps` | Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. Read-only. |
-| `version` (aliases `--version`, `which-version`) | Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill, and per module for the four module homes. Exits non-zero on a tree carrying more than one version, which is a partial or interrupted install. This is the mode that answers "which l3io am I on?": `_bmad/_config/manifest.yaml` records a custom-source module's `version` as the git ref that was cloned, so a project tracking the default branch reads `version: main`, which is accurate and useless. With `--project-root` it also lists the two `pm_status` copies BMad v7 installs (`_bmad/l3io-pm/scripts/pm_status/`, `_bmad/l3io-util/scripts/pm_status/`) and reports them disagreeing as a `pm_status SKEW` finding, exiting non-zero; the health check's Check 25 runs the same report. Read-only. |
+| `version` (aliases `--version`, `which-version`) | Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill, and per module for the four module homes. Exits non-zero on a tree carrying more than one version, which is a partial or interrupted install. This is the mode that answers "which l3io am I on?": `_bmad/_config/manifest.yaml` records a custom-source module's `version` as the git ref that was cloned, so a project tracking the default branch reads `version: main`, which is accurate and useless. With `--project-root` it also lists the two `pm_status` copies BMad v7 installs (`_bmad/l3io-pm/scripts/pm_status/`, `_bmad/l3io-util/scripts/pm_status/`) and reports them disagreeing as a `pm_status SKEW` finding, exiting non-zero; the health check's Check 18 runs the same report. Read-only. |
 | `install` (aliases `upgrade`, `uninstall`) | Runs the right BMad command for the intent, and refuses the wrong one. **`upgrade`** uses `--action quick-update`, which derives the module set and the IDE list off the existing install, preserves settings, and performs no selection-driven deletion. **`install`** is first-install only and refuses an existing install, because the form it must use passes `--modules` and `--tools`, which are authoritative: BMad `fs.remove`s every installed module and runs `cleanupByList` over every IDE tree those flags do not name, without confirming — two repos here were told to use that form for an upgrade and one lost the per-module `config.yaml` for core, bmm, cis and tea. **`clean`** removes only this extension's payload, decided file by file by SHA-256 against each skill's `payload-manifest.json`: a matching hash is ours and removable, a differing hash is reported and **kept** because somebody edited it, and anything absent from the manifests is never touched. Project state under the artifacts tree appears in no manifest, so it is out of scope by construction. Dry run until `--apply`; confirms before every action. The BMad release is pinned, overridable with `--bmad-version`. |
 
-### One-time migrations (run in this order)
+### One-time migrations
 
 | Command | What it does |
 |---------|--------------|
-| `migrate-schema` | Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values. |
-| `split-status` | Splits a single `sprint-status.yaml` into the three-file layout (`sprint-status.yaml` active / `sprint-status-backlog.yaml` / `sprint-status-archived.yaml`). One-way; original preserved as `sprint-status.yaml.legacy`. |
-| `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. The source is renamed to `.legacy`, never deleted. A migration that would move nothing is refused rather than run. Preserves richer source fields when the reader can see them: `goal` and `superseded_by` land through `pm-status.py set-field` after the node is created; `depends_on`, `estimate`, and `actual` do not yet have typed writers, so the engine prints a `WARN` to stderr naming the record, the field, and the value being skipped (visible loss rather than silent). See the follow-up plan for the deferred typed writers. |
-| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via the legacy `bmad-create-story` without going through `l3io-plan`. Bootstrapped sprints and epics are marked `origin: inferred`. Never overwrites existing state nodes; safe to repeat. **Additive on partial sharded state**: when the project already has state nodes for some stories and orphan `.md` files for others, the reader skips the tracked stories and lists only the genuinely new work in the plan; existing state is byte-preserved and `verify_against_plan` passes because the plan's scope matches what was written. |
+| `migrate-state` | Migrates a legacy state layout (flat `sprint-status.yaml`, the three-file split, or legacy per-epic `_bmad/state/`) to the 3.x sharded state tree. The source is renamed to `.legacy`, never deleted. A migration that would move nothing is refused rather than run. Each node is written through `pm-status.py import-node`, which also carries the source's `goal`, `superseded_by` and `depends_on`; estimates and actuals follow through `set-estimate` and `import-actual`, and any other field the reader saw is reported on stderr as a `WARN` naming the record and the value. The 3.x tree is read only by this mode — no 4.x skill reads or writes it. |
 | `migrate-adrs` | Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, the one ADR home (ADR-0005). Plans first, confirms, then commits once. Three outcomes per ADR: a **plain move** when `docs/adr/` has no such number; a **collision** (same number, *different* slug — two real decisions competing) which keeps the `docs/adr/` number and renumbers the epic copy, rewriting mentions only inside that epic's artifacts; and a **duplicate** (same number **and** slug — the epic copy is a leftover of an ADR already migrated), which is **never moved and never renumbered**, only reported for you to diff and delete. A run where every ADR is a duplicate does nothing and says so. |
 
 ### Ongoing maintenance (safe to repeat)
 
 | Command | What it does |
 |---------|--------------|
-| `reconcile-status` | Fixes placement/structure drift: misplaced epics, nested per-epic `backlog:` arrays (flatten to the top-level list), stale non-`backlog` items, empty epic shells. |
-| `sort-status` | Read-only. Validates zero-padded naming (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`) in the sharded state tree and reports misnamed entries. Performs no reordering and applies no fixes — ordering itself cannot drift under the sharded layout, since each node is its own file and zero-padded names already make directory-listing order the correct order. |
-| `triage` | Audits the backlog and resolves findings that are already fixed — confirms every write, including when the health check runs it. Also carries the **spec pass**: every open `spec-change` and `spec-proposal` item is shown with its commit diff or proposal file and confirmed, rejected, or skipped one at a time. Rejecting reverts the spec edit, resolves the item `wontfix`, and refiles the drift as a code fix at its original severity; skipping leaves it open for Check 18 to flag once a later commit builds on it. On a project upgrading from a pre-3.0 backlog, `triage` also offers the one-pass `normalize-status --all-legacy` repair rather than walking several hundred legacy `deferred` items individually. |
-| `clean-layout` (alias `layout-cleanup`) | Reorganizes flat artifact files into the `epic-XX/sprint-YY` folder hierarchy, reconciles references, verifies state. |
+| `triage` | Audits the backlog and resolves findings that are already fixed — confirms every write, including when the health check runs it. Also carries the **spec pass**: every open `spec-change` and `spec-proposal` item is shown with its commit diff or proposal file and confirmed, rejected, or skipped one at a time. Rejecting reverts the spec edit, resolves the item `wontfix`, and refiles the drift as a code fix at its original severity; skipping leaves it open for Check 13 to flag once a later commit builds on it. On a project upgrading from a pre-3.0 backlog, `triage` also offers the one-pass `normalize-status --all-legacy` repair rather than walking several hundred legacy `deferred` items individually. |
 | `redrive` | Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect that once stored `fix_iterations` as a string and misclassified them as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly. |
 
 ### Source & external sync
@@ -70,7 +64,7 @@ Key settings (with defaults):
 | Command | What it does |
 |---------|--------------|
 | `harvest-debt` | Sweeps the source tree for `bmad-defer:` deferred-shortcut markers and harvests new ones into the consolidated backlog. Language-generic, re-runnable (dedupes by `source`). Report-only by default; merge is confirmed. |
-| `update-ai-rules` | Rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) in the project's AI instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, …) so they describe the current sharded state tree. Creates the **currently running** AI system's instruction file if it does not exist; never creates one for another AI system. Also auto-invoked after `split-status`. |
+| `update-ai-rules` | Rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) in the project's AI instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, …) so they describe the current sharded state tree. Creates the **currently running** AI system's instruction file if it does not exist; never creates one for another AI system. |
 
 ### BMad customization layer — specified, not shipped
 
@@ -107,42 +101,60 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 
 | Subcommand | Used by | For |
 |---|---|---|
-| `report` | `stats` | The state walk behind the progress dashboard — the tree, dwell times and stuck flags are rendered from its output rather than duplicated here. |
-| `list-epics` | health check (state/artifact drift, check 11) | Enumerates every epic in the state tree with its bucket, so the drift check walks only `active/`+`archived/` without probing paths. |
-| `list-stories` | health check (state/artifact drift, check 11) | Lists story keys for an epic (or one of its sprints), pre-filtered to real story files, so the drift check can diff state stories against artifact stories without building state paths in shell. |
+| `report` | `stats`, the health check (Check 19) | Progress over one v7 initiative: `tickets.py status` joined with l3io's sidecars, the event log and the build spool. The tree, the stalled builds and `tickets.py`'s problems are rendered from its output rather than duplicated here. |
 | `list-issues` | `stats`, `triage` | Reads the backlog, whole (`--all`) or filtered by `--kind` for the spec pass. |
 | `audit-issues` | `triage`, the health check | The backlog integrity audit whose findings `triage` then resolves. |
 | `resolve-issue` | `triage` | Closes an item that is already fixed, with a `--resolution` and a `--ref`. |
-| `repair-issue` | `triage` | `unschedule`, `reopen`, `link`, `repoint`, `reseed`, `normalize-status` and `normalize-keys` repairs for the findings the audit reports. `repoint` answers finding 1l: a backlog item whose `story` or `ref` still names a key that `reparent-story` moved is pointed at the story that now carries it, which restores a scheduling that `unschedule` would have thrown away. `normalize-keys` is the one that answers to no finding: it rewrites every stored `epic`/`sprint` to canonical form across `issues.yaml` and `adr-register.yaml`, whole-file, because the canonical form of a key is not a judgement call. Each action refuses unless its finding holds, so it can only move the backlog toward a state `audit-issues` accepts. `normalize-status` maps a pre-3.0 legacy status (`deferred`) to its current equivalent (`backlog`); `--all-legacy` does every such item in one pass under one lock, which is what makes a several-hundred-item upgrade practical. |
+| `repair-issue` | `triage` | `unschedule`, `reopen`, `link`, `repoint`, `reseed`, `normalize-status` and `normalize-keys` repairs for the findings the audit reports. `repoint` answers finding 1l: a backlog item whose `story` or `ref` still names the old key of a re-keyed story is pointed at the story that now carries it, which restores a scheduling that `unschedule` would have thrown away. `normalize-keys` is the one that answers to no finding: it rewrites every stored `epic`/`sprint` to canonical form across `issues.yaml` and `adr-register.yaml`, whole-file, because the canonical form of a key is not a judgement call. Each action refuses unless its finding holds, so it can only move the backlog toward a state `audit-issues` accepts. `normalize-status` maps a pre-3.0 legacy status (`deferred`) to its current equivalent (`backlog`); `--all-legacy` does every such item in one pass under one lock, which is what makes a several-hundred-item upgrade practical. |
 | `schedule-issue` | `triage` (named, never swept) | Attaches an open item to a story that **already exists**, appending the key to that story's `resolves:`. Named in `triage` but deliberately outside its repair table: every repair there fixes a structural finding, whereas choosing a story is a planning decision and no audit finding is evidence that a particular story is the right home. Run it deliberately, with the story chosen by whoever knows the work. Refuses a story that is `done` or whose epic sits under `archived/` — the two are checked separately, because a story under `archived/` can still read `status: backlog`. Idempotent by skip, so a prepared batch is safe to re-run. Not to be confused with `repair-issue --action link`, which is gated on finding 1d and so can only complete a scheduling the story already claims. |
-| `append-issue` | `migrate-state` | Files a migration finding into the backlog rather than dropping it. Prefer the structured form — `--source-phase P --source-ref R [--source-note N]` — which DERIVES `--source` as `P (R)` so the two cannot disagree, and stores `source_phase`/`source_ref` for the auditor to read without parsing. Free-text `--source` is still accepted and stored verbatim for callers that have nothing structured to give. |
-| `import-node` | `migrate-state`, `bootstrap-state` | Creates a missing state node from a migration record; idempotent by skip (an existing node is left exactly as-is, no event appended). |
-| `verify` | `migrate-state`, `bootstrap-state` | Reads a migrated or bootstrapped node back and confirms it landed. |
-| `set-status` | `migrate-state`, `bootstrap-state` | The single atomic status write; these modes never edit a state YAML by hand. |
-| `move-epic` | health check (epic placement, check 23) | Moves an epic directory between `planned/`, `active/` and `archived/` so its folder matches its status, preferring `git mv` so history survives. The health check detects the mismatch and proposes this; it never moves an epic without confirmation. |
-| `set-field` | `migrate-state`, `bootstrap-state` | Sets an arbitrary field on an existing node; refuses `completion_evidence.tests_passing` and other derived fields outright (exit 2). Used to fill `title` on bootstrapped epics, and to write `goal` and `superseded_by` after `import-node` when the reader captured them from the source. |
-| `set-lock` | state contract (`references/status-files.md`) | Claims the per-epic write lock for a session, with a TTL. It enforces mutual exclusion itself rather than being a bare write gated by a separate call, so there is no window between checking the lock and taking it. `clear-lock` is its counterpart. |
-| `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
-| `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
+| `append-issue` | `migrate-state`, `harvest-debt` | Files a migration finding or a harvested marker into the backlog rather than dropping it. Prefer the structured form — `--source-phase P --source-ref R [--source-note N]` — which DERIVES `--source` as `P (R)` so the two cannot disagree, and stores `source_phase`/`source_ref` for the auditor to read without parsing. Free-text `--source` is still accepted and stored verbatim for callers that have nothing structured to give. |
+| `import-node` | `migrate-state` | Creates a missing 3.x state node from a migration record, with its `goal`, `superseded_by` and `depends_on` (`--depends-on` repeats) in the same write; idempotent by skip (an existing node is left exactly as-is, no event appended). |
+| `set-estimate` | `migrate-state` | Writes a migrated node's estimate after `import-node` lands it. |
+| `import-actual` | `migrate-state` | Writes a migrated node's actual as `runtime: other` with tokens `N/A` and no calibration sample — fixed, not optional, so a bulk import cannot poison the learned ratios. |
+| `calibration` | `redrive`, `stats` | `redrive` rebuilds the `scope` and `fix` components through it; `stats` reads the file's state with `show`. |
 | `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to. |
-| `sync-agent-instructions` | `upgrade`, `uninstall`, and module setup | Writes, refreshes (`--apply`), checks (`--check`) or strips (`--remove`) the marker-wrapped l3io block in the running harness's AI instruction file. **Never CREATES** a block in another harness's file, but **always REFRESHES** one already there — a project that changes harness keeps our block where the old one read it, and a stale copy of our own instructions is not neutrality. Refreshes rather than removes, since the other harness may still be in use. Idempotent; never deletes the file; exit 1 from `--check` means the block is absent for this harness, exit 2 leaves the file byte-unchanged, exit 3 means another harness's file holds a stale copy that `--apply` repairs. |
+| `notice` | `references/config-resolution.md` (shipped, not invoked by the doctor) | Records a one-time-ever advisory in `{state-root}/.notices.yaml`. The contract ships with every skill; only `l3io-execute` and `l3io-plan` call it. |
+| `sync-agent-instructions` | `upgrade`, `uninstall`, module setup, the health check (Check 17) | Writes, refreshes (`--apply`), checks (`--check`) or strips (`--remove`) the marker-wrapped l3io block in the running harness's AI instruction file. **Never CREATES** a block in another harness's file, but **always REFRESHES** one already there — a project that changes harness keeps our block where the old one read it, and a stale copy of our own instructions is not neutrality. Refreshes rather than removes, since the other harness may still be in use. Idempotent; never deletes the file; exit 1 from `--check` means the block is absent for this harness, exit 2 leaves the file byte-unchanged, exit 3 means another harness's file holds a stale copy that `--apply` repairs. |
 
 ## Project Health Check
 
-The default mode runs twenty-three numbered read-only checks (Checks 1–23, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
+The default mode runs nineteen numbered read-only checks, prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation. The checks, with the action each proposes:
 
-`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → clean-layout → sort-status → harvest-debt → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
+1. Status file naming (`rename-active`)
+2. 3.x state layout (`migrate-state`) — a legacy flat or per-epic layout, more than one layout at once, or the 3.x sharded tree on its own, which no 4.x skill reads
+3. Deferred code markers (`harvest-debt`)
+4. AI instruction references (`update-ai-rules`)
+5. Migration backup files (`clean-legacy`)
+6. Epic directory padding (`rename-epic-dirs`)
+7. Poisoned calibration provenance (`redrive`)
+8. Backlog integrity and audit (`triage`)
+9. Lock files tracked in git (`untrack-locks`)
+10. ADR home and register (`migrate-adrs`)
+11. Spec pointers (report only)
+12. ADR links (report only)
+13. Unconfirmed spec changes that have been built upon (`triage`)
+14. Spec index freshness (report only)
+15. BMad dependency resolution
+16. 3.x state tree reachable and tracked (report only)
+17. Agent instruction block
+18. `pm_status` version skew (report only)
+19. Initiative progress (v7) — runs `report` over every initiative and reports stalled builds and `tickets.py`'s problems (report only)
+
+The action sequence:
+
+`rename-active → rename-epic-dirs → migrate-state → harvest-debt → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
 
 Three of those actions are **not modes** and have no keyword — the health check runs each one
 inline, from the check that detects it:
 
 - `rename-active` (Check 1) renames `sprint-status-active.yaml` → `sprint-status.yaml`, content
   unchanged. It refuses on a conflict and renames back if the result does not parse.
-- `rename-epic-dirs` (Check 10) renames legacy two-digit `epic-{nn}/` artifact directories to
+- `rename-epic-dirs` (Check 6) renames legacy two-digit `epic-{nn}/` artifact directories to
   the three-digit `epic-{nnn}/` form, skipping any whose destination already exists.
-- `untrack-locks` (Check 14) makes sure `state/.gitignore` has a `*.lock` line, then runs
-  `git rm --cached` over the tracked `*.lock` files under the state root. The files stay on
-  disk, and the removal is staged for your next commit.
+- `untrack-locks` (Check 9) makes sure `.gitignore` has a `*.lock` line in each state root
+  holding a tracked lock file (`{implementation_artifacts}/state/`, `{output_folder}/l3io/`),
+  then runs `git rm --cached` over those `*.lock` files. The files stay on disk, and the
+  removal is staged for your next commit.
 
 Each executed action runs its full mode (dry-run + verify still shown); per-mode confirmations are suppressed since the user already confirmed — except `triage`, which keeps its own confirmations, because every triage action resolves or rewrites backlog items the single confirmation did not show item by item. If any action fails, the sequence stops and reports.
 
@@ -150,17 +162,5 @@ Each executed action runs its full mode (dry-run + verify still shown); per-mode
 
 - Dry-run first — the full plan is shown before any file changes.
 - Never overwrite an existing destination; on conflict, keep the source and record it.
-- Move files, never edit their contents (layout cleanup); status-file modes re-parse YAML after every write and restore the original on any parse failure.
+- `rename-active` re-parses the renamed file and restores the original on a parse failure.
 - Reference updates only auto-apply for unambiguous single-target matches; ambiguous references are recorded for manual review.
-
-## Target Folder Structure
-
-```
-{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}[-{slug}].md
-{implementation_artifacts}/epic-{EE}/sprint-{SS}/closure/...
-{implementation_artifacts}/epic-{EE}/sprint-{SS}/tests/...
-{implementation_artifacts}/epic-{EE}/epic-closure/...
-{planning_artifacts}/epic-{EE}/[sprint-{SS}/]...
-```
-
-`EE` is a zero-padded three-digit epic value (`epic-{nnn}`); `SS` is a zero-padded two-digit sprint value (`sprint-{nn}`). See [architecture](architecture.md) for the artifact conventions the PM orchestrators enforce and this module migrates toward.

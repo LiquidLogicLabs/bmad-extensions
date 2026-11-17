@@ -12,7 +12,7 @@ deleting. Safe to run once migrations have been verified.
 
 **Step CL1 — Load config and scan**
 
-Load config (same as layout cleanup). Scan for:
+Load config (as under On Activation in `SKILL.md`). Scan for:
 1. `*.yaml.legacy` files anywhere under `{implementation_artifacts}/` (e.g.,
    `sprint-status.yaml.legacy`, `sprint-status-backlog.yaml.legacy`,
    `sprint-status-archived.yaml.legacy`) — `migrate-state` Stage D's per-file backups,
@@ -21,10 +21,9 @@ Load config (same as layout cleanup). Scan for:
    calibration schema v1 → v2 backup. **Derive this path from `{pm_calibration_file}`, never
    type a second literal**: `pm-status.py`'s `migrate_calibration` writes it as
    `calibration_path(state_root) + ".v1"`, so it always lands beside the live calibration
-   file in the state root and follows it if that location ever moves. `migrate-schema` does
-   not produce it — it writes no backup at all. Scan `{pm_state_root}/` for `*.yaml.v1` **and
-   `*.yaml.pre-redrive`** so a backup from any future calibration schema bump, and the one
-   `redrive` itself writes, are swept by the same pass.
+   file in the state root and follows it if that location ever moves. Scan `{pm_state_root}/`
+   for `*.yaml.v1` **and `*.yaml.pre-redrive`** so a backup from any future calibration schema
+   bump, and the one `redrive` itself writes, are swept by the same pass.
 
    > `.pre-redrive` was missing from this list while `.legacy` and `.v1` were in it, so the
    > doctor's own `redrive` mode accumulated a backup nothing ever removed. Two suffixes swept

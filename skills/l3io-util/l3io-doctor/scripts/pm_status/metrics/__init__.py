@@ -62,11 +62,11 @@ from . import (  # noqa: F401 -- submodule imports, so `metrics.<mod>` resolves 
 def register(sub):
     a = sub.add_parser("set-actual", help="write a validated actual block")
     a.add_argument("--state-root", help="path to {implementation_artifacts}/state")
-    a.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
+    a.add_argument("--node", required=True, choices=["story", "epic"])
     node_args(a)
     plan_address_args(a)
     a.add_argument("--block", choices=["actual", "orchestration"], default="actual",
-                   help="which metric block to write (orchestration: sprint/epic only)")
+                   help="which metric block to write (orchestration: epic only)")
     a.add_argument("--elapsed-hours", dest="elapsed_hours")
     a.add_argument("--man-hours", dest="man_hours")
     a.add_argument("--hitl-hours", dest="hitl_hours",
@@ -111,30 +111,21 @@ def register(sub):
     ia.add_argument("--session-id", dest="session_id", default=None)
     ia.set_defaults(func=actuals_usage.cmd_import_actual)
 
-    rp = sub.add_parser("report", help="plan-aware progress report (read-only unless --out)")
-    rp.add_argument("--state-root", default="",
-                    help="a 3.x state tree; or --project-root with --initiative-dir")
-    rp.add_argument("--project-root", dest="project_root", default="",
-                    help="a v7 project: report over --initiative-dir")
-    rp.add_argument("--initiative-dir", dest="initiative_dir", default="",
-                    help="with --project-root: the v7 initiative folder")
+    rp = sub.add_parser("report", help="progress over a v7 initiative (read-only unless --out)")
+    rp.add_argument("--project-root", dest="project_root", required=True,
+                    help="the v7 project root")
+    rp.add_argument("--initiative-dir", dest="initiative_dir", required=True,
+                    help="the v7 initiative folder")
     rp.add_argument("--status-json", dest="status_json", default="",
-                    help="with --project-root: `tickets.py status` JSON (a file, or - for "
-                         "stdin) instead of running v7's tickets.py")
-    rp.add_argument("--plan", default="", help="path to plan-output-meta.yaml")
+                    help="`tickets.py status` JSON (a file, or - for stdin) instead of "
+                         "running v7's tickets.py")
     rp.add_argument("--format", choices=["tree", "json", "md"], default="tree")
     rp.add_argument("--out", default="", help="write to this file instead of stdout")
-    rp.add_argument("--all", action="store_true",
-                    help="show every status folder (sugar for --status planned,active,archived)")
-    rp.add_argument("--status", default="",
-                    help="comma list of state folders to display: planned, active, archived "
-                         "(default: planned,active). Counting is unaffected — phase "
-                         "denominators always see the whole tree")
     rp.add_argument("--watch", type=int, default=0, metavar="SECS",
                     help="re-render on an interval (tree only in practice)")
     rp.add_argument("--stall-minutes", dest="stall_minutes", type=float,
                     default=events.DEFAULT_STALL_MINUTES,
-                    help="flag dispatches open longer than this (default 15)")
+                    help="flag build brackets open longer than this (default 15)")
     rp.set_defaults(func=report.cmd_report)
 
     dp = sub.add_parser("dispatch", help="record a subagent dispatch open/close")
@@ -186,10 +177,9 @@ def register(sub):
                     help="JSON object of per-model rate overrides")
     es.set_defaults(func=estimates.cmd_estimate_story)
 
-    er = sub.add_parser("estimate-rollup", help="roll child estimates up to a sprint or epic")
+    er = sub.add_parser("estimate-rollup", help="roll an epic's story estimates up to the epic")
     er.add_argument("--state-root", required=True)
     er.add_argument("--epic", required=True)
-    er.add_argument("--sprint", default="")
     er.add_argument("--model", default="",
                     help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
     er.add_argument("--token-rates", dest="token_rates", default="",

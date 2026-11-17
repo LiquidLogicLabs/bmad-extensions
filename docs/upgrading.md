@@ -64,7 +64,7 @@ up a mid-flight file replacement.
 
 This matters for locking specifically: an epic's lock file lives at a fixed path per
 `pm-status.py` version, and that path was relocated (from inside the epic's own directory to
-`{state_root}/epic-NNN.lock`) so it survives a `move-epic` `git mv`. A
+`{state_root}/epic-NNN.lock`) so it survives an epic directory's `git mv` (`move-epic`, removed in 4.0.0). A
 pre-upgrade process and a post-upgrade process therefore do not lock the *same file* for the
 same epic during the transition window, and so do not exclude each other, even though both
 believe they hold "the" epic lock.
@@ -142,8 +142,34 @@ wave build at once. A worktree of a project that ignores `_bmad/` cannot run any
 such a project builds one epic at a time; the run says so when it starts.
 
 **`pm-status.py`'s `sync-story-doc` and `archive-epic` are removed**, with the 3.x sprint and
-closure phases that were their last callers. `move-epic --to archived` does what
-`archive-epic` did.
+closure phases that were their last callers.
+
+**Planning moves to Sofia (`bmad-agent-po`); `/l3io-plan` keeps `estimate`, `waves` and `lanes`.**
+v7 owns the work-item tree (ADR-0015) and has no sprints (ADR-0016), so what l3io did to its own
+3.x tree is now Sofia's:
+
+| Removed | Replaced by |
+|---|---|
+| `/l3io-plan` with no argument — readiness check, story elaboration, dependency graph, plan snapshot, backlog intake | Sofia's REFINE elaborates tickets, her validate runs l3io's readiness checks (wired by `/l3io-doctor wire`), and `/l3io-plan waves` gives the order |
+| `/l3io-plan reorg`, and undoing a reorg | Sofia's REPLAN; moving one ticket is her BOARD `move` |
+| `/l3io-plan estimate E001` / `E001-S01` | `/l3io-plan estimate <folder>` over a v7 initiative or epic; Sofia's hooks estimate new and changed tickets on their own |
+| `auto_elaborate`, `include_estimates`, `plan_output`, `max_turns_per_story` in `l3io-plan`'s `customize.toml` | nothing — a team file still setting them sets nothing |
+
+**Six `l3io-doctor` modes are removed**, because each wrote the 3.x state tree:
+`bootstrap-state`, `split-status`, `sort-status`, `reconcile-status`, `migrate-schema` and
+`clean-layout` (with its alias `layout-cleanup`). The health check and `stats` now read a v7
+initiative through `pm-status.py report`. `migrate-state` stays until a later release replaces it
+with a migration onto v7's tree.
+
+**Sixteen `pm-status.py` verbs are removed**, with their last callers:
+- `set-status`, `move-epic`, `reparent-story`, `retire-epic`, `reorg-log`, `reorg-undo` and `dump-plan` are removed — status and placement are v7's, written by Sofia and `bmad-build-auto`.
+- `list-epics`, `list-stories` and `show` are removed — `report --project-root P --initiative-dir D` replaced them, and `report` no longer reads a 3.x state tree.
+- `set-depends-on`, `story-doc-init` and `set-field` are removed — dependencies are v7's `after`, tickets are Sofia's, and a lane is written by `set-lane`.
+- `set-lock`, `clear-lock` and `check-lock` are removed — an epic's run is owned through its `l3io/<slug>` branch and worktree, not a lock in a node file.
+
+The sprint level goes from estimation and calibration too: `estimate-rollup` takes `--epic`
+only, `set-actual --node` takes `story` or `epic`, and an epic's estimate is the sum of its
+tickets plus the epic closure and orchestration bands.
 
 ### → 3.7.2
 
@@ -669,7 +695,7 @@ to remember which module a skill lives in.
 | `/l3io-pm-sync` | `/l3io-sync` |
 | `/l3io-pm-setup` | `/l3io-setup` — forwarder shipped in 3.1.3–3.1.7, **withdrawn in 3.1.8**; see below |
 | `/l3io-util-doctor` | `/l3io-doctor` — **clean rename, no forwarder** |
-| `/l3io-util-doctor layout-cleanup` | `/l3io-doctor clean-layout` — verb-first, mirrors `clean-legacy`; `layout-cleanup` kept as an alias in 3.1.3+, planned removal in 4.0.0 |
+| `/l3io-util-doctor`'s `layout-cleanup` mode | `/l3io-doctor`'s `clean-layout` mode — verb-first, mirrors `clean-legacy`; `layout-cleanup` kept as an alias in 3.1.3+; both removed in 4.0.0 |
 | `/l3io-sec-redteam` | unchanged |
 | `/l3io-arch-review` | unchanged |
 

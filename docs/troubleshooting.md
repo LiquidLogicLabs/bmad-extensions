@@ -10,7 +10,7 @@ Two general rules first:
 - **Re-running without changing anything will block identically.** There is no override flag for
   most gates, by design. If a message tells you what to fix, that is the only path forward.
 
-When you do not know where you are, `/l3io-doctor stats` shows where the plan stands. It is
+When you do not know where you are, `/l3io-doctor stats` shows where the initiative stands. It is
 read-only and safe at any time.
 
 ## Exit codes
@@ -20,11 +20,11 @@ Both Python helpers use stable exit codes, useful when scripting around them.
 | Code | `pm-status.py` | `spec-align.py` |
 |---|---|---|
 | 0 | success / verified | ok |
-| 1 | `notice` only: this notice was already emitted for this key | a report-mode check found problems |
+| 1 | `notice`: already emitted for this key; `estimate-entries --check`: an entry has no estimate; a committing verb: written, but the commit failed | a report-mode check found problems |
 | 2 | usage error; for `notice`, an unexpected recording failure | a gate refused, or bad input |
-| 3 | node not found | — |
-| 4 | verification failure (missing or invalid field) | — |
-| 5 | epic locked | the spec-sync lease is held by another owner |
+| 3 | node, entry or plan not found | — |
+| 4 | verification failure (missing or invalid field); `build-close` with no open bracket | — |
+| 5 | epic locked (issue verbs on a 3.x tree) | the spec-sync lease is held by another owner |
 
 ## Setup and environment
 
@@ -41,174 +41,91 @@ Note that missing `uv` alone is not fatal — the skills fall back to `python3`.
 fatal when that interpreter also lacks the dependency, which is why `uv` is listed as a
 prerequisite.
 
+### `BMad v7 not detected`
+
+```
+BLOCKED: BMad v7 not detected. l3io 4.x supports BMad v7 only; on BMad 6.x install l3io 3.x.
+```
+
+l3io 4.x attaches to v7's skills and reads v7's ticket tree; it has no 6.x mode.
+
+### `_bmad/l3io-pm/scripts/pm_status is not installed`
+
+`npx skills add` installs skills but no declared script. Run `bmad setup l3io-pm` (and
+`bmad setup l3io-util` for the doctor), which installs each module's `pm_status` copy.
+
 ### BMad core is not installed
 
 Config resolution runs BMad core's `resolve_config.py`. If it is missing, the skill blocks and
 tells you to run the BMad installer. It will not write a config itself or continue on guesses.
 
-### `{state root} is gitignored`
+## A 3.x project
 
-```
-BLOCKED: {pm_state_root} is gitignored. Project state must be committed.
-```
+l3io 4.x does not read a 3.x state tree (`{implementation_artifacts}/state/`, a flat
+`sprint-status.yaml` or a legacy `_bmad/state/`). `/l3io-doctor migrate-state` still migrates
+the legacy layouts until a later release replaces it with a migration onto v7's tree; see
+[Upgrading](upgrading.md).
 
-Project state is meant to be committed — it is how work survives between sessions and agents.
-This is a halt, not a remediation: no line the skill could append is guaranteed to work. The
-message runs `git check-ignore -v` and names the exact ignoring file and rule. A rule in a
-project `.gitignore` is fixed there with negations written **relative to that `.gitignore`'s
-directory**, one per excluded parent directory down to the state directory (an absolute path
-matches nothing). If the rule excludes a parent directory, git cannot re-include anything from
-inside it, so that rule itself must be changed or narrowed. A rule in `.git/info/exclude`, a
-global excludes file or a symlink is local to your machine; remove it there. The skill never
-edits an ignore file.
+## Estimation problems
 
-## State layout problems
+### `estimate-entries` exits 2 naming entries that need a class
 
-These are the most common blockers on an existing project, and all of them are resolved by the
-doctor rather than by hand.
+A new entry has no class, and the class is the one judgement an estimate needs. `/l3io-plan
+estimate` and Sofia's hooks ask the agent to classify each named entry `simple`, `standard` or
+`complex` and pass it as `--class ID=CLASS`. Nothing was written.
 
-### `multiple state layouts detected`
+### `entry <id> (<title>): no estimate`
 
-```
-BLOCKED: multiple state layouts detected (sharded=… legacy-per-epic=… legacy-flat=…).
-An earlier migration did not finish.
-```
+Sofia's validate Set check (`estimate-entries --check`) found entries with neither l3io's
+estimate nor a hand-set one. Run `/l3io-plan estimate` on the epic, or set an estimate on the
+entry in `tickets.toml` yourself.
 
-The detector counts layouts rather than stopping at the first one it finds, precisely so a
-half-finished migration cannot be mistaken for a clean project.
+### A committing verb exits 1
 
-When the sharded tree and the legacy per-epic tree are the only two present, and every epic key
-in the legacy `_bmad/state/` is also in the sharded tree, `l3io-execute` and `l3io-plan`
-resolve it themselves: they move the legacy tree to `_bmad/state.superseded`
-(`mv _bmad/state.superseded _bmad/state` undoes it), leave the sharded tree untouched, report
-the move, and continue. Only epic keys are compared, not sprints or stories inside a shared
-key. A legacy-only key, a legacy entry that is not an epic key, or a flat `sprint-status.yaml`
-still halts; for the first three the message prints the keys that differ. Inspect both
-locations, remove the stale one, then re-run `/l3io-doctor migrate-state`.
-
-### `legacy state layout — migrate required`
-
-A flat `sprint-status.yaml` or a legacy per-epic `_bmad/state/` tree was found. The skill runs
-`/l3io-doctor migrate-state` itself, reports it, and continues; originals are preserved as
-`.legacy`. It halts only if the migration fails or the layout is still legacy afterwards, naming
-what it tried; then run `/l3io-doctor migrate-state` yourself and read its error.
-
-Do not run the individual migration modes by hand — `split-status` in particular produces a
-three-file layout that the PM skills *still* cannot read. Let the doctor sequence the migration.
-
-### `state found at … but implementation_artifacts resolves to …`
-
-```
-BLOCKED: … Refusing to start a blank project over existing state.
-```
-
-State exists somewhere other than where config now points, which usually means
-`implementation_artifacts` was changed after work had already begun. `l3io-execute` and
-`l3io-plan` repoint `implementation_artifacts` at the existing tree in
-`_bmad/custom/config.toml`, writing the previous value beside it as a `# was:` comment, and
-report the change; revert by restoring that value. The alternative, silently starting a second,
-empty project, never happens. It halts instead when `_bmad/custom/config.user.toml` also sets
-`implementation_artifacts` (that layer wins and is yours to edit), when the write fails, or when
-the setting still resolves elsewhere afterwards.
-
-### `schema verify failed for {epic}`
-
-An active epic failed integrity verification at activation. Inspect the epic's node files. The
-verification detail is printed above the message.
-
-## Planning problems
-
-### `plan-output-meta.yaml absent`
-
-No plan exists. `l3io-execute` runs `/l3io-plan` itself, reports it, and continues.
-
-If snapshots exist but the pointer does not, it still rebuilds from current state; existing
-snapshots are neither deleted nor read, because the newest may be incomplete. The same applies
-when the pointer names a snapshot that is missing: the plan and pointer are rebuilt and no other
-snapshot is substituted.
-
-The four plan-pointer conditions (absent, absent with snapshots, RED, and a missing target)
-share **one** rebuild per run. If a condition survives that run, the skill halts naming what it
-tried instead of planning again; resolve what `/l3io-plan` reports, then re-run.
-
-### `plan readiness is RED`
-
-`l3io-execute` runs `/l3io-plan` once to resolve the gaps. If the plan is still RED afterwards
-it halts, and the way forward is to resolve what `/l3io-plan` reports or — having accepted the
-risk — edit `readiness:` in `plan-output-meta.yaml` to `amber` and re-run. That second route is
-never taken for you: accepting the risk is yours alone.
-
-Re-running `/l3io-execute` unchanged will block identically. The step file says so explicitly,
-because it is the obvious wrong move.
-
-### `readiness gate — red` at plan time
-
-The readiness check found blocking issues. They are listed in
-`{planning_artifacts}/readiness-report.md`. Fix the Red findings and re-run.
-
-### `artifact-only stories detected`
-
-Story markdown files exist without matching state nodes — normal for projects whose stories were
-created with the legacy `bmad-create-story` outside this package. Run
-`/l3io-doctor bootstrap-state` once. It is idempotent: existing correct nodes are skipped.
-
-### `dependency graph has errors`
-
-A cycle, printed as e.g. `E001 → E003 → E001`. Fix the `depends_on` fields on the named nodes.
-
-### `plan-output-meta.yaml points at {file}, which does not exist`
-
-Re-run `/l3io-plan` to rebuild both. Do not substitute another snapshot — the pointer and the
-readiness value belong together.
+`estimate-entries`, `sidecar-reconcile`, `set-lane`, `build-close` and `epic-close` wrote their
+files and then failed to commit them — usually a commit hook. The tree is dirty, and the next
+`bmad-build-auto` will refuse to start on it. Commit or fix the hook, then continue.
 
 ## Execution problems
 
-### `{epic} is owned by another session` / `lock held by another session`
+### `the working tree is not clean`
 
-Epic locks are TTL-based. A lock older than the TTL is treated as stale and taken over
-automatically, so this means a genuinely live session holds it. Wait for expiry, or clear it
-deliberately with `pm-status.py clear-lock`.
+`l3io-execute` starts only from a clean main checkout, because every `bmad-build-auto` run
+demands one. Commit or stash the listed paths.
 
-A malformed lock field is *also* refused rather than guessed at, which is why a corrupt
-`_lock` presents the same way. During a multi-epic run, a locked epic is skipped and the run
-continues to the next one rather than halting everything.
+### `{slug} is owned by another session`
 
-### `FAILED: story … findings unresolved after {n} fix iterations`
+Its branch `l3io/{slug}` is checked out in another worktree, so another run may be building it.
+The run never removes or reuses that worktree. Once nothing runs in it, remove it yourself.
 
-The per-story fix loop hit its cap (default 3). Before failing, every unresolved finding is
-recorded as a backlog item, so nothing is lost, and the story is left at `review`.
+### `{ref} of {slug} did not build`
 
-There is no automatic retry past the cap — deliberately, because each iteration is a turn
-multiplier and cost grows with the square of a session's turn count. Act on the recorded
-findings, then re-run the sprint.
+`bmad-build-auto` halted on the ticket; the reason is its plan's `blocked_reason`, or the paths it
+left dirty. Resolve it in that epic's worktree, then run `/l3io-execute` again — a ticket already
+`built` is not rebuilt.
 
-### `story … depends on {dep}, which is not done`
+### `the retrospective of {slug} is rejected`
 
-The orchestrator dispatches in dependency order, so hitting this points at a dependency-graph
-problem upstream rather than a scheduling accident. It does not re-queue — with one agent per
-story there is no queue to reorder.
+`bmad-retrospective` did not accept the epic, so its tickets stay `built` and that epic halts.
+Moving them to `done` anyway would be a risk acceptance, which is yours alone — the run never
+does it for you.
 
-### `story … still missing technical ACs after elaboration`
+### `{slug} gates the next wave and is not done`
 
-The six-dimension technical-AC gate re-checked after enrichment and still failed. This one needs
-a human: open the story and fill the missing dimension, or mark it `N/A` with a reason. Every
-dimension must be satisfied or explicitly excused.
+A later wave waits for this epic's closure, and only you can tell Sofia an epic is `done`. Close
+it in Sofia, then run `/l3io-execute` again.
 
-### `arch gate — {n} blocking findings unresolved after ADR resolution`
+### `merging l3io/{slug} into {base} conflicts`
 
-The epic architecture gate ran its resolution pass and BLOCKER or MAJOR findings survived. There
-is no deferral path for blocking severities — they are resolved in code, or justified by an
-accepted ADR, or the run stops. That is the gate working as intended.
+Two epics of one wave changed the same files. Resolve the conflict, finish the merge, and run
+`/l3io-execute` again.
+
+### `tracker sync failed`
+
+Sofia's Tracker sync procedure failed before any build. The message names the command; fix the
+tracker connection and re-run.
 
 ## Spec alignment problems
-
-### `spec-sync lease held by {owner}`
-
-Exit 5. Parallel epic closures share one working tree, so a lease prevents two of them editing
-one architecture document at once. The acquire path retries before failing, and a closure that
-cannot get the lease records a deferral rather than blocking outright.
-
-Releasing someone else's lease is refused.
 
 ### `Departs from spec: … does not resolve`
 
@@ -223,19 +140,6 @@ A previous run stopped midway, leaving moved files uncommitted. Inspect and comm
 Never use a repo-wide discard: other agents may share this checkout, and a blanket reset would
 destroy their uncommitted work. The message lists exactly which paths to look at.
 
-## Housekeeping problems
-
-### `Cleanup HALT — {n} classifiable file(s) remain after {n} passes`
-
-Layout cleanup could not resolve some filenames after several passes. The residual files are
-listed; they usually need manual mapping because their names are genuinely ambiguous. The skill
-waits for your guidance rather than guessing.
-
-### `verification failed for {epic} — newly created nodes did not pass integrity check`
-
-From `bootstrap-state`. The state files are on disk and nothing was removed. Inspect the epic's
-directory, correct or delete the malformed nodes, and re-run — correct nodes are skipped.
-
 ## Things that are refused on purpose
 
 These are not errors to work around. Each one exists because the alternative shipped a bug once.
@@ -243,15 +147,14 @@ These are not errors to work around. Each one exists because the alternative shi
 | You tried | Why it is refused | Do this instead |
 |---|---|---|
 | `set-actual --cost …` | Cost is derived from tokens × rates, never entered | Fix the token counts, or the `token_rates` override |
-| `set-field completion_evidence.tests_passing` | An agent asserting its own tests passed is not falsifiable — one once shipped `true` over a suite it never ran | `add-test-run --command CMD --exit-code N`; the flag is derived from it |
-| `set-field status` | Status transitions also write the event log and run the done hook | `set-status` |
-| `set-field resolves` | Promotion schedules backlog items | `promote-issue` |
+| Asserting `completion_evidence.tests_passing` | An agent asserting its own tests passed is not falsifiable — one once shipped `true` over a suite it never ran | `add-test-run --command CMD --exit-code N`, or `build-close --test-run 'CMD=EXIT'`; the flag is derived from them |
+| A lane named rather than numbered | A name cannot be screened from a person's | `set-lane --lane N`, `N` in `1..lane_count` |
 | `--runtime` with any other value | Only `claude`, `codex`, `copilot`, `other` are valid | Use one of the four; `other` when unsure |
 | An `N/A` token count under `--runtime claude` | A Claude session can read its own usage | Capture the real figures from the transcript |
 
 ## Still stuck?
 
-- `/l3io-doctor stats` — where the plan stands, read-only
+- `/l3io-doctor stats` — where the initiative stands, read-only
 - `/l3io-doctor check` — the full diagnostic, read-only, changes nothing
 - [Limits](limits.md) — it may be something this package deliberately does not do
 - [Upgrading](upgrading.md) — if the project came from an older version

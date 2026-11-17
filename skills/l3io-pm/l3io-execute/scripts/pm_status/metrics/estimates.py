@@ -36,7 +36,6 @@ from ..nodes import (
     list_sprint_dirs,
     list_story_files,
     load_node,
-    sprint_file,
     story_file,
 )
 from .calibration import (
@@ -102,8 +101,7 @@ def split_tokens(total: float, mix: dict) -> dict:
     return out
 
 
-# Cold-start base bands (low, high) per classification; the single source (formerly a
-# markdown table in steps/shared/step-estimate.md). No `cost` row: cost is derived from the
+# Cold-start base bands (low, high) per classification; the single source. No `cost` row: cost is derived from the
 # tokens_k total and priced per model, see cmd_estimate_story -- a separate cost band drifted
 # from the token estimate it should follow. `tokens_k` is a FRESH-token band (input + output
 # + cache_write); see FRESH_TOKEN_CLASSES. Do not raise it to meet a cache-inclusive actual:
@@ -238,7 +236,7 @@ NO_CHILD_ESTIMATES = "has no child estimates to roll up"
 def rollup_values(cal, level, children, model, overrides):
     """The roll-up arithmetic over already-loaded children: (estimate, children counted,
     metrics whose orchestration band is not yet active). `level` names the calibration
-    components applied (`sprint` or `epic`); each child is a mapping holding `estimate`.
+    components applied (`epic`); each child is a mapping holding `estimate`.
     Shared by the 3.x node roll-up below and the v7 epic roll-up (`sidecar.estimate`),
     whose children are the epic's entries with no sprint between them. Raises PMError(2)
     when no child carries an estimate, or for an unpriceable model."""
@@ -296,68 +294,51 @@ def rollup_values(cal, level, children, model, overrides):
     return est, counted, inactive
 
 
-def rollup_parent_estimate(state_root, epic, sprint, model, overrides):
-    """Roll a sprint's story estimates, or an epic's sprint estimates, up to
-    the parent as a range: sum(children) + a closure band + an orchestration
-    band. Output is always range form, even when every child estimate is
-    single-value (the story form).
+def rollup_parent_estimate(state_root, epic, model, overrides):
+    """Roll an epic's story estimates up to the epic as a range: sum(stories) + a closure
+    band + an orchestration band. There is no sprint level between them (ADR-0016): a 3.x
+    tree still files stories in sprint folders, and every story under the epic counts.
+    Output is always range form, even when every child estimate is single-value (the
+    story form).
 
-    The closure band scales by the calibrated closure ratio for level/metric
-    once active (>=3 samples), else the cold-start band applies (equivalently,
-    ratio 1.0). The orchestration band scales by the calibrated orchestration
-    FRACTION for level/metric once active, else it contributes nothing — there
-    is no cold-start prior for orchestration (see ORCH_SPREAD, and
-    active_orchestration_fraction's docstring for why). Both bands widen by a
-    fixed spread (COLD_START_CLOSURE_BAND, ORCH_SPREAD respectively) rather
-    than landing on a single point.
+    The closure band scales by the calibrated closure ratio for the metric once active
+    (>=3 samples), else the cold-start band applies (equivalently, ratio 1.0). The
+    orchestration band scales by the calibrated orchestration FRACTION once active, else it
+    contributes nothing — there is no cold-start prior for orchestration (see ORCH_SPREAD,
+    and active_orchestration_fraction's docstring for why). Both bands widen by a fixed
+    spread (COLD_START_CLOSURE_BAND, ORCH_SPREAD respectively) rather than landing on a
+    single point.
 
     The applied ratios/fractions are recorded as `estimate.closure_ratios` and
-    `estimate.orchestration_ratios`, per metric, so `derive_closure_sample` and
-    a future orchestration-sample reader can divide them back out — the same
-    reason `estimate.scope_ratios` exists on a story.
+    `estimate.orchestration_ratios`, per metric, so `derive_closure_sample` can divide them
+    back out — the same reason `estimate.scope_ratios` exists on a story.
 
-    `cost` is not one of the banded metrics (see CLOSURE_RANGE_KEYS): it is
-    derived from the rolled-up tokens_k range, split across classes by
-    `observed_mix`, then priced for `--model` (falling back to
-    DEFAULT_ESTIMATE_MODEL) — the sprint/epic-level mirror of what
-    `cmd_estimate_story` already does for a story. This keeps the rolled-up
-    cost arithmetically bound to the rolled-up token estimate it prices,
-    instead of banding and calibrating a second, independently-drifting cost.
+    `cost` is not one of the banded metrics (see CLOSURE_RANGE_KEYS): it is derived from the
+    rolled-up tokens_k range, split across classes by `observed_mix`, then priced for
+    `--model` (falling back to DEFAULT_ESTIMATE_MODEL), so it stays arithmetically bound to
+    the token estimate it prices.
 
-    Never exits: raises PMError(3) for a missing parent, PMError(2) for
-    nothing to roll up or an unpriceable model.
-
-    The epic-level roll-up rewrites epic.yaml, so it runs under that epic's
-    epic_node_lock -- re-entrantly when promote-issue, which already holds it,
-    is the caller. An epic the pre-check cannot find raises PMError(3) right
-    there, with no lock file created for it. It is never handed to the body
-    unlocked: find_epic_dir scans active -> planned -> archived, so a move-epic
-    the other way can land mid-scan and hide an epic that exists, and the body's
-    own re-resolve would then find it and reach save_node without the lock.
+    Never exits: raises PMError(3) for a missing epic, PMError(2) for nothing to roll up or
+    an unpriceable model. It rewrites epic.yaml, so it runs under that epic's
+    epic_node_lock -- re-entrantly when promote-issue, which already holds it, is the caller.
     """
-    if sprint:
-        return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
     if nodes.epic_file(state_root, epic) is None:
         raise PMError(3, f"epic {epic}")
     with epic_node_lock(state_root, epic):
-        return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
+        return _rollup_parent_estimate(state_root, epic, model, overrides)
 
 
-def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
-    """rollup_parent_estimate's body; the caller holds the epic lock for an epic roll-up."""
-    level = "sprint" if sprint else "epic"
-    if level == "sprint":
-        ppath = sprint_file(state_root, epic, sprint)
-        child_paths = list_story_files(state_root, epic, sprint)
-    else:
-        ppath = nodes.epic_file(state_root, epic)
-        child_paths = [sprint_file(state_root, epic, _sprint_key_from_dir(d))
-                       for d in list_sprint_dirs(state_root, epic)]
+def _rollup_parent_estimate(state_root, epic, model, overrides):
+    """rollup_parent_estimate's body; the caller holds the epic lock."""
+    level = "epic"
+    ppath = nodes.epic_file(state_root, epic)
+    child_paths = [sf for d in list_sprint_dirs(state_root, epic)
+                   for sf in list_story_files(state_root, epic, _sprint_key_from_dir(d))]
     if ppath is None:
-        raise PMError(3, f"{level} {sprint or epic}")
+        raise PMError(3, f"epic {epic}")
     y, pnode = load_node(ppath)
     if pnode is None:
-        raise PMError(3, f"{level} file is empty")
+        raise PMError(3, "epic file is empty")
 
     _, cal = load_calibration(state_root)
     children = [load_node(cp)[1] for cp in child_paths if cp is not None]
@@ -365,7 +346,7 @@ def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
         est, counted, inactive = rollup_values(cal, level, children, model, overrides)
     except PMError as e:
         if e.msg == NO_CHILD_ESTIMATES:
-            raise PMError(2, f"{level} {sprint or epic} {NO_CHILD_ESTIMATES}")
+            raise PMError(2, f"epic {epic} {NO_CHILD_ESTIMATES}")
         raise
     # ANY inactive metric warns, not just "every metric inactive" (`not any(...)`
     # would under-fire: orchestration calibrates per metric, and a metric is
@@ -389,13 +370,12 @@ def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
 def cmd_estimate_rollup(args) -> int:
     """CLI wrapper over rollup_parent_estimate."""
     try:
-        level, counted = rollup_parent_estimate(args.state_root, args.epic, args.sprint,
+        level, counted = rollup_parent_estimate(args.state_root, args.epic,
                                                 args.model or DEFAULT_ESTIMATE_MODEL,
                                                 rate_overrides(args))
     except PMError as e:
         if e.code == 3:
             _die_notfound(e.msg)
         _die_usage(e.msg)
-    sys.stdout.write(f"OK estimate-rollup {level} {args.sprint or args.epic} "
-                     f"from {counted} children\n")
+    sys.stdout.write(f"OK estimate-rollup {level} {args.epic} from {counted} stories\n")
     return 0

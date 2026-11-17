@@ -2,113 +2,83 @@
 
 Why each skill exists, when you reach for it, and the orders that make sense.
 
-Five skills across four modules. The thing to understand first is that
-**you invoke very few of them directly.** Two of the four modules mostly run *inside* the
-execution engine, on your behalf, at points where their judgement is needed.
+Five skills across four modules, all on BMad v7. The thing to understand first is that
+**l3io attaches to v7's own skills rather than replacing them.** Sofia (`bmad-agent-po`) owns
+the tickets, `bmad-build-auto` builds and reviews each one, and `bmad-retrospective` judges an
+epic; l3io's hooks ride those skills, and you invoke few of l3io's skills directly.
 
 ## The short version
 
 | Skill | The problem it solves | How you use it |
 |---|---|---|
-| `l3io-doctor` | "Is this project in a shape the other skills can read?" | **Run it first**, after every install and upgrade |
-| `l3io-arch-review` | "Is this design sound, and is the decision recorded?" | Directly at design time; otherwise **automatic** inside execution |
-| `l3io-plan` | "What order should this work run in, and how long will it take?" | Once per planning round; `reorg` when the plan is grouped badly; `lanes` when several developers share the plan |
-| `l3io-execute` | "Actually do the work, and don't let it close sloppily" | The engine — most of your runs |
-| `l3io-sec-redteam` | "What would an adversary do with this?" | **Automatic** at closure; directly for ad-hoc reviews |
+| `l3io-doctor` | "Is this project set up and wired, and where does it stand?" | **Run it first**, after every install and upgrade; `wire` once per project |
+| `l3io-arch-review` | "Is this design sound, and is the decision recorded?" | Directly at design time and for decisions |
+| `l3io-plan` | "How long will this take, in what order can it run, and who owns what?" | `estimate`, `waves`, `lanes` — also on Sofia's menu once wired |
+| `l3io-execute` | "Build the planned tickets without driving each build by hand" | The unattended run — most of your runs |
+| `l3io-sec-redteam` | "What would an adversary do with this?" | Directly, for adversarial reviews |
 
 ## Why each one exists
 
 ### `l3io-doctor` — the entry point
 
-Every other skill reads a state tree at `{implementation_artifacts}/state/`. If that tree is
-missing, half-migrated, or in a legacy shape, the rest of the system either refuses or gives
-you confusing answers. The doctor is what makes the project legible: with no argument it scans
-for every known problem, reports findings, and proposes the fixes in dependency order behind
-one confirmation.
+The doctor makes the project legible: with no argument it scans for every known problem,
+reports findings, and proposes the fixes in order behind one confirmation. Its health check
+reports when the two modules' `pm_status` copies, which `bmad setup` installs one per module,
+have drifted to different versions.
 
-It is also the documented post-upgrade step, because the installer refreshes skills but does
-**not** migrate your data. Its health check also reports when the two modules' `pm_status`
-copies, which `bmad setup` installs one per module, have drifted to different versions.
+It is also where l3io is attached to v7. `/l3io-doctor wire` writes l3io's hooks into the
+team's `_bmad/custom/<skill>.toml` files — estimates on Sofia's ticket procedures, readiness
+checks in her validate, waves and lanes on her board, measurement on every build and every
+retrospective — and records exactly what it wrote, so `/l3io-doctor unwire` removes only that.
+It never overwrites a team value.
 
-Reach for it: after install, after every upgrade, whenever something looks wrong, and for
-`triage` (close backlog items already fixed) and `stats` (a progress dashboard).
+Reach for it: after install, after every upgrade, whenever something looks wrong, for `wire`,
+for `stats` (a progress dashboard over an initiative), and for `triage` (close backlog items
+already fixed).
 
 ### `l3io-arch-review` — before you build, and whenever a decision is made
 
 This is the only module with **no runtime dependency on the others**; it works on a project
 that uses none of the rest. It applies an engineering-standards charter in three modes: design
 guardrails for a new project, review of an existing design or diff, and decision support that
-records an ADR.
+records an ADR. Its standards can be wired into core `bmad-architecture` and
+`bmad-code-review` through `bmad-customize`, so they apply during v7's own design and review.
 
-Its value inside this package is different from its value alone. Installed alongside `l3io-pm`,
-it becomes the reviewer behind two gates that would otherwise be prose: the epic architecture
-gate that runs *before* any sprint, and the drift reviews at sprint and epic closure. Without
-it, those gates self-skip and the story-level check falls back to a built-in checklist.
+### `l3io-plan` — estimates, order and ownership
 
-Reach for it directly: at the start of a project, when weighing a load-bearing choice, or to
-audit something specific. Otherwise it runs itself — see [what runs automatically](#what-runs-automatically-inside-execution).
+Shaping the plan is Sofia's: REFINE elaborates tickets, REPLAN reshapes the plan, BOARD moves
+work. `l3io-plan` adds three things she does not:
 
-### `l3io-plan` — decide the order before spending money on it
-
-Given epics and stories, planning answers what can run now, what is blocked, what can run in
-parallel, and what it will cost. It validates readiness, elaborates thin stories, estimates all
-five metrics, reads `depends_on` declarations, and produces a dated plan snapshot plus a stable
-pointer that execution reads.
-
-It exists because ordering decided up front is far cheaper than ordering discovered during a
-run, and because an estimate recorded before the work is the only thing that makes the actual
-recorded afterwards meaningful.
-
-A plan can be legal and still be badly shaped, which is what `/l3io-plan reorg` is for: it
-measures the current plan, proposes one regrouping with its evidence — critical path, cross-epic
-dependencies — and shows you the proposed plan to accept or reject. It writes planned work only,
-never adds or splits work, and never deletes: a retired epic is archived with its reason
-recorded, moved stories are re-keyed with the old key kept in `previous_keys`, and every reorg
-is journaled so "undo that reorg" works as a plain request rather than a keyword.
-
-A plan can also be shared. `/l3io-plan lanes` partitions it across developers who each have
-their **own clone**, which is the case the rest of the package does not cover: every `flock` in
-`pm-status.py` guards one filesystem, and two clones share none, so between developers
-concurrency is mediated by `git merge` rather than by a lock. The invariant that makes that safe
-is **one epic, one lane** — sprints and stories inherit the lane from the directory they live
-in, each lane writes only its own `state/{status}/epic-{nnn}/`, and git merges disjoint paths
-with nothing to reconcile. Measured on two clones running real work for two lanes: zero
-conflicts, every event preserved, with one `.gitattributes` line putting `merge=union` on
-`state/events.jsonl`.
-
-The mode proposes which epics each lane owns and reports what that partition costs — cross-lane
-dependencies, which turn two parallel developers into a queue, and lanes left idle in a phase.
-It warns rather than refuses; sometimes accepting the serialisation is right. It also shows one
-lane's view of the plan as a filter over the current snapshot, never as a second document. A
-lane is a **number**, never a person: who works which lane lives in each developer's own
-gitignored config, so a name never reaches the repository. Moving work between lanes means
-moving a story between epics, which is a reorg with all of a reorg's scrutiny.
+- **`estimate`** — every ticket gets an estimate of all five metrics from its class and the
+  project's calibration history, and each epic rolls up. Sofia's hooks run this as she writes
+  tickets; the mode is for re-estimating on request. An estimate recorded before the work is the
+  only thing that makes the actual recorded afterwards meaningful.
+- **`waves`** — the order an initiative's epics may run in, from v7's own `after`
+  declarations, and the epics whose closure a later wave waits on. Read-only.
+- **`lanes`** — when several developers each work their **own clone**, which epics each owns.
+  Every `flock` guards one filesystem and two clones share none, so between developers
+  concurrency is mediated by `git merge`; **one epic, one lane** gives the merge nothing to
+  decide in l3io's files. A lane is a **number**, never a person. Lanes stay entirely inert
+  unless `bmad setup l3io-pm` recorded a `lane_count` above 1.
 
 What lanes do **not** solve is source-file collisions. The dependency graph proves two epics
-have no `depends_on` between them; it says nothing about whether both rewrite the same module.
-Two lanes can be perfectly independent in the plan and still spend a week diverging on one file.
+do not wait on each other; it says nothing about whether both rewrite the same module.
 
-Reach for it: whenever you have more than one epic, after adding work, with `reorg` when the
-plan is ordered correctly but grouped badly, and with `lanes` when more than one developer will
-work this plan at once. Lanes stay entirely inert — no prompt, no proposal — unless
-`bmad setup l3io-pm` recorded a `lane_count` above 1.
+### `l3io-execute` — the unattended run
 
-### `l3io-execute` — the engine
+v7 builds one ticket per `bmad-build-auto` run. `l3io-execute` runs a whole initiative or epic:
+it syncs the store, orders the epics into waves, runs one `bmad-build-auto` per ticket invoked
+`thorough`, closes each epic with `bmad-retrospective`, marks its tickets `done` on an accepted
+verdict, and merges the epic's branch. It adds no review or fix loop of its own — the build's
+review is the review (ADR-0017).
 
-This is where the work happens, and where most of the design effort went. It runs the plan,
-one epic, or one sprint. Per story: dev, code review, then a fix loop capped at three
-iterations. At sprint and epic closure: retrospective, drift review, security review, UX review,
-triage, and a closure fix loop.
+Two properties explain the rest. First, each epic of a parallel wave runs in **its own worktree
+and its own agent session** when the project commits `_bmad/`, and tickets inside an epic run
+one at a time, because a build needs a clean tree. Second, it **stops where v7 says you
+decide**: a ticket's checkpoints, a rejected retrospective, and an epic a later wave waits on,
+which Sofia closes on your word.
 
-Two properties are worth knowing because they explain the rest of the system. First, it
-dispatches **one agent to prepare a sprint, one per story, and one to close it** — short
-sessions, because cost grows with the turns a single session accumulates, and every hand-off is
-a file on disk rather than context carried forward. Second, **nothing closes with unresolved
-Critical, High or Medium findings**; Low findings defer to a tracked backlog rather than being
-forgotten.
-
-Reach for it: most of the time. `/l3io-execute` for the whole plan, `E001` for one epic,
-`E001-S01` for one sprint.
+Reach for it: `/l3io-execute` for the active initiative, or name an initiative or epic folder.
 
 ### `l3io-sec-redteam` — the adversary you would not think to be
 
@@ -117,26 +87,19 @@ chaos engineer, abusive legitimate user, and a design red team — with an AI-po
 where AI components are in scope.
 
 It exists as its own module because the questions it asks are not the questions a code reviewer
-asks, and asking them as an afterthought produces afterthought answers.
+asks, and asking them as an afterthought produces afterthought answers. Invoke it directly.
 
-You mostly do not invoke it: it runs at sprint and epic closure automatically when installed
-and the work is code-bearing. Reach for it directly for an ad-hoc review of something specific.
+## What runs automatically once wired
 
-## What runs automatically inside execution
+After `/l3io-doctor wire`, these happen inside v7's skills without you asking:
 
-This is the part that surprises people. With `l3io-execute` driving, these happen without
-you asking:
-
-| When | What runs | Condition | If not installed |
-|---|---|---|---|
-| Before any sprint of an epic | `l3io-arch-review` Mode B over the whole epic's design | CODE or MIXED work | The gate skips entirely — it never partially skips |
-| Story preparation | The six-dimension technical-AC check | Always enforced | Falls back to a built-in checklist |
-| Per story | Core dev, code review, fix loop | Always | — |
-| Sprint closure | Retrospective, drift review (`l3io-arch-review`), security review (`l3io-sec-redteam`), UX review (legacy `bmad-ux-review`, else `bmad-ux`) | Code-bearing work; UX only for UI-facing stories | Each phase skips gracefully |
-| Epic closure | All of the above at epic scope, plus issue triage and the closure report | Code-bearing work | Skips gracefully |
-
-The consequence: installing `l3io-arch` and `l3io-sec` does not add steps you have to remember.
-It adds reviewers to gates that already exist.
+| When | What runs |
+|---|---|
+| Sofia writes, refines or replans tickets | `estimate-entries` estimates new and changed entries (the replan hook repoints moved ones first) |
+| Sofia validates | The six-dimension technical-AC and business-AC check per ticket; an "every entry has an estimate" check per set |
+| Sofia's board changes | Waves and lanes are re-derived and shown |
+| Every `bmad-build` or `bmad-build-auto` run | A measurement bracket opens before and closes after, recording the ticket's actuals and a calibration sample |
+| Every `bmad-retrospective` | The epic's closure cost, its total actual and the verdict are recorded |
 
 ## Orders that make sense
 
@@ -144,45 +107,30 @@ It adds reviewers to gates that already exist.
 
 ```
 /l3io-arch-review design        → boundaries, initial ADRs, a docs skeleton
-bmad-create-epics-and-stories   → the work itself (core BMad)
-/l3io-doctor               → confirm the project is legible
-/l3io-plan                   → order, dependencies, estimates
-/l3io-execute                → run it
+bmad setup                      → install l3io's modules into v7
+/l3io-doctor wire               → attach l3io's hooks
+Sofia                           → the initiative, its epics and tickets
+/l3io-plan waves                → the order, and where the run will pause
+/l3io-execute                   → run it
 ```
 
 ### A project that already has work underway
 
 ```
-/l3io-doctor               → health check first, always
-/l3io-doctor stats         → where the plan stands
-/l3io-execute E001           → the next epic or sprint
+/l3io-doctor                    → health check first, always
+/l3io-doctor stats              → where the initiative stands
+/l3io-execute                   → the next waves
 ```
 
-### A legacy project, from before the sharded state layout
+### A project coming from l3io 3.x
 
-```
-/l3io-doctor               → it detects the layout and sequences the migration
-                                  behind one confirmation. Do not run the individual
-                                  migration modes by hand.
-/l3io-doctor stats         → confirm it now reads cleanly
-```
-
-If the doctor reports more than one layout present, it stops rather than guessing which is
-authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the rollback table.
-
-### Day to day
-
-```
-/l3io-doctor stats         → where things stand
-/l3io-execute E001-S02       → run it
-/l3io-doctor stats         → watch, any time, read-only
-```
+Read [Upgrading](upgrading.md) first: 4.x does not read a 3.x state tree.
 
 ### Any time, independently
 
-- `/l3io-plan reorg` — propose a better shape for a plan that is legal but badly grouped
-- `/l3io-plan lanes` — partition the plan across developers with their own clones, or show one
-  lane's view (silent unless setup recorded `lane_count` above 1)
+- `/l3io-plan estimate` — re-estimate an initiative or epic
+- `/l3io-plan lanes` — partition an initiative across developers with their own clones, or
+  show one lane's view (silent unless setup recorded `lane_count` above 1)
 - `/l3io-arch-review decision` — weigh a choice against the standards and record the ADR
 - `/l3io-sec-redteam` — an ad-hoc adversarial review
 - `/l3io-doctor triage` — close backlog items that are already fixed
@@ -192,21 +140,14 @@ authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the ro
 
 | Module | Required? | Without it |
 |---|---|---|
-| `l3io-pm` | The core of the package | No orchestration, planning, or closure discipline |
-| `l3io-util` | **Required when using `l3io-pm`** | State-layout migrations (`migrate-state`, `bootstrap-state`) and the plan-aware progress dashboard fail if reached. The marketplace bundle ships it alongside `l3io-pm`, so a standard install always carries it. |
-| `l3io-arch` | Optional | The epic architecture gate skips; the story technical-AC gate falls back to a built-in checklist; drift reviews lose their reviewer |
-| `l3io-sec` | Optional | Closure runs without a security review |
+| `l3io-pm` | The core of the package | No unattended run, estimates or waves |
+| `l3io-util` | **Required when using `l3io-pm`** | No `wire`, so no hooks; no health check or progress dashboard. `bmad setup` names it as an unmet requirement when only `l3io-pm` is installed |
+| `l3io-arch` | Optional | No engineering-standards review |
+| `l3io-sec` | Optional | No adversarial security review |
 
-From core BMad and the official `bmm` module, these must be present: `bmad-code-review`,
-`bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review` (adversarial lens — the
-legacy `bmad-review-adversarial-general` is used only when it is absent), and
-`bmad-sprint-planning` (readiness gate — the legacy `bmad-check-implementation-readiness` is
-preferred when installed, because its presence is evidence `intent=readiness` may not be
-understood there). Story enrichment and implementation prefer the legacy `bmad-create-story` and
-legacy `bmad-dev-story` when installed, else this package runs its own in-package agent in their
-place, so no `--shims` flag is ever needed. UX review is optional — the legacy `bmad-ux-review`
-is preferred when installed, `bmad-ux`'s opt-in Reviewer Gate otherwise, and the phase skips
-gracefully when neither is present.
+From BMad v7's `method` module, `l3io-execute` requires `bmad-agent-po` (Sofia),
+`bmad-build-auto` and `bmad-retrospective`. `/l3io-doctor check-deps` shows what resolved in
+your project.
 
 ## Which skills write state
 
@@ -214,18 +155,18 @@ Worth knowing before you run something on a project you care about.
 
 | Skill | Writes state? |
 |---|---|
-| `l3io-execute` | Yes — statuses, actuals, the event log, closure artifacts |
-| `l3io-plan` | Yes — plan snapshots, elaborated stories, estimates |
-| `l3io-doctor` | Yes, but every change is confirmed first, and migrations preserve originals as `.legacy` |
+| `l3io-execute` | v7 ticket status only through Sofia's store (`done` after an accepted verdict); merges epic branches; commits l3io's project state |
+| `l3io-plan` | l3io's sidecars only — estimates and lanes, each committed |
+| `l3io-doctor` | Yes, but every change is confirmed first; `wire` edits only the team's `_bmad/custom/` files |
 | `l3io-arch-review` | Writes ADRs and review reports, not PM state |
 | `l3io-sec-redteam` | Writes findings reports, not PM state |
 
-Every state write goes through one shared helper (`pm-status.py`) under a lock, which is what
-makes concurrent epics safe.
+Every l3io state write goes through one shared helper (`pm-status.py`), atomically and under a
+lock where files are shared, and never writes a v7 file.
 
 ## Where to go next
 
 - [Getting started](getting-started.md) — prerequisites, install, and your first run
 - [l3io-pm reference](l3io-pm-reference.md) — the full lifecycle and every subcommand
-- [Architecture and execution model](architecture.md) — why the context boundary and the cost
-  model are shaped the way they are
+- [Architecture and execution model](architecture.md) — the hooks, the sidecars and the cost
+  model

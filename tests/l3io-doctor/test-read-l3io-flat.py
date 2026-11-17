@@ -95,7 +95,7 @@ class TestReadL3ioFlat(unittest.TestCase):
 
     def test_epic_goal_is_captured_as_an_extra(self):
         """Fields import-node does not accept typed must ride through in `extras` so
-        the engine can dispatch them via set-field (or WARN)."""
+        the engine can hand them to import-node (or WARN)."""
         by_key = {r["key"]: r for r in self.recs}
         self.assertEqual(
             by_key["E001"].get("extras", {}).get("goal"),

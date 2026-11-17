@@ -588,12 +588,24 @@ class TestFallback(Base):
         data = json.loads(out)
         self.assertEqual(data["missing_required"], [])
         by = {r["name"]: r for r in data["resolved"]}
-        required_with_fallback = [e["name"] for e in self.real_inventory()
-                                  if e.get("status") == "required" and e.get("fallback")]
-        self.assertTrue(required_with_fallback)
-        for name in required_with_fallback:
+        for name in [e["name"] for e in self.real_inventory()
+                     if e.get("status") == "required" and e.get("fallback")]:
             self.assertIn(name, by)
             self.assertEqual(by[name]["resolved_as"], fb[name], name)
+
+    def test_required_site_resolves_through_its_fallback_on_a_pre_612_tree(self):
+        """The shipped inventory has no required site with a fallback any more, so the
+        property is pinned on a planted one: a pre-6.12 install carrying only the fallback
+        name satisfies the requirement."""
+        inv = self._inv([{"name": "a-new", "status": "required", "fallback": "a-old"}])
+        root = self._tree(["a-old"], layout="commands", version="6.11.0")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(data["missing_required"], [])
+        by = {r["name"]: r for r in data["resolved"]}
+        self.assertEqual(by["a-new"]["resolved_as"], "a-old")
 
 
 class TestShims(Base):

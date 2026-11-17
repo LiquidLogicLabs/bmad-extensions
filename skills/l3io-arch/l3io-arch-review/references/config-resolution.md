@@ -64,50 +64,32 @@ Bind these at activation, applying the default when the key is absent:
 | `{implementation_artifacts}` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` |
 | `{planning_artifacts}` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` |
 | `{model}` | `modules.l3io-pm.default_model` | `claude-opus-5` (`DEFAULT_ESTIMATE_MODEL` in `pm-status.py`) |
-| `{model_story_simple}` | `modules.l3io-pm.model_story_simple` | `{model}` |
-| `{model_story_standard}` | `modules.l3io-pm.model_story_standard` | `{model}` |
-| `{model_story_complex}` | `modules.l3io-pm.model_story_complex` | `{model}` |
-| `{model_review}` | `modules.l3io-pm.model_review` | `{model}` |
-| `{model_prep}` | `modules.l3io-pm.model_prep` | `{model}` |
-| `{model_closure}` | `modules.l3io-pm.model_closure` | `{model}` |
 | `{token_rates_json}` | `modules.l3io-pm.token_rates`, **JSON-encoded** | empty — the shipped rate table applies unchanged |
 | `{business_ac_required}` | `modules.l3io-pm.business_ac_required` | `"CODE,MIXED"` |
-| `{reorg_auto_apply}` | `modules.l3io-pm.reorg_auto_apply` | `"never"` |
 | `{lane_count}` | `modules.l3io-pm.lane_count` | absent — lanes off |
 | `{lane}` | `modules.l3io-pm.lane` (**user layer only**) | absent |
 
 `{business_ac_required}` names the work types whose stories must carry a `## Business acceptance
-criteria` section for the story-prep gate to pass (`CODE`, `DOCS`, `CONFIG`, `MIXED`, comma-separated,
+criteria` section for the readiness check to pass (`CODE`, `DOCS`, `CONFIG`, `MIXED`, comma-separated,
 case-insensitive, whitespace ignored; an unrecognised entry halts). It is a **scalar**, not an
 array, because the resolver merges scalars by override and arrays by append: an array could only
 ever be widened by a team overlay and never narrowed, so a project could not turn the requirement
 off for a type once any layer had added it. Its home is `modules.l3io-pm` rather than a per-skill
-`customize.toml` because `l3io-plan` enriches and `l3io-execute` gates, and the two must agree.
-
-`{reorg_auto_apply}` pre-authorises `/l3io-plan reorg` to skip its confirmation prompt.
-`never` (the default) always confirms; `moves` applies reparenting without asking and still
-confirms every retirement; `always` applies both without asking. Any other value is treated as
-`never` and said so once — a misspelled setting must never become a broader authorisation than
-the person wrote. It is a **scalar** for the same reason `{business_ac_required}` is: the
-resolver merges scalars by override and arrays by append, so an array could only ever widen the
-authorisation and a project could not take it back once any layer had granted it. **It skips
-the prompt, never the record** — every reorg is journaled regardless, because that journal is
-what makes the operation undoable. It does not authorise an undo: reversing a reorg is always
-confirmed.
+`customize.toml` because the readiness check wired into Sofia's validate reads it from the module.
 
 **`{model}` and `{token_rates_json}` are what make cost a real number rather than a
 default.** Every `cost` in this system is derived from `tokens_k × the rate card for a
 model`, and the same token volume prices roughly 2× apart between a $3/M and a $10/M input
-tier. `{model}` is passed as `--model` on `estimate-story`, `estimate-rollup`, and every
-`set-actual` that carries token counts; leaving it unbound silently prices every estimate in
+tier. `{model}` is passed as `--model` on `estimate-entries` and every pm-status call that prices
+tokens; leaving it unbound silently prices every estimate in
 the project at `claude-opus-5` regardless of what it actually runs on. An unknown model id is
 a hard error (exit 2), never a silent fallback — that is deliberate, so a wrong rate stays
 visible.
 
 `{token_rates_json}` is the per-model override table, and it is **optional**: bind it only
 when `modules.l3io-pm.token_rates` is present, serialize that section to compact JSON, and
-pass `--token-rates '{token_rates_json}'` on `estimate-story`, `estimate-rollup`,
-`set-actual`, **and `verify`**. Omit the flag entirely when the key is absent — an empty
+pass `--token-rates '{token_rates_json}'` on `estimate-entries`, `estimate-story`,
+`estimate-rollup`, `set-actual`, **and `verify`**. Omit the flag entirely when the key is absent — an empty
 string is accepted but adds nothing. Passing it to the three writers but not to `verify` is
 the specific mistake to avoid: `verify` recomputes `cost` from the node's own `tokens_k` and
 `model`, so without the same override in force it recomputes against the shipped rates and
@@ -161,7 +143,7 @@ point for both.
 
 At most once ever, per project — not per session — an **orchestrator** may mention that
 `bmad setup l3io-pm` exists, and only when there is something to mention. There is no notion of
-"session" that outlives one skill invocation: `{session_id}` (`step-00-activate.md` §7) is
+"session" that outlives one skill invocation: `{session_id}` (`step-00-activate.md` §3) is
 bound fresh per invocation and no caller of `notice` is ever a dispatched subagent that could
 inherit one from a parent, so a per-session key would never repeat — it would fire on every
 single invocation, exactly the nagging this mechanism exists to prevent. (An earlier version
@@ -202,8 +184,8 @@ this is a placement decision worth stating rather than a limitation to "fix".
 
 ## 6. Detecting whether another l3io module is installed
 
-Optional integrations (the epic architecture gate calling `l3io-arch-review`, sprint
-closure calling `l3io-sec-redteam`) must test for **installation**, not configuration. A
+Optional integrations (a skill calling `l3io-arch-review` or `l3io-sec-redteam`) must test for
+**installation**, not configuration. A
 module can be fully installed and still have no config section, so a config lookup reports
 a present module as absent and the integration silently self-skips.
 

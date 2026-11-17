@@ -49,10 +49,10 @@ def make_record(kind, key, status, title, source, origin=None, origin_note=None,
     for stories.
 
     `extras` carries any fields the reader recognises from the source that are
-    NOT in import-node's typed argument surface (goal, depends_on, superseded_by,
-    estimate, actual). The engine's write() step consults it AFTER import-node
-    lands the node: scalar fields it can dispatch through set-field, structured
-    fields it cannot yet write are logged to stderr as visible skips rather than
+    NOT among import-node's typed record fields (goal, depends_on, superseded_by,
+    estimate, actual). The engine's write() step passes goal, superseded_by and
+    depends_on to import-node as flags, and writes estimate and actual after it;
+    anything it cannot route is logged to stderr as a visible skip rather than
     dropped silently. Absent or empty means the source carried nothing beyond
     the typed record (the common case for freshly-adopted BMad projects)."""
     rec = {
@@ -72,23 +72,18 @@ def make_record(kind, key, status, title, source, origin=None, origin_note=None,
     return rec
 
 
-# Fields the reader may surface in `extras` -- everything import-node's typed argument
-# surface does not cover. Two categories, and the engine handles them differently:
+# Fields the reader may surface in `extras`, and how the engine writes each:
 #
-#   SCALAR_EXTRAS_TO_SET_FIELD -- a string value the engine can write via pm-status.py
-#   set-field after import-node lands the node. Preserved through the migration end-to-end.
-#
-#   STRUCTURED_EXTRAS_TO_WARN -- a list/mapping that would need a typed set-* call
-#   pm-status.py does not yet expose (a set-depends-on verb, a set-estimate that accepts
-#   a whole block, etc.). The engine emits WARN to stderr naming the field, the record
-#   key and the exact value being skipped -- visible data loss rather than silent.
-#
-# The unwritten-typed calls are the follow-up debt; the WARN converts the loss into
-# something users can act on now.
-SCALAR_EXTRAS_TO_SET_FIELD = ("goal", "superseded_by")
+#   SCALAR_EXTRAS_FOR_IMPORT_NODE -- a string value import-node takes as a flag.
+#   LIST_EXTRAS_TO_TYPED_WRITER   -- depends_on (an import-node flag per key), estimate
+#                                    (set-estimate) and actual (import-actual).
+#   STRUCTURED_EXTRAS_TO_WARN     -- a field no writer takes: the engine emits WARN naming
+#                                    the field, the record key and the value -- visible
+#                                    data loss rather than silent. Empty today.
+SCALAR_EXTRAS_FOR_IMPORT_NODE = ("goal", "superseded_by")
 STRUCTURED_EXTRAS_TO_WARN = ()
 LIST_EXTRAS_TO_TYPED_WRITER = ("depends_on", "estimate", "actual")
-KNOWN_EXTRAS = (SCALAR_EXTRAS_TO_SET_FIELD + LIST_EXTRAS_TO_TYPED_WRITER
+KNOWN_EXTRAS = (SCALAR_EXTRAS_FOR_IMPORT_NODE + LIST_EXTRAS_TO_TYPED_WRITER
                 + STRUCTURED_EXTRAS_TO_WARN)
 
 

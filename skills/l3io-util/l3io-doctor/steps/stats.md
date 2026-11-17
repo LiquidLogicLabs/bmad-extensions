@@ -1,154 +1,101 @@
 ## Stats Mode
 
 Invoked with the `stats` argument, or with its aliases `backlog` / `issues`. Read-only
-plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy via
-`pm-status.py report`, then appends the backlog, calibration, and last-closed sections that
-`report` does not cover. No files are changed.
+progress dashboard over BMad v7's work-item tree — renders each initiative's epics and tickets
+via `pm-status.py report`, then appends the backlog and calibration sections that `report`
+does not cover. No files are changed.
 
-**One `list-issues` call serves both views.** Step ST2 already reads the whole backlog
-(`--all`) to produce the counts, so the per-item table in Step ST4 costs nothing extra; it
-used to be a separate `backlog` mode that made the identical call and formatted it. Under the
-`backlog`/`issues` alias the per-item table is always printed and the hierarchy uses the
-default scope; under `stats` the table is printed whenever there is at least one open item.
+**One `list-issues` call serves both views.** Step ST3 already reads the whole backlog
+(`--all`) to produce the counts, so the per-item table in Step ST4 costs nothing extra. Under
+the `backlog`/`issues` alias the per-item table is always printed; under `stats` it is printed
+whenever there is at least one open item.
 
 ### Steps
 
-**Step ST1 — Load config and detect layout**
+**Step ST1 — Load config and find the initiatives**
 
-Load config (same as layout cleanup). Run the same three-way count Check 2b uses (Check 2b in
-`steps/health-check.md` is the source of the multi-layout condition and its Critical severity
-below — this makes a second copy of layout detection, alongside Check 2b; keep the
-multi-layout branch in sync with Check 2b's condition and severity if either changes):
+Load config same as described under On Activation in `SKILL.md`.
 
-```bash
-SHARDED=$([ -d "{pm_state_root}" ] && echo 1 || echo 0)
-LEGACY_EPIC=$([ -d "{project-root}/_bmad/state" ] && echo 1 || echo 0)
-LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] && echo 1 || echo 0)
-```
+The work-item tree is v7's: Sofia (`bmad-agent-po`) owns it, and `{tickets_py}` is the script
+v7 installs with her. If `{tickets_py}` does not exist, there is no tree to report on — print
+`Sofia (bmad-agent-po) is not set up in this project — no initiatives to report on.` in place
+of Step ST2's output and continue with Step ST3.
 
-Apply the first matching rule:
+Which initiatives:
 
-- **More than one of the three is 1** → an earlier migration did not finish, and the sharded
-  tree this dashboard would otherwise walk cannot be trusted as the sole source of truth while
-  a legacy layout also exists — the same condition Check 2b flags Critical. A confidently
-  rendered tree over ambiguous state is worse than a refusal, so **BLOCK**. Print and exit —
-  do not proceed to Step ST2:
-  ```
-  BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC
-  legacy-flat=$LEGACY_FLAT). An earlier migration did not finish. Run
-  /l3io-doctor migrate-state first, then re-run /l3io-doctor stats.
-  ```
-- **Sharded present, and it is the only layout present** → walk it (Step ST2). This is the
-  normal path.
-- **Sharded absent, a legacy layout present** → the dashboard cannot read it. Print and exit:
-  ```
-  State is still on a legacy layout ({legacy per-epic | legacy flat}) — stats reads the
-  sharded state tree at {pm_state_root}. Run /l3io-doctor migrate-state first.
-  ```
-- **Nothing present** → before concluding there is nothing to report, rule out an orphan
-  caused by `implementation_artifacts` having been repointed — an empty probe result here is
-  not proof there is no history. Ask the script that owns this decision:
+- The user named an initiative folder: that one, resolved against `{project-root}`, then
+  against `{output_folder}`.
+- None named: every initiative under `{output_folder}` — each folder holding a
+  `tickets/tickets.toml` beside its `<name>.md`:
   ```bash
-  uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts} \
-    --project-root {project-root} --reachability --format json
+  find {output_folder} -mindepth 3 -maxdepth 3 -path '*/tickets/tickets.toml' 2>/dev/null \
+    | sed 's#/tickets/tickets.toml$##' | sort
   ```
-  It prints every state tree it can find outside `{implementation_artifacts}` and exits 4 when
-  there is one; `tests/l3io-doctor/test-detect-layout.py` covers it.
-  If either prints a path that is not under `{implementation_artifacts}/state`, a confidently
-  empty dashboard over existing state elsewhere is the same "wrong beats a refusal" failure as
-  the multi-layout case above, so **BLOCK**. Print and exit — do not print "nothing to report":
-  ```
-  BLOCKED: state found at <printed-path> but implementation_artifacts resolves to
-  {implementation_artifacts}. Did implementation_artifacts change? Refusing to show an empty
-  dashboard over existing state.
-  ```
-  If both print nothing → genuine first run. Print `No state found at {pm_state_root} —
-  nothing to report.` and exit.
+- None found → print `No initiatives under {output_folder} — nothing to report.` in place of
+  Step ST2's output and continue with Step ST3.
 
-**Step ST2 — Compute the hierarchy**
+An epic folder (`<initiative>/tickets/epic-<slug>`) has no report of its own: say so and use
+the initiative that holds it.
 
-Do not walk the tree by hand. `pm-status.py` is the only component that resolves a node key to
-a path, and a second walk here would drift from it the next time the layout changes. Run:
+**Step ST2 — Progress per initiative**
+
+Do not walk the tree by hand. `tickets.py` is the only reader of v7's tree and `pm-status.py`
+the only reader of l3io's sidecars; a second walk here would drift from both. For each
+initiative:
 
 ```bash
-uv run {pm_status} report \
-  --state-root {pm_state_root} \
-  --plan {planning_artifacts}/plan-output-meta.yaml \
-  --format json
+uv run {pm_status} report --project-root {project-root} --initiative-dir <initiative> --format tree
 ```
 
-This is read-only: `report` writes only when `--out` is passed, and it is not passed here.
+This is read-only: `report` writes only when `--out` is passed, and it is not passed here. It
+runs `tickets.py status` itself, then joins each ticket's estimate and actual from l3io's
+sidecars and the open build brackets from the spool under `{l3io_state_root}`. Print each
+output verbatim — re-rendering it by hand would drift from the tool's own view. It lists every
+epic with its status, lane and built count, the tickets not yet `done`, totals, actual spend,
+and any `Problems (tickets.py)` or `STALLED BUILD` block.
 
-From the JSON take `totals` (epics/sprints/stories by status), `phases` (`phase`, `epic_done`,
-`epic_total`), and `flags` — `placement` entries are the placement anomalies this mode already
-reported, while `stuck` and `stale-lock` are new and worth surfacing here too.
+- **Exit 2 naming a parent initiative** → its member initiatives are reported on their own;
+  skip it without a message when the member list was discovered above, and when the user named
+  it, report each initiative its `tickets/tickets.toml` lists.
+- **Any other non-zero exit** → print the message under that initiative's heading and continue
+  with the next one.
 
-This skill confirms `{pm_status}` exists at activation, before any mode file is loaded, so it
-should already be present here. If `{pm_status}` still does not exist, it was removed after
-activation — print this and use Step ST2b:
+**Three follow-ups on the tree output, only when it warrants them:**
 
-```
-pm-status.py is not installed — showing counts only, without the plan-aware hierarchy.
-Run bmad setup l3io-util to reinstall it, then re-run /l3io-doctor stats.
-```
+- Always append a live-view pointer, because that is what answers "what is happening right
+  now" during a run:
+  ```
+  For a live view during a run: uv run {pm_status} report --project-root {project-root} \
+    --initiative-dir <initiative> --watch 15
+  ```
+- If the tree contains `STALLED BUILD`, add for each entry: `{ticket} has had a build open for
+  {N}m with no close — the run hung or died before its On Complete ran. Check that session;
+  re-running the ticket is your call.` Do not re-derive stall state yourself — the report
+  already computed it against `--stall-minutes` (default 15).
+- If the tree contains `Problems (tickets.py)`, add: `These are v7's findings over its own tree;
+  Sofia's BOARD and REFINE fix them.`
 
-`report` does not cover the backlog, the calibration file, or the last-closed markers. Read
-those directly as listed below; they remain part of this dashboard.
+**Step ST3 — Backlog, calibration and layout**
 
-**Step ST2b — Counts-only fallback**
+`report` does not cover these. Read them directly.
 
-Only when `pm-status.py` is absent. The tree is one bare-node YAML file per node; the directory
-structure *is* the child list (`references/status-files.md` §4). Enumerate:
+- **Backlog items** — only if `{pm_state_root}` exists; otherwise every count is zero. If more
+  than one pre-v7 layout is present (the multi-layout condition of Check 2 in
+  `steps/health-check.md` — keep the two in sync), print `Backlog: not read — more than one
+  state layout is present. Run /l3io-doctor migrate-state first.` and skip this bullet.
+  Otherwise:
+  `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`: count
+  `open` by severity (Critical, High, Medium, Low, unknown) and by status (untriaged =
+  `backlog`, `scheduled`) plus `origin_archived`; count `resolved` by `resolution`. An absent
+  file = zero items, not an error. **Keep the `open` records themselves, not only the
+  counts** — Step ST4 prints them per item from this same call; do not make a second
+  `list-issues` call for it.
+- **Calibration** — if `{l3io_state_root}/pm-calibration.yaml` exists:
+  `uv run {pm_status} calibration show --state-root {l3io_state_root} --format json`; note its
+  version and the number of samples per component.
+- **3.x state tree** — whether `{pm_state_root}` exists. It is read only by `migrate-state`.
 
-```bash
-ls -d {pm_state_root}/{planned,active,archived}/epic-*/ 2>/dev/null
-```
-
-For each epic directory: read `epic.yaml`; for each `sprint-{nn}/` inside it read
-`sprint.yaml`; for each `*.yaml` in that sprint directory other than `sprint.yaml` read the
-story node. Accumulate:
-
-- **Epics** by `status` (backlog, in-progress, done) — count per status, total. The status
-  folder and the node's `status` agree by construction (`planned`→backlog, `active`→in-progress,
-  `archived`→done); if any epic disagrees with its folder, note it as a placement anomaly.
-- **Sprints** by `status` (backlog, in-progress, done) — count per status, total.
-- **Stories** by `status` (backlog, ready-for-dev, in-progress, review, done) — count per status, total.
-
-**Read directly in both branches:**
-
-- **Backlog items** — `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`: count `open` by severity (Critical, High, Medium, Low, unknown) and by status (untriaged = `backlog`, `scheduled`) plus `origin_archived`; count `resolved` by `resolution`. An absent file = zero items, not an error. **Keep the `open` records themselves, not only the counts** — Step ST4 prints them per item from this same call; do not make a second `list-issues` call for it.
-- **Last closed sprint** — across all epics, the highest `epic-{nnn}/sprint-{nn}` whose `sprint.yaml` has `status: done` (lexical order over the zero-padded names is the correct order — §8).
-- **Last closed epic** — the highest `epic-{nnn}` under `{pm_state_root}/archived/`; note its key and title.
-- **Calibration file** — check `{pm_calibration_file}` (`{pm_state_root}/pm-calibration.yaml` — migrate-state moves it here from `{project-root}/_bmad/`); if present, note its version and the number of scope/closure/fix sample entries.
-
-**Step ST3 — Print dashboard**
-
-Print the hierarchy first. Re-run `report` in `tree` form rather than re-rendering the JSON by
-hand — hand-rendering it would drift from the tool's own view:
-
-```bash
-uv run {pm_status} report \
-  --state-root {pm_state_root} \
-  --plan {planning_artifacts}/plan-output-meta.yaml \
-  --format tree
-```
-
-**Scope — map what the user asked for to a `--status` filter.** The state tree's three
-folders are the vocabulary: `planned` = backlog, `active` = in progress, `archived` = done.
-
-| They asked for | Pass |
-|---|---|
-| nothing, "progress", "status" | *(nothing — defaults to planned + active)* |
-| "what's active", "in flight", "what's running", "in progress", "what's moving" | `--status active` |
-| "what's queued", "backlog", "not started", "what's next" | `--status planned` |
-| "everything", "including done", "including archived", "all" | `--all` |
-
-Counting is unaffected by the filter: totals and phase denominators always cover every epic,
-so a narrowed view never changes what "2/3 epics done" means. When the filter is not the
-default the report prints a `SHOWING …` banner itself — do not add your own caveat.
-
-Print the output verbatim, then append the sections `report`
-does not cover:
+Append:
 
 ```
 ----------------------------------------------------------------
@@ -156,43 +103,19 @@ Backlog items
   Critical: {n}  High: {n}  Medium: {n}  Low: {n}  total: {n}
   untriaged: {n}  scheduled: {n}  origin archived: {n}
   resolved: {n}  (fixed {n} · wontfix {n} · duplicate {n} · obsolete {n})
-Last sprint closed:  Epic {nnn} / Sprint {nn}  (or "none")
-Last epic closed:    E{nnn} — {title}          (or "none")
-Calibration file:    {version}, {n} scope samples  (or "not found")
-Layout:              Sharded state tree
+Calibration file:    {version}, {n} samples  (or "not found")
+3.x state tree:      present at {pm_state_root}, read only by migrate-state  (or "none")
 ================================================================
 ```
 
-Placement anomalies no longer need their own line — they appear in the tree's `Anomalies` block,
-alongside stale locks and unreadable node files.
-
-**Three follow-ups on the tree output, only in this branch** (Step ST2 ran the report; the
-Step ST2b counts-only fallback below has no tree to check) **and only when the output
-warrants them:**
-
-- Always append a live-view pointer, because that is what answers "what is happening right
-  now" during a long run:
-  ```
-  For a live view during a run: uv run {pm_status} report --state-root {pm_state_root} \
-    --plan {planning_artifacts}/plan-output-meta.yaml --watch 15
-  ```
-- If the tree contains `⚠ STALE LOCK`, append this recommendation for each affected epic:
-  `Epic {key} has a stale lock (claimed {N}m ago). Run: uv run {pm_status} clear-lock
-  --state-root {pm_state_root} --epic {key}`. Do not re-derive stale-lock state yourself — the
-  report already computed it from `_lock.ttl_minutes`.
-- If the tree ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
-  once state/events.jsonl accumulates transitions — it starts recording on the next
-  /l3io-execute run.`
-
 **Step ST4 — Per-item backlog table**
 
-From the `open` records Step ST2 already read — no second `list-issues` call. Print this when
+From the `open` records Step ST3 already read — no second `list-issues` call. Print this when
 the argument was `backlog`/`issues`, or when `stats` found at least one open item. Group by
 severity (Critical → High → Medium → Low → unknown); within a group sort by `epic` then `key`.
 `scheduled` items show the story they are scheduled into; `origin_archived` items are marked.
 Each item carries a `kind` — `defect` (the default, and what an absent field means) plus
-`spec-change` and `spec-proposal`, which epic closure's spec sync files and `triage`'s spec
-pass resolves:
+`spec-change` and `spec-proposal`, which `triage`'s spec pass resolves:
 
 ```
 ----------------------------------------------------------------
@@ -209,21 +132,5 @@ Run /l3io-doctor triage to audit these and close what is already fixed.
 
 Truncate titles at 50 characters with `…`. Show the sprint as `—` when blank. With no open
 items, print `Backlog is empty — no open items.` in place of the table.
-
-**When Step ST2b ran** (no `pm-status.py`), print the flat form instead, followed by the same
-appended block above:
-
-```
-PROJECT STATE — {pm_state_root}
-================================================================
-Epics
-  in-progress:  {n}    backlog: {n}    done: {n}    total: {n}
-Sprints
-  in-progress:  {n}    backlog: {n}    done: {n}    total: {n}
-Stories
-  done:         {n}    in-progress: {n}    review: {n}
-  ready-for-dev:{n}    backlog: {n}         total: {n}
-Placement anomalies: none  (or list epics whose status disagrees with their folder)
-```
 
 ---

@@ -1,6 +1,6 @@
 ---
 name: l3io-doctor
-description: Migration and housekeeping utilities for BMad artifacts and l3io-pm state. Use when the user needs to migrate a legacy state layout (flat sprint-status.yaml, or legacy per-epic _bmad/state/) to the current sharded state tree, bootstrap sharded state nodes from existing story .md artifact files (for stories created outside l3io-plan), reorganize legacy flat artifact outputs into the structured epic/sprint folder layout, harvest deferred-shortcut code markers into the issues backlog, validate zero-padded naming in the state tree, review the issues backlog or a plan-aware progress dashboard, triage the backlog (audit and close what is already fixed), move ADRs from the old per-epic home to docs/adr/, or update AI system instruction files to describe the current state layout. Also carries older legacy-only bridging modes (migrate-schema, split-status, reconcile-status) for repos that have not yet migrated. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
+description: Diagnostics and housekeeping for l3io projects on BMad v7. Use when the user wants a health check of the project (it scans for every known problem and proposes the fixes in order), a progress dashboard over BMad v7 initiatives with stalled-build flags, the issues backlog, to triage the backlog (audit and close what is already fixed), to harvest deferred-shortcut code markers into the backlog, to verify BMad dependencies or the installed l3io version, to install, upgrade or uninstall the extension, to wire l3io's hooks into BMad's skills or unwire them, to migrate a legacy l3io state layout, to move ADRs to docs/adr/, to rebuild poisoned calibration samples, to update AI instruction files, or to remove migration backups. Run without arguments for an auto-diagnostic.
 ---
 
 # l3io-doctor — Project State Diagnostics & Utilities
@@ -15,19 +15,26 @@ Migration and housekeeping utilities for BMad artifacts.
 argument against this table *before* falling through to the health check. Print the
 replacement and stop; propose nothing.
 
-- Removed **normalize** → `sort-status` for the naming report; on a legacy split layout
-  also `reconcile-status`. Those two are all it ever ran.
+- Removed **normalize** → `migrate-state` on a legacy split layout, which it reads directly;
+  nothing otherwise.
+- Removed **migrate-schema**, **split-status** and **reconcile-status** → `migrate-state`,
+  which reads the flat and split layouts directly.
+- Removed **bootstrap-state** → on BMad v7 the work-item tree is Sofia's (`bmad-agent-po`);
+  nothing here creates state nodes from story files.
+- Removed **sort-status** → nothing; the 3.x tree whose naming it validated is read only by
+  `migrate-state`.
+- Removed **clean-layout** and **layout-cleanup** → nothing; v7 lays out its own tree.
 - Removed **rename-active** → just `/l3io-doctor`; Health Check 1 detects the old
   filename and renames it inline.
-- Removed **rename-epic-dirs** → just `/l3io-doctor`; Health Check 10 detects two-digit
+- Removed **rename-epic-dirs** → just `/l3io-doctor`; Health Check 6 detects two-digit
   `epic-{nn}/` directories and renames them inline.
 - Removed **overlay** → nothing yet; held back until `assets/overlays/` ships overlay TOML.
 - Removed **cleanup** → the skill was renamed; use `/l3io-doctor`.
 
 > Deliberately a list and **not a table**, and the removed names are bold rather than
 > code-formatted. `DOCTOR_ROUTING_ROW_RE` matches any SKILL.md table row whose first cell is
-> backticked tokens, so writing this as a table added all five to the keyword set check 25
-> derives — neutering the guard that catches a stale keyword. Its scope-attack test caught it.
+> backticked tokens, so writing this as a table added every one of them to the keyword set
+> check 25 derives — neutering the guard that catches a stale keyword. Its scope-attack test caught it.
 > Keep this shape.
 
 > Falling through meant someone typing a keyword that used to work got a health check and a
@@ -43,35 +50,27 @@ Modes (pass as argument to skip directly to that mode):
 
 **Diagnostic (read-only)**
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes. The full set of findings, their severities, and their remedies is defined in `steps/health-check.md`, not repeated here.
-- **`stats`** (aliases **`backlog`**, **`issues`**): Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_state_root}/issues.yaml` grouped by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
+- **`stats`** (aliases **`backlog`**, **`issues`**): Progress dashboard over BMad v7's work-item tree — each initiative's epics and tickets, estimates, actuals and stalled builds (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_issues_file}` grouped by severity, and calibration state. Scope it by naming an initiative; with none it reports every initiative under `{output_folder}`. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
-- **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?". With `--project-root` it also lists the two declared `pm_status` copies (`_bmad/l3io-pm/…`, `_bmad/l3io-util/…`) and reports them disagreeing as a finding, which the health check's Check 25 surfaces. No files changed.
+- **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?". With `--project-root` it also lists the two declared `pm_status` copies (`_bmad/l3io-pm/…`, `_bmad/l3io-util/…`) and reports them disagreeing as a finding, which the health check's Check 18 surfaces. No files changed.
 - **`install`** (aliases **`upgrade`**, **`uninstall`**): Runs the right BMad command for the intent and refuses the wrong one. `upgrade` uses `--action quick-update`, which derives the module set and IDE list off the existing install and deletes nothing; `install` is first-install only and refuses an existing install, because its `--modules`/`--tools` are authoritative and BMad deletes every module and IDE tree they do not name without confirming; `clean` removes only this extension's payload, decided by SHA-256 against each skill's `payload-manifest.json`, keeping any file a user has edited and never touching project state. Confirms before every action; `clean` is a dry run until `--apply`.
 
-**One-time migrations (run in this order)**
-- **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
-- **`split-status`:** *(legacy-only)* Splits a legacy flat `sprint-status.yaml` into the three-file `sprint-status{,-backlog,-archived}.yaml` form, partitioning every epic/sprint by status. The PM skills do **not** read these files — this is an intermediate shape that lets `reconcile-status` clean up a messy flat file before `migrate-state` consumes it. One-time; the original is preserved as `sprint-status.yaml.legacy`.
-- **`migrate-state`:** Migrates from either legacy layout (flat `sprint-status*.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree under `{implementation_artifacts}/state/`. Preserves originals as `.legacy` files.
-- **`bootstrap-state`:** Creates sharded state YAML nodes from existing story `.md` artifact files — for projects whose stories were created via the legacy `bmad-create-story` workflow (or another) outside of `l3io-plan`. Never overwrites existing state nodes (additive and safe to repeat). After bootstrap, run `/l3io-plan` or `/l3io-execute` normally.
+**One-time migrations**
+- **`migrate-state`:** Migrates either legacy layout (flat `sprint-status*.yaml`, the three-file split included, or legacy per-epic `_bmad/state/`) to the 3.x sharded state tree under `{implementation_artifacts}/state/`. Preserves originals as `.legacy` files. The 3.x tree is read only by this mode; no 4.x skill reads or writes it.
 - **`migrate-adrs`:** Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, renumbering a colliding one only inside its own epic's artifacts; plans first, confirms, commits once.
 
 **Ongoing maintenance (safe to repeat)**
-- **`reconcile-status`:** *(legacy-only)* Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
-- **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
-- **`clean-layout`** (alias `layout-cleanup`): Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
 - **`redrive`:** Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect where `fix_iterations` was once stored as a string and misclassified as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly — it derives fresh from the same nodes each time.
 - **`triage`:** Audits the issues backlog — integrity (`audit-issues`), mechanical evidence (`scripts/audit-backlog.py`), and an optional agent review — and resolves what is already fixed, with evidence, only on confirmation.
 
 **Source & external sync**
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
-- **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
+- **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Safe to run repeatedly.
 
 **Setup & housekeeping**
 - **`wire`:** Attaches l3io's lenses, facts and hooks to the team's `_bmad/custom/<skill>.toml` files — v7 has no customization layer a module contributes. Round-trip safe and idempotent; never overwrites a team value, and refuses (exit 3) on a single-value hook the team already set. Records what it added (ADR-0020).
 - **`unwire`:** Removes exactly what `wire` recorded — byte-exact when the file is untouched since, entry by entry when the team has edited it — and never an entry the team wrote.
 - **`clean-legacy`:** Removes migration backup files and directories left behind by one-time migration commands — `.yaml.legacy` files, the `{pm_calibration_file}.v1` calibration schema backup in the state root, the pre-migration `_bmad/state.legacy/` directory and `_bmad/pm-calibration.yaml.legacy` file, and the `_bmad/migration-backup/` directory `migrate-state` Stage F's default "move" option relocates everything into. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
-
-**One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
 ## Conventions
 
@@ -82,8 +81,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries twenty procedures and a run needs one, so inlining them all charged every
-invocation for nineteen it would not execute. Read this file, match the keyword, load that
+carries fourteen procedures and a run needs one, so inlining them all charged every
+invocation for thirteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -104,23 +103,17 @@ running a migration or a repair *without* the diagnosis that decides whether it 
 |---|---|---|---|
 | `help` or `?` | — | not-a-capability | Print the command list below and exit — no project scan. |
 | `check` or `status` | `steps/health-check.md` | default | read-only — scan only, no changes |
-| `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
+| `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — progress over v7 initiatives plus the per-item backlog table |
 | `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
 | `version`, `--version` or `which-version` | `steps/version.md` | registered | read-only — report the installed l3io-extensions version per skill and per module |
 | `install`, `upgrade` or `uninstall` | `steps/install.md` | registered | runs BMad's installer (`upgrade`/`install`) or deletes this extension's payload (`clean`) — every path confirms first; `clean` reports before it changes anything |
-| `clean-layout` or `layout-cleanup` | `steps/clean-layout.md` | health-check | layout reorganization only. `clean-layout` is the primary; `layout-cleanup` is the DEPRECATED alias from ≤ 3.1.3, kept so old muscle memory still routes. Verb-first (`clean-<noun>`) mirrors `clean-legacy`. |
-| `migrate-schema` | `steps/schema-migration.md` | health-check | legacy-only bridge |
-| `split-status` | `steps/split-status.md` | health-check | legacy-only bridge |
 | `harvest-debt` | `steps/harvest-debt.md` | health-check |  |
-| `reconcile-status` | `steps/reconcile-status.md` | health-check |  |
-| `sort-status` | `steps/sort-status.md` | health-check |  |
 | `redrive` | `steps/redrive.md` | health-check | rebuild calibration `scope`/`fix` from story nodes |
 | `triage` | `steps/triage.md` | health-check | audit the backlog and resolve findings already fixed — confirms every write |
 | `migrate-adrs` | `steps/migrate-adrs.md` | health-check | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
 | `update-ai-rules` | `steps/update-ai-rules.md` | health-check |  |
 | `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
 | `migrate-state` | `steps/migrate-state.md` | health-check | prose around `migrate-engine.py` — confirms before and interprets after the eight-step migration run |
-| `bootstrap-state` | `steps/bootstrap-state.md` | health-check | prose around `migrate-engine.py` with `read-artifacts.py` — creates state nodes from story `.md` files without overwriting existing nodes |
 | `wire` | `steps/wire.md` | registered | writes the team's `_bmad/custom/<skill>.toml` — adds l3io's entries, never overwrites a team value (ADR-0020) |
 | `unwire` | `steps/unwire.md` | registered | removes exactly what `wire` recorded, nothing a team wrote |
 | `setup` or `configure` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md`. **`install` is deliberately not here** — it routes to `steps/install.md`, because a user typing it means the extension, not this module's config. It was in both rows until 3.2.5, with no precedence rule to separate them. |
@@ -137,7 +130,7 @@ that detects it, and `steps/health-check.md` runs all three inline.
 
 **Help output** — when `help` or `?` is passed, print the contents of
 `assets/help-text.md` verbatim inside a code fence and exit. Load that file only when this
-keyword selects it; SKILL.md carries just this pointer, not the 40-line output.
+keyword selects it; SKILL.md carries just this pointer, not the command list.
 
 Resolve config through BMad core's resolver — full contract in
 `references/config-resolution.md`:
@@ -159,18 +152,23 @@ Bind, applying the default when the key is absent:
 - `harvest_exclude_dirs` — `modules.l3io-util.harvest_exclude_dirs` (default: none)
 
 The artifact paths come from the **`l3io-pm`** section, not `l3io-util` — all modules share
-one artifact tree, and this skill reorganizes the very directories the PM skills read.
+one artifact tree, and this skill reads the very directories the PM skills write.
 
 An absent `modules.l3io-util` section is normal and is **not** a first-run trigger: this
 module declares no required settings. Load `assets/module-setup.md` only when the user
 explicitly passes `setup` or `configure`.
 
-Then bind the state paths every mode below uses (identical to the PM skills' bindings —
-see `references/status-files.md` §10, the canonical contract):
+Then bind the state paths every mode below uses:
 
-- `{pm_state_root}` = `{implementation_artifacts}/state`
+- `{l3io_state_root}` = `{output_folder}/l3io` — l3io's project-wide files on BMad v7: the
+  event log, calibration, the ADR register, the build spool
+- `{tickets_py}` = `{project-root}/_bmad/method/scripts/tickets.py` — v7's own reader of the
+  work-item tree, installed with Sofia (`bmad-agent-po`)
+- `{pm_state_root}` = `{implementation_artifacts}/state` — the 3.x tree, and the home of the
+  issues backlog
 - `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
-- `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
+- `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml` — the 3.x calibration file
+  `redrive` rebuilds
 
 **Locate `pm-status.py` before dispatching to a mode** (skip this for `help`/`?` — that
 keyword exits above without a project scan or any config resolve). This skill declares the
@@ -193,47 +191,35 @@ Bind `{pm_status}` = `{project-root}/_bmad/l3io-util/scripts/pm_status/__main__.
 all mode files below.
 
 Bind `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {pm_state_root} --pm-status {pm_status}`
-for health Checks 15–19, triage's spec pass and `migrate-adrs`. It passes no `--spec-paths`,
+for health Checks 10–14, triage's spec pass and `migrate-adrs`. It passes no `--spec-paths`,
 so it checks the spec set the project's spec index recorded (pm-execute's `spec_paths`).
 
-**Current vs. legacy-only modes.** The sharded state tree under `{pm_state_root}` is the
-layout the PM skills read and write today; they hard-block on anything else. Three modes
-here — `migrate-schema`, `split-status`, `reconcile-status` — operate on the **legacy flat**
-`sprint-status*.yaml` files only. They exist to bridge a repo that has not migrated yet, and
-they are dead ends on a migrated repo. Where a mode is legacy-only it says so in its own
-header; do not read those sections as descriptions of current behaviour.
+**Which tree a mode reads.** On BMad v7 the work-item tree — initiatives, epics, tickets — is
+v7's and Sofia's; l3io writes only TOML sidecars beside it and its project-wide files under
+`{l3io_state_root}`, all through `pm-status.py`. `stats` and the health check read that tree
+through `report`. The 3.x tree under `{pm_state_root}` is read only by `migrate-state`; the
+backlog verbs (`triage`, `harvest-debt`) and `redrive` still use `{pm_state_root}`.
 
 ## Safety Rules
 
-- Dry-run first — show full cleanup plan before changing any files
+- Dry-run first — show the full plan before changing any files
 - Never overwrite an existing destination file
 - If destination exists: keep source in place, record conflict
-- Preserve file contents exactly — move only, no edits
 - Reference updates: auto-update only exact old-path matches that map to one known moved file; if ambiguous, record for manual review — never auto-update ambiguous references
 
-## BMad PM — State File Layout
+## State File Layout
 
-Epic, sprint, and story state lives in a **sharded state tree** under `{pm_state_root}`
-(`{implementation_artifacts}/state/`) — one bare YAML file per node, committed to git:
+On BMad v7, l3io keeps three kinds of file, none of them hand-edited:
 
-```
-state/
-├── planned/epic-{nnn}/     ← status: backlog
-├── active/epic-{nnn}/      ← status: in-progress
-│   ├── epic.yaml
-│   └── sprint-{nn}/
-│       ├── sprint.yaml
-│       └── E{nnn}-S{nn}-{nnn}.yaml
-├── archived/epic-{nnn}/    ← status: done
-├── issues.yaml             ← open BL-E{nnn}-{nnn} items + next: key allocator
-├── issues-resolved.yaml    ← resolved BL items, with resolution
-└── pm-calibration.yaml
-```
+- **Sidecars beside v7's tree**, through `tomlkit`: `<initiative>/tickets/l3io.toml` (a lane
+  per epic), `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` (estimates and the epic
+  roll-up), and `<stem>-plan.l3io.toml` beside each plan (actuals). v7 owns `tickets.toml`,
+  the leaf files and the plans; `pm-status.py` never writes them.
+- **Project-wide files under `{l3io_state_root}`**: `events.jsonl`, `pm-calibration.yaml`,
+  `adr-register.yaml`, and the gitignored `.inflight/` build spool.
+- **The issues backlog** under `{pm_state_root}`: `issues.yaml` and `issues-resolved.yaml`,
+  changed only through the `pm-status.py` issue verbs.
 
-- **An epic's directory lives in the folder named for its status.** Every status transition is a directory move, so `git log --follow` keeps working across it.
-- **The directory structure replaces child lists** — `epic.yaml` has no `sprints:` key and `sprint.yaml` has no `stories:` key. Children are discovered by listing the directory.
-- **State is written only by `pm-status.py`**, addressed by node key, never by hand-built path:
-  `uv run {pm_status} set-status --state-root {pm_state_root} --story E001-S01-003 --status done`
-- Do not hand-edit these files, and do not create parallel status files.
-
-Older layouts (a flat `sprint-status*.yaml`, or a per-epic `_bmad/state/` tree) are legacy. Migrate with `/l3io-doctor migrate-state`.
+The layout is `references/status-files.md`'s. Older layouts — the 3.x sharded tree under
+`{pm_state_root}`, a flat `sprint-status*.yaml`, or a per-epic `_bmad/state/` tree — are read
+only by `/l3io-doctor migrate-state`.

@@ -1,6 +1,6 @@
 ## Migrate State Mode
 
-Invoked with `migrate-state`. Upgrades any earlier state layout to the current sharded
+Invoked with `migrate-state`. Upgrades any earlier state layout to the 3.x sharded
 tree under `{implementation_artifacts}/state/`.
 
 **The parsing and writing are not done here.** `scripts/migrate-engine.py` owns them and

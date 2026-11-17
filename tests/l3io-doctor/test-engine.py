@@ -285,17 +285,16 @@ class TestWriteVerifyDispose(unittest.TestCase):
         self.assertEqual(errors2, [])
         self.assertEqual(written2, 0, "a second apply must write nothing")
 
-    def test_scalar_extras_land_on_disk_via_set_field(self):
+    def test_scalar_extras_land_on_disk_via_import_node(self):
         """The l3io-flat fixture carries `goal` on E001 and `superseded_by` on
-        E001-S01-002. Both are scalar strings and pm-status.py has typed
-        support via set-field. Both must land through the migration."""
+        E001-S01-002. Both are scalar strings import-node takes as flags. Both must land
+        through the migration."""
         from ruamel.yaml import YAML
 
         _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
         # Filter out any WARN-only lines that might come through errors -- WARN
-        # is stderr, not the errors list. set-field failures WOULD be here; none
-        # expected.
-        self.assertEqual(errors, [], f"set-field calls must not error: {errors}")
+        # is stderr, not the errors list. A failed write WOULD be here; none expected.
+        self.assertEqual(errors, [], f"the writes must not error: {errors}")
 
         _, epic = None, YAML(typ="safe").load(
             (state / "active" / "epic-001" / "epic.yaml").read_text(encoding="utf-8"))
@@ -375,14 +374,14 @@ class TestWriteVerifyDispose(unittest.TestCase):
         self.assertFalse(cal.exists(),
                          "a bulk import must not append calibration samples")
 
-    def test_depends_on_lands_via_the_typed_writer(self):
+    def test_depends_on_lands_via_import_node(self):
         """Converted from a WARN assertion. The l3io-flat fixture carries
         `depends_on: ['E001-S01-002']` on story E001-S01-001; it must now be ON DISK as a
         LIST, not WARNed and not flattened to the string "['E001-S01-002']"."""
         from ruamel.yaml import YAML
 
         _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(errors, [], f"set-depends-on must not error: {errors}")
+        self.assertEqual(errors, [], f"import-node must not error: {errors}")
         p = state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml"
         node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
         self.assertIn("depends_on", node, "depends_on must be carried into state")

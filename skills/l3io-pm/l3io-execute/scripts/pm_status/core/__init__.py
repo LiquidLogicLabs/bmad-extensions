@@ -66,9 +66,8 @@ VALID_STORY_TRANSITIONS = {
     "in-progress":   {"backlog", "ready-for-dev", "review", "done", "blocked"},
     "review":        {"backlog", "ready-for-dev", "in-progress", "done", "blocked"},
     "blocked":       {"in-progress", "done"},   # done requires --resolution
-    # done is "operationally reopenable" -- reopen paths, idempotent second-done, and
-    # the import-node-then-set-status ordering all move a done story to another non-
-    # blocked status. The one thing we still forbid is done -> blocked, so a story
+    # done is "operationally reopenable" -- reopen paths and an idempotent second-done
+    # move a done story to another non-blocked status. The one thing we still forbid is done -> blocked, so a story
     # reopened for more work goes through in-progress before it can block, which keeps
     # `blocked` entered only from active work rather than from history.
     "done":          {"backlog", "ready-for-dev", "in-progress", "review", "done"},
@@ -313,11 +312,10 @@ def _ensure_lock_ignore(state_root: str, patterns=_GITIGNORE_PATTERNS) -> None:
     committed.
 
     Every lock file this script creates is an empty flock target -- the several families in
-    the state root and the per-node `.yaml.lock` sidecars below it -- and the sprint-closure
-    checkpoint stages the whole state tree; `.notices.yaml` is the one non-lock file this
-    script writes at the state root that is equally advisory and equally not for git. Neither
-    pattern matches the state-root directory itself, so step-00-activate's `git check-ignore`
-    gate still passes.
+    the state root and the per-node `.yaml.lock` sidecars below it -- and a run commits the
+    whole state root; `.notices.yaml` is the one non-lock file this script writes at the
+    state root that is equally advisory and equally not for git. Neither pattern matches the
+    state-root directory itself, so a `git check-ignore` of it still passes.
 
     Called on EVERY lock acquisition inside a state root, not only when a pattern's file is
     first written: a project whose lock files already exist, or that adopts a newer
@@ -429,8 +427,8 @@ def _die_notfound(what: str):
 class PMError(Exception):
     """A refusal or failure raised by a non-exiting core function.
 
-    Core functions never call sys.exit: in-process callers -- the set-status done
-    hook, promote-issue's estimate -- must be able to catch a failure. Only a cmd_
+    Core functions never call sys.exit: in-process callers -- promote-issue's
+    estimate -- must be able to catch a failure. Only a cmd_
     wrapper turns one into an exit code, through _run_core."""
 
     def __init__(self, code: int, msg: str):
@@ -678,7 +676,7 @@ _EPIC_NODE_LOCK = {"depth": 0, "fh": None, "path": None}
 def epic_lock_path(state_root: str, epic_key: str) -> str:
     """One epic's lock file: `{state_root}/epic-{nnn}.lock`.
 
-    OUTSIDE the epic's directory, deliberately. move-epic and retire-epic `git mv` that whole
+    OUTSIDE the epic's directory, deliberately. The 3.x placement rule moves that whole
     directory between status folders. A lock file inside it would travel with it: a waiter
     that had resolved the old path would then lock a file that is no longer there (and
     recreate the old directory to hold it) while later callers lock the moved file -- two
@@ -693,16 +691,14 @@ def epic_node_lock(state_root: str, epic_key: str):
     """Hold an exclusive lock over one epic's epic.yaml read-modify-write cycle.
 
     Same reasoning as calibration_lock/adr_register_lock/issues_lock: load -> decide -> save
-    is not atomic. set-lock needs the lock for mutual exclusion (two sessions both reading
-    "no live foreign lock" and both claiming), and every other epic.yaml writer needs it so a
-    concurrent holder cannot overwrite its change with a stale copy -- promote's roll-up once
-    restored a `_lock` that clear-lock, which took no lock, had just removed. `_atomic_dump`
+    is not atomic. Every epic.yaml writer needs it so a concurrent holder cannot overwrite
+    its change with a stale copy -- promote's roll-up once restored a `_lock` that an
+    unlocked writer had just removed. `_atomic_dump`
     refuses an epic.yaml write made without it (`_require_epic_lock`). Each epic is its own
     contention domain, so the lock is per epic (epic_lock_path), not per state root.
 
-    Callers resolve the epic, take this lock, then RESOLVE AGAIN inside it: move-epic holds
-    it too, so a move that landed while a caller waited has moved the directory its first
-    answer named. They resolve first as well, so an absent epic exits 3 with no lock file
+    Callers resolve the epic, take this lock, then RESOLVE AGAIN inside it: a directory
+    move that landed while a caller waited has moved the directory its first answer named. They resolve first as well, so an absent epic exits 3 with no lock file
     created.
 
     ONE EPIC AT A TIME. The re-entrancy counter is per lock family, not per epic, so a nested
@@ -738,7 +734,7 @@ def _require_epic_lock(path: str) -> None:
 
     Called from `_atomic_dump`, which every node write reaches, so the rule is checked on
     every write pm-status.py makes rather than trusted to a list of verbs -- the list once
-    left clear-lock, move-epic and the node verbs all writing epic.yaml unlocked. Files made
+    left several verbs writing epic.yaml unlocked. Files made
     outside this script (doctor's bootstrap-state heredoc, agent-written migrate-state
     output) are not covered; they only create epic files, so there is nothing to race. A
     RuntimeError, not a PMError: no input causes this, only a code path that skipped the
@@ -953,7 +949,7 @@ def _coerce(field: str, v: str):
 # the root parser, the fixed order the modules are called in, and `main`.
 #
 # `node_args` lives HERE, in the dependency root, because two modules need it -- `verbs`
-# (set-status, verify, set-estimate, set-field) and `metrics` (set-actual) -- and a copy in
+# (verify, set-estimate) and `metrics` (set-actual) -- and a copy in
 # each is two CLI contracts that can drift apart silently: the help strings below are part
 # of the surface `cli-surface-before.txt` pins. core is the only module both already import.
 # --------------------------------------------------------------------------- #

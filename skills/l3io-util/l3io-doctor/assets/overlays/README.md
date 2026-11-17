@@ -22,7 +22,7 @@ Per `docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md` §5 (
 - `persistent_facts` with `file:` globs — story technical ACs and `spec-index.md` as run facts.
 - `implementation_handoff` override dispatching the l3io dev agent with `Files in scope` and
   read-scope discipline.
-- `on_complete` writing back through `pm-status.py set-status`, replacing the flat-file write.
+- `on_complete` writing back through `pm-status.py`, replacing the flat-file write.
 
 Each overlay is named `<skill>.toml` (e.g. `bmad-build.toml`), using the root key
 (`[agent]` or `[workflow]`) that skill's own `customize.toml` requires — see root `CLAUDE.md`'s

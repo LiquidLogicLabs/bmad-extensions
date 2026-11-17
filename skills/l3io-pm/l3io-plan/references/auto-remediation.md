@@ -28,11 +28,9 @@ over the same state cannot be independent of the first, so it goes to its site's
 rather than to a second run.
 
 **The budget is per site id, not per run.** Sites that do not share a command and a cause each
-keep their own. A project can be both legacy-layout and have artifact-only stories: remediating
-`step-00-activate: legacy state layout — migrate required.` (`/l3io-doctor migrate-state`) does
-not consume `step-02-readiness-check: artifact-only stories detected — I ran`
-(`/l3io-doctor bootstrap-state`), so both run in that one invocation, each once. Sharing is the
-exception above, for one command and one cause; two different remedies are never one attempt.
+keep their own, so two different remediable halts in one invocation each run once. Sharing is
+the exception above, for one command and one cause; two different remedies are never one
+attempt.
 
 The record is **in-run memory**, not a file: the bound is per run, a run is one orchestrator
 invocation, and every remediable site is inline in that invocation rather than inside a
@@ -60,7 +58,7 @@ remedy's failure. Never continue as though it succeeded, and never retry.
 
 A remedy that writes to disk has a failure path of its own: a write that errors (permissions, a
 read-only checkout) is a failed remedy. Report the original condition **and** the write error,
-and leave nothing partly applied. The one write that can hit it is the `config.toml` repoint.
+and leave nothing partly applied.
 
 A remedy that succeeds is not yet a remedy that worked: re-check the original condition once.
 If it persists, that is the attempt bound's hard halt above, not a reason to continue. Every
@@ -98,24 +96,25 @@ if it is shorter; placeholders in braces match whatever they hold at runtime.
 **Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. An epic's
 last-line template (`BLOCKED: <one-line reason>`, indented in `execute/step-04-dispatch.md`
 §3) is a report format, not a halt, and is deliberately out of scope. Outside the inventory
-too is `skills/l3io-util/l3io-doctor/steps/redrive.md:103`, a halt in a doctor mode, not an
-orchestrator step.
+too are the doctor's own halts — `skills/l3io-util/l3io-doctor/steps/redrive.md` and
+`skills/l3io-util/l3io-doctor/SKILL.md`'s `BLOCKED: _bmad/l3io-util/scripts/pm_status is not
+installed — run bmad setup l3io-util` — which are not orchestrator steps. That last one is a
+**halt**, for the reason its `l3io-pm` twin in `step-00-activate` is: the remedy, `bmad setup
+l3io-util`, asks the module's config questions, and the answers are the user's to give.
 
 ## Re-entry
 
-`step-02-readiness-check`'s remedy runs `/l3io-doctor bootstrap-state` from inside `l3io-plan`,
-and the doctor has no first-run behaviour of its own to repeat. The once-per-project setup
-pointer (`config-resolution.md` §5) cannot fire twice in any case: `pm-status.py notice` records
-a key at most once ever per project, exit 0 the first time and exit 1 for every call after.
+The once-per-project setup pointer (`config-resolution.md` §5) cannot fire twice in a run:
+`pm-status.py notice` records a key at most once ever per project, exit 0 the first time and
+exit 1 for every call after.
 
 ## Remediable
 
+No site is remediable today: every remaining halt's remedy is a decision or an install that is
+the user's. The table stays, so a converted halt has a row to move into.
+
 | Site | Trigger | Remedy | Changes | Class |
 |---|---|---|---|---|
-| `step-02-readiness-check: artifact-only stories detected — I ran` | story `.md` files exist with no state YAML | `/l3io-doctor bootstrap-state` | creates state nodes from artifacts; writes no artifact | `auto` |
-| `step-00-activate: legacy state layout — migrate required.` | only a legacy layout present | `/l3io-doctor migrate-state` | migrates to the sharded layout; preserves the original as `.legacy`, which is what makes it reversible | `auto` |
-| `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | `_bmad/custom/config.toml` | repoints `implementation_artifacts` at the existing tree; records the previous value beside the new one in the same write | `auto` |
-| `step-00-activate: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC` | **CONDITIONAL — remediates only on evidence.** `SHARDED` and `LEGACY_EPIC` are both present, `LEGACY_FLAT` is absent, **and every epic key in the legacy tree is also in the sharded tree** (equal sets and an empty legacy tree included). A legacy-only epic key, a legacy entry that is not an epic key, or a flat legacy file leaves it a halt that prints the keys that differ | `_bmad/state.superseded` | moves the legacy `_bmad/state/` tree to `_bmad/state.superseded` (moving it back restores it); **the sharded tree is not modified**. Compares epic keys only — sprint or story divergence inside a shared epic key is not examined | `auto` |
 
 ## Halts
 
@@ -133,9 +132,5 @@ convert them, whatever remedy appears to exist.
 | `step-04-dispatch: {ref} of {slug} did not build:` | `bmad-build-auto` halted the ticket `blocked`, or left the tree dirty; its blocking condition is the remedy's input, not ours to guess | `halt` |
 | `step-05-close: merging l3io/{slug} into {base} conflicts: <the` | Resolving a merge conflict is a code decision | `halt` |
 | `step-05-close: {slug} gates the next wave and` | A container's `done` is Sofia's to set on the user's confirmation (`board.md`, Status) | `halt` |
-| `step-02-readiness-check: readiness gate — red. Do not` | Aggregate of per-story findings; no single remedy | `halt` |
 | `step-00-activate: _bmad/l3io-pm/scripts/pm_status is not installed — run` | Setup has not run since the skills were added. The remedy is `bmad setup l3io-pm`, which asks the module's config questions, and those answers are the user's to give | `halt` |
 | `step-00-activate: BMad v7 not detected. l3io 4.x` | Wrong product line, not a defect: l3io 4.x supports BMad v7 only, and the remedy is installing BMad v7 or l3io 3.x, which no step can do | `halt` |
-| `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
-| `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |
-| `step-00-activate: {pm_state_root} is gitignored. Project state must` | Appending negations was attempted and withdrawn (ADR-0012): `{pm_state_root}` is absolute and gitignore patterns are relative to their file, so the negation matched nothing; relative negations work only if every excluded parent is negated, and when the rule excludes a parent directory git cannot re-include from inside it, which changes what else the repository tracks. The halt locates the rule with `check-ignore -v` and names the file | `halt` |

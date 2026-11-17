@@ -9,7 +9,7 @@
 
 `l3io-execute` and `l3io-plan` stop at a `BLOCKED:` line when they cannot proceed. Of the 23
 column-0 `BLOCKED:` sites in the shared step files, several already name their own remedy —
-`/l3io-doctor migrate-state`, `/l3io-plan`, `/l3io-doctor bootstrap-state` — and stop so the
+`/l3io-doctor migrate-state`, `/l3io-plan`, the doctor's `bootstrap-state` mode — and stop so the
 user can type it and start the run over. The user learns what the project needed only by being
 interrupted, and the run does not resume where it stopped.
 
@@ -32,7 +32,7 @@ not qualify.
 
 | Site | Remedy |
 |---|---|
-| artifact-only stories (story `.md` files, no state YAML) | `/l3io-doctor bootstrap-state` |
+| artifact-only stories (story `.md` files, no state YAML) | the doctor's `bootstrap-state` mode |
 | four plan-pointer sites in `step-03-load-plan` (pointer absent, absent with snapshots, readiness RED, target missing) | `/l3io-plan` |
 | legacy state layout | `/l3io-doctor migrate-state` |
 | `implementation_artifacts` moved away from existing state | repoint `_bmad/custom/config.toml`, recording the previous value |
@@ -181,3 +181,11 @@ tests: the boundary cases are now `check 12 boundary: the entry file at exactly 
 passes` and `check 12 boundary: a package module at exactly 1,500 lines passes`, in
 `scripts/tests/check-docs.test.mjs`. The name above is kept as written because it is what the
 evidence at the time referred to.
+
+## Amendment (2026-11-17) — no remediable site remains in 4.x
+
+Task 4.8 deleted the 3.x activation sections and plan steps that held every remediable site
+above, together with the doctor's `bootstrap-state` mode, so `references/auto-remediation.md`'s
+Remediable table is empty. The decision stands for the next halt that gains a determinable
+remedy, and both absolute refusals stand: another session's epic, and accepting work a gate
+refused (on v7, a `rejected` retrospective's tickets marked `done`).

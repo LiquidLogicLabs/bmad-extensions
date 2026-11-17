@@ -13,14 +13,15 @@
 //   {project-root}/_bmad/<module-code>/scripts/pm_status/, which every skill of that module
 //   calls. check:module (`checkPmStatusSingleton`) guards against a second copy reappearing
 //   inside one module.
-//   spec-align.py → scripts/ in l3io-execute (arch gate, story prep, closures) and
-//   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
-//   it has two consumers (ADR-0001). l3io-execute also DECLARES it (DECLARED_EXTRAS), so v7
+//   spec-align.py → scripts/ in l3io-execute and l3io-doctor (its health checks, triage's
+//   spec pass, migrate-adrs); shared because it has two consumers (ADR-0001). l3io-execute also DECLARES it (DECLARED_EXTRAS), so v7
 //   installs it at _bmad/l3io-pm/scripts/spec-align.py for the readiness check wired into
 //   Sofia's validate; l3io-doctor runs its own skill copy and does not declare it
-//   ac-dimensions.md → references/ in l3io-plan and l3io-execute, and as a declared fact at
-//   scripts/facts/ in l3io-execute, which Sofia's persistent_facts names
-//   status-files.md / metrics-contract.md → references/ in PM skills
+//   ac-dimensions.md → a declared fact at scripts/facts/ in l3io-execute, which Sofia's
+//   persistent_facts names
+//   steps/shared/step-00-activate.md → steps/ in l3io-plan and l3io-execute;
+//   steps/execute/* → steps/ in l3io-execute
+//   status-files.md / metrics-contract.md / calibration-model.md → references/ in PM skills
 //   auto-remediation.md → references/ in l3io-execute, l3io-plan
 //   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
 //   write-module-config.py / module-setup.md → scripts/ and assets/ in each standalone
@@ -103,10 +104,8 @@ const specAlignFiles = [
   { src: path.join(sharedDir, "spec-align.py"), rel: path.join("scripts", "spec-align.py") },
 ];
 
-// The canonical story AC dimension reference, shipped to the two skills that enrich stories.
-const acDimensionFiles = [{ src: path.join(sharedDir, "ac-dimensions.md"), rel: "references/ac-dimensions.md" }];
-
-// The same reference as a declared fact: a Sofia `persistent_facts` entry can only name a file
+// The canonical story AC dimension reference, as a declared fact: a Sofia `persistent_facts`
+// entry can only name a file
 // under `{project-root}/_bmad/l3io-pm/scripts/`, so REFINE writes to the dimensions the
 // readiness check enforces.
 const acDimensionFactFiles = [
@@ -145,8 +144,8 @@ const moduleHomeFiles = [
 ];
 
 // status-files.md ALONE, for a skill that needs the state-layout contract but not the metrics
-// or calibration ones. l3io-doctor is that skill: migrate-state, split-status,
-// clean-layout, health-check and stats all decide what a correct state tree looks like, and
+// or calibration ones. l3io-doctor is that skill: migrate-state, health-check and stats all
+// decide what a correct state tree looks like, and
 // six of its runtime directives -- SKILL.md:186 among them, calling it "the canonical
 // contract" -- told the reader to open `references/status-files.md` in a skill that did not
 // ship it. Shipping it is the fix rather than repointing, because a doctor install does not
@@ -215,29 +214,6 @@ const sharedStepFiles = [
     src: path.join(sharedDir, "steps", "shared", "step-00-activate.md"),
     rel: path.join("steps", "shared", "step-00-activate.md"),
   },
-  {
-    // The digest, split out of step-00-activate.md §8: dispatched subagents load it alone,
-    // inheriting the bootstrap in sections 1-7 rather than re-running it per dispatch.
-    src: path.join(sharedDir, "steps", "shared", "step-00-digest.md"),
-    rel: path.join("steps", "shared", "step-00-digest.md"),
-  },
-  {
-    src: path.join(sharedDir, "steps", "shared", "step-01-classify-work.md"),
-    rel: path.join("steps", "shared", "step-01-classify-work.md"),
-  },
-  {
-    src: path.join(sharedDir, "steps", "shared", "step-estimate.md"),
-    rel: path.join("steps", "shared", "step-estimate.md"),
-  },
-];
-
-const planStepFiles = [
-  { src: path.join(sharedDir, "steps", "plan", "step-backlog-intake.md"), rel: path.join("steps", "plan", "step-backlog-intake.md") },
-  { src: path.join(sharedDir, "steps", "plan", "step-02-readiness-check.md"), rel: path.join("steps", "plan", "step-02-readiness-check.md") },
-  { src: path.join(sharedDir, "steps", "plan", "step-03-story-elaboration.md"), rel: path.join("steps", "plan", "step-03-story-elaboration.md") },
-  { src: path.join(sharedDir, "steps", "plan", "step-04-load-state.md"), rel: path.join("steps", "plan", "step-04-load-state.md") },
-  { src: path.join(sharedDir, "steps", "plan", "step-05-dependency-graph.md"), rel: path.join("steps", "plan", "step-05-dependency-graph.md") },
-  { src: path.join(sharedDir, "steps", "plan", "step-06-plan-output.md"), rel: path.join("steps", "plan", "step-06-plan-output.md") },
 ];
 
 const executeStepFiles = ["step-02-resolve.md", "step-03-sync.md", "step-04-dispatch.md",
@@ -255,7 +231,6 @@ const syncGroups = [
   { files: pmRefFiles, dirs: allPmDirs },
   // New: shared steps into new skills (dirs only created in Tasks 5-9; skip missing dirs)
   { files: sharedStepFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  { files: planStepFiles, dirs: newPmPlanDirs, skipMissing: true },
   { files: executeStepFiles, dirs: newPmExecuteDirs, skipMissing: true },
   // the pm_status package into ONE l3io-pm skill, which declares it; v7 installs it at
   // _bmad/l3io-pm/scripts/pm_status/, where l3io-plan calls it too.
@@ -270,9 +245,8 @@ const syncGroups = [
   { files: stateContractOnly, dirs: newUtilDoctorDirs },
   // spec-align.py into its two consumers
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
-  // the canonical AC dimension reference into the two skills that enrich stories
-  { files: acDimensionFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  // ... and as l3io-pm's declared fact file, for Sofia's persistent_facts
+  // the canonical AC dimension reference, as l3io-pm's declared fact file for Sofia's
+  // persistent_facts
   { files: acDimensionFactFiles, dirs: pmStatusShipperDirs },
   // the auto-remediation contract into the skills whose halts it classifies
   { files: autoRemediationFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },

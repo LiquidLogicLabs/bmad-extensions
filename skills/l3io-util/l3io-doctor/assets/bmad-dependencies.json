@@ -16,9 +16,10 @@
       "invoked_as": "lenses=adversarial",
       "fallback": "bmad-review-adversarial-general",
       "reason": "core, not bmm: measured resolving at .claude/skills/bmad-review/SKILL.md on a core-only install (modules: core plus this package's four). Recorded because the first draft declared it bmm and README repeated that" },
-    { "name": "bmad-sprint-planning", "status": "required", "module": "bmm",
+    { "name": "bmad-sprint-planning", "status": "optional", "module": "bmm",
       "invoked_as": "intent=readiness",
-      "fallback": "bmad-check-implementation-readiness" },
+      "fallback": "bmad-check-implementation-readiness",
+      "reason": "dispatched only by l3io-plan's 3.x readiness phase, retired in Task 4.8; on v7 readiness runs inside Sofia's validate" },
 
     { "name": "bmad-agent-architect", "status": "optional", "module": "bmm" },
     { "name": "bmad-architecture", "status": "optional", "module": "bmm",

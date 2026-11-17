@@ -2,7 +2,7 @@
 
 Invoked with `redrive` argument. Repairs the `scope` and `fix` calibration components in
 `{pm_calibration_file}` for stories whose samples were poisoned by a fixed defect: an older
-`set-field` stored `completion_evidence.fix_iterations` as a **string**, and
+`pm-status.py` stored `completion_evidence.fix_iterations` as a **string**, and
 `derive_story_sample` reads that field to decide a sample's provenance. A story that needed no
 rework (`fix_iterations: '0'`, a string) could not compare equal to the int `0`, so it derived
 as `backout` instead of `exact` — its scope ratio was divided by a 1.25 fix factor it never
@@ -62,7 +62,7 @@ already recorded under it stay wrong until rebuilt. This mode rebuilds them.
 
 **Step RD1 — Load config and resolve state root**
 
-Load config (same as layout cleanup). Resolve `{pm_state_root}` = `{implementation_artifacts}/state`.
+Load config (as under On Activation in `SKILL.md`). Resolve `{pm_state_root}` = `{implementation_artifacts}/state`.
 
 If `{pm_state_root}` does not exist:
 ```

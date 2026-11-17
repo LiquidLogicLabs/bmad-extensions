@@ -1,253 +1,163 @@
 # Architecture
 
-Execution model and design principles for `bmad-l3io-extensions`.
+Execution model and design principles for `bmad-l3io-extensions` on BMad v7.
+
+## Extend v7, never replace it
+
+On BMad v7 the work-item tree is v7's. Sofia (`bmad-agent-po`) owns initiatives, epics,
+tickets and their status; `bmad-build-auto` builds and reviews a ticket; `bmad-retrospective`
+judges an epic ([ADR-0015](adr/0015-v7-owns-the-work-item-tree.md),
+[ADR-0016](adr/0016-no-sprints-in-4x.md), [ADR-0017](adr/0017-review-viewpoints-are-lenses.md)). This package attaches
+to those skills through their own extension points — hooks, menu items and check lists in the
+team's `_bmad/custom/<skill>.toml` — and records what it measures in sidecar files beside v7's
+tree. It never writes `tickets.toml`, a leaf file, a container file or a plan file, except a
+plan through `tickets.py mark` on the `repo` store.
+
+There is no sprint level: v7 has epics and tickets, and so does l3io (ADR-0016).
 
 ## Context Boundary Principle
 
-The core design rule: **one phase = one fresh subagent; all state passes through disk.**
+The core design rule: **one unit of work = one fresh agent session; all state passes through
+disk.**
 
-No subagent receives conversation history from the orchestrator or from a sibling subagent. Each subagent starts clean, reads what it needs from disk (config files, story files, state nodes), does its work, writes outputs to disk, and terminates with a single status line.
+No session receives conversation history from the orchestrator or from a sibling. Each starts
+clean, reads what it needs from disk, does its work, writes its outputs to disk, and ends with a
+single status line. In `l3io-execute`, each epic of a parallel wave runs as its own session in
+its own worktree: the build bracket is keyed by the session and measured from its transcript,
+so two epics in one session would share a key and a measurement window.
 
-This is not just a performance optimization. It prevents context contamination — where earlier work influences later analysis in ways that reduce quality or introduce inconsistency. A code reviewer that has watched the development process will rationalize what it sees. A fresh code reviewer applies consistent standards.
-
-The same principle applies to `l3io-sec`: the agent's memory is disk-based (its sanctum) precisely so that each session starts with a deliberate reload, not an inherited in-context state.
+The same principle applies to `l3io-sec`: the agent's memory is disk-based (its sanctum)
+precisely so that each session starts with a deliberate reload, not an inherited in-context
+state.
 
 ## Module Relationships
 
-`l3io-execute` is a single skill that runs in two modes. In **normal mode** it is the epic orchestrator; it dispatches each sprint as a **headless** subagent invocation of *itself*. There is no separate sprint skill.
-
 ```
-l3io-plan          (read-only — produces the plan snapshot + plan-output-meta.yaml)
+Sofia (bmad-agent-po)            owns the tickets: TICKETS, REFINE, REPLAN, VALIDATE, BOARD
+    |-- hooks (wired by /l3io-doctor wire) --> pm_status estimate-entries, sidecar-reconcile
+    |-- validate checks --------------------> spec-align.py check-pointers, estimate-entries --check
+    |-- board hook and menu ----------------> plan-graph.py waves / lanes
     |
-    v
-l3io-execute  (normal mode — epic orchestrator)
+l3io-plan          estimate | waves | lanes    (read-mostly; writes only l3io's sidecars)
     |
-    |-- spawns --> l3io-arch-review Mode B  (step-04 arch gate, before any sprint)
-    |                  \-- escalates to bmad-agent-architect / superpowers
-    |                      ONLY on a BLOCKER or MAJOR (see Pre-Execution Architecture Gate)
-    |
-    |   Per sprint, THREE kinds of headless l3io-execute agent, each ending when its
-    |   piece is done. Sprints stay sequential; stories within a sprint are sequential too.
-    |
-    |-- spawns --> [prep]    step-02-story-prep            (once per sprint)
-    |                  \-- spawns --> story enricher
-    |                                     (legacy bmad-create-story if installed, else
-    |                                      in-package agent; one batched call per sprint)
-    |
-    |-- spawns --> [story]   step-03-dev-loop              (ONE PER STORY)
-    |                  |-- spawns --> implementer
-    |                  |        (legacy bmad-dev-story if installed, else in-package
-    |                  |         agent; dev, then each fix iteration)
-    |                  \-- spawns --> bmad-code-review     (review, cap 3 fix iterations)
-    |
-    \-- spawns --> [closure] step-04-sprint-closure        (once per sprint)
-                       |-- spawns --> bmad-retrospective
-                       |-- spawns --> bmad-review
-                       |                  (adversarial lens; clean-release + adversarial in
-                       |                   ONE call where the phase matrix runs both; the
-                       |                   legacy bmad-review-adversarial-general is used only
-                       |                   when bmad-review is absent)
-                       |-- spawns --> l3io-sec-redteam       (if installed)
-                       |-- spawns --> UX reviewer
-                       |                  (legacy bmad-ux-review if installed, else bmad-ux's
-                       |                   Reviewer Gate; skip if neither is present)
-                       \-- spawns --> l3io-arch-review Mode B (drift audit, if installed)
+l3io-execute       the unattended run over an initiative or epic
+    |-- per ticket --> bmad-build-auto thorough      (build-open / build-close hooks measure it)
+    \-- per epic ----> bmad-retrospective -H <slug>  (epic-close hook records closure)
 
-l3io-sec-redteam        (also invocable standalone)
-l3io-doctor       (standalone only — migration utilities)
-l3io-arch-review        (standalone, plus invoked by the gate and drift reviews above)
+l3io-sec-redteam   standalone
+l3io-doctor        standalone — health check, stats, wire/unwire, migrations, housekeeping
+l3io-arch-review   standalone; its standards can be wired into core bmad-architecture
 ```
 
-`l3io-sec` is optionally dependent on `l3io-pm` at runtime (called during closure), but has no build-time or config dependency. It runs standalone and only uses the l3io-pm config section if l3io-pm has already been configured.
+`l3io-sec` and `l3io-arch` run standalone and only read the `l3io-pm` config section if
+`l3io-pm` is configured. `l3io-arch` carries the engineering-standards charter
+(`references/standards-*.md`), designed to be wired into core `bmad-architecture` and
+`bmad-code-review` via `bmad-customize` so the standards apply during design and review without
+forking those skills.
 
-`l3io-arch` carries the engineering-standards charter (`references/standards-*.md`). It is invoked by l3io-pm's architecture gate and drift reviews, and is designed to also be wired into core `bmad-architecture`, legacy `bmad-create-story`, and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
+## Hooks: how l3io attaches to v7
 
-## Orchestrator Pattern
+`/l3io-doctor wire` writes l3io's entries into the team's `_bmad/custom/<skill>.toml` and
+records what it wrote; `/l3io-doctor unwire` removes exactly that ([ADR-0020](adr/0020-wire-in-owns-team-customization-edits.md)). It never
+overwrites a team value. Every entry calls a script BMad v7 installs from this package's
+declared scripts, at `{project-root}/_bmad/l3io-pm/scripts/…`, and is skipped while `l3io-pm`
+is not set up.
 
-The orchestrator acts as a traffic controller, not an implementer. Its context holds only:
+| Host skill | Extension point | Runs |
+|---|---|---|
+| `bmad-agent-po` | `tickets_after`, `refine_after`, `replan_after`; `l3io-estimate` menu item | `estimate-entries` (the replan hook runs `sidecar-reconcile` first) |
+| `bmad-agent-po` | `workflow.checks.ticket`, `workflow.checks.set`; a `persistent_facts` entry | `spec-align.py check-pointers --story-file`; `estimate-entries --check`; `facts/ac-dimensions.md` |
+| `bmad-agent-po` | `board_after`; `l3io-waves`, `l3io-lanes` menu items | `sidecar-reconcile` after a `move`, then `plan-graph.py waves` and `lanes` |
+| `bmad-build`, `bmad-build-auto` | activation prepend; On Complete | `build-open`; `build-close` |
+| `bmad-retrospective` | On Complete | `epic-close` |
 
-- Epic, sprint, and story keys with their statuses, obtained from `pm-status.py show`
-- Status-line summaries returned by subagents
-- Path bindings (no file contents)
-
-It never reads story file contents into its own context. When a story file is needed, it passes the path to a subagent — the subagent reads it. This keeps the orchestrator context small regardless of how many stories exist or how large each story file grows.
-
-Subagent prompts are self-contained. The headless sprint dispatch passes an explicit **authoritative context block** (work type, skip phases, epic key, sprint root, story keys, and the exact ordered list of step files to load). Nothing is implicit.
+**No hook may leave the tree dirty**, because `bmad-build-auto` halts on a dirty tree at its
+first step. `build-open` writes only a self-ignoring spool, `{state_root}/.inflight/`. Every
+hook that writes a tracked file commits exactly what it wrote, and nothing else.
 
 ## State Contract
 
-All l3io-pm state lives under `{implementation_artifacts}/state/`, is committed to git, and is co-located with the artifacts it describes. Nothing state-related lives under `{project-root}/_bmad/` — that tree is installer-owned and gitignored.
-
-State is **sharded**: one bare YAML node per file, with the directory structure replacing the old `sprints:` and `stories:` lists. Children are discovered by listing the directory.
-
-```
-{implementation_artifacts}/state/
-├── planned/   epic-005/epic.yaml, sprint-01/sprint.yaml, sprint-01/E005-S01-001.yaml
-├── active/    epic-001/…
-├── archived/  epic-002/…
-├── issues.yaml            ← open BL-E{nnn}-{nnn} items + `next:` key allocator
-├── issues-resolved.yaml   ← resolved BL items, with resolution
-├── events.jsonl           ← append-only transition log (committed — source of dwell time)
-└── pm-calibration.yaml    ← learned estimation ratios (committed — team knowledge)
-```
-
-### The two trees
-
-`state/{status}/epic-001/` and the top-level `epic-001/` hold two different *kinds* of fact about the same epic. They are not duplicates.
-
-| | `state/{status}/epic-001/` | `epic-001/` (top level) |
-|---|---|---|
-| Holds | Status, estimates, actuals, locks | Story markdown, closure reports, QA tests, ADRs |
-| Written by | `pm-status.py` only, atomically | Humans and dev / review agents |
-| Moves? | Yes — `planned/` → `active/` → `archived/` | Never |
-
-**Every epic with artifacts has state; not every epic with state has artifacts yet.** A planned epic has estimates before any story is authored; a done epic keeps both permanently.
-
-### Placement rule
-
-An epic's directory lives in the folder named for its status. Every transition is a `git mv` of the whole directory, so sprints and stories travel with their epic and `git log --follow` keeps working across every transition. `move-epic --to archived` is a directory move and nothing else.
-
-### Addressing
-
-**All node operations go through `pm-status.py` with `--state-root` plus node keys — never a hand-built path.** Layout knowledge lives in exactly one place, so a future layout change touches only that script.
-
-```bash
-uv run {pm_status} set-status --state-root {pm_state_root} --story E001-S01-003 --status done
-```
-
-Issue verbs address both issue files through `--state-root`; `append-issue` still accepts `--file` for compatibility.
-
-**Who writes it:** `pm-status.py` exclusively. Every status transition, `actual` block, estimate, event-log append, and read-back `verify` is one atomic, `ruamel`-round-trip-safe operation preserving comments and key order. This replaced free-form YAML edits that were dropped or malformed under load and parallelism.
-
-**Concurrency:** every `epic.yaml` write takes `epic_node_lock` — epic-scoped writers (status, estimate, actual, lock, move) serialize against each other on it, so two writers to the *same* epic never race even though they still touch only that epic's files; different epics never contend, since each has its own lock file. `sprint.yaml` and story `.yaml` writes still take no flock — sharding gives each epic its own directory. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` and `issues-resolved.yaml` (every issue verb's whole read-modify-write, under one `issues_lock`), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples). The epic lock is always the outer lock — promote nests `issues_lock` inside it, `set-actual` on an epic nests `calibration_lock` inside it, and a fresh epic lock is never taken while either of those is held (enforced at runtime).
-
-**Lock files:** `{state_root}/epic-NNN.lock` (one per epic, in the state root — not inside any epic directory — so it survives a `move-epic` `git mv`), plus the existing `issues.yaml.lock`, `pm-calibration.yaml.lock`, and `adr-register.yaml.lock`, plus a `.yaml.lock` sidecar per `--flock`'d node write and per `add-test-run` (which always flocks, so it leaves a `<story>.yaml.lock` beside every story that records a test run). All are created empty and never deleted, and none is ever committed. `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`: every lock acquisition inside a state root checks it, once per process, and adds the line if it is missing without rewriting the file's other lines. A bare `append-issue --file` outside one (no status folders, no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Lock files committed before that rule are untracked, and left on disk, by the sprint-closure checkpoint and by `/l3io-doctor`'s health check. `*.lock` never matches the state-root directory, so the activation gate's `git check-ignore` still passes. Lock files must not be deleted while a run may be active. Old `epic.yaml.lock` files left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock; the same filename is reused only as the redundant `--flock` sidecar, so removing one is harmless.
-
-**Reads are lock-free.** Every write goes through an atomic temp-file-plus-rename, so a reader — notably `pm-status.py report --watch` polling during a parallel phase — can never observe a torn node file and needs no lock of its own. The exceptions are `list-issues --all` and `audit-issues`, which read both issue files under `issues_lock` so a concurrent resolve cannot tear the pair.
-
-### Backlog lifecycle
-
-Deferred findings are a lifecycle, not an append-only list. Open items live in
-`issues.yaml`, resolved ones in `issues-resolved.yaml`
-([ADR-0002](adr/0002-issue-storage-open-resolved-high-water.md)). A promoted item becomes a
-story whose `resolves:` list is closed as `fixed` when `set-status` marks the story `done`
-— on every path that does, and without ever failing that call
-([ADR-0003](adr/0003-done-hook-warns-not-fails.md)).
-
-```mermaid
-stateDiagram-v2
-    [*] --> backlog: append-issue
-    backlog --> scheduled: promote-issue
-    backlog --> resolved: resolve-issue
-    scheduled --> resolved: story done (hook, fixed)
-    scheduled --> resolved: resolve-issue
-    scheduled --> backlog: repair-issue unschedule
-    resolved --> scheduled: repair-issue reopen
-```
-
-```mermaid
-sequenceDiagram
-    participant P as promote-issue
-    participant E as epic_node_lock
-    participant I as issues_lock
-    P->>P: validate every refusal (no writes)
-    P->>E: acquire
-    P->>P: re-resolve epic and sprint dirs (a move may have landed while waiting)
-    P->>P: re-check foreign lock
-    P->>I: acquire (nested)
-    P->>P: check item, story node + estimate (one save), story document
-    P->>P: roll up sprint, then epic
-    P->>P: mark items scheduled
-    P->>I: release
-    P->>E: release
-    Note over P: later: set-status --status done
-    P->>I: acquire
-    P->>P: resolve each resolves: key (fixed, ref story)
-    P->>I: release
-```
-
-`pm-status` is one **package** — `skills/_shared/pm_status/`, declared in each owning skill's
-`bmod.toml` and installed by BMad v7's setup as `_bmad/l3io-pm/scripts/pm_status/` and
-`_bmad/l3io-util/scripts/pm_status/` ([ADR-0001](adr/0001-pm-status-single-self-installed-file.md),
-its 2026-10-23 amendment, which took Option B, and its 2026-11-16 amendment, which retires
-self-install; the ADR's title records the superseded single-file decision). What has not changed is the split by consumer: structural checks
-(`audit-issues`) live in the package because more than one skill runs them, while the
-heuristic audit ships in doctor's own `scripts/audit-backlog.py`.
-
-### Lifecycles
+v7 owns status. l3io writes TOML sidecars beside v7's tree, through `pm-status.py`, under a
+`flock` on the sidecar's directory:
 
 ```
-story:  backlog → ready-for-dev → in-progress → review → done
-epic:   backlog → in-progress → done
+<initiative>/tickets/
+├── tickets.toml                         ← v7's
+├── l3io.toml                            ← [epic.<slug>] lane
+└── epic-<slug>/tickets/
+    ├── tickets.toml                     ← v7's
+    ├── l3io.toml                        ← [entry.<id>] class + estimate; [epic] estimate, actual, closure, verdict
+    ├── <stem>-plan.md                   ← v7's
+    └── <stem>-plan.l3io.toml            ← a ticket's actual, test runs, dispatch brackets
+
+<main checkout>/<output_folder>/l3io/    ← the project state root, shared by every worktree
+├── events.jsonl                         ← append-only event log
+├── pm-calibration.yaml                  ← learned estimation ratios
+├── adr-register.yaml                    ← ADR number allocator
+├── .notices.yaml                        ← one-time notices (gitignored)
+└── .inflight/                           ← open build brackets (self-ignoring)
 ```
 
-### Ownership lock
+The full layout is the sidecar contract in `status-files.md`, carried by `l3io-execute`.
 
-`l3io-execute` claims an epic by writing a `_lock` block (session id, claimed-at, TTL — default 30 minutes) as the first key of `epic.yaml`. `check-lock` exits `0` when free or stale, `5` when held by a live session. A nonexistent epic is deliberately treated differently per verb: `check-lock`/`clear-lock` exit `0` (queries and cleanup succeed on absence), while `set-lock` exits `3` — it needs a file to write into.
+**The state root is the main checkout's from any worktree**, found through `git rev-parse
+--git-common-dir`, so every worktree of one clone shares one event log and one calibration
+file, and `flock` guards them.
 
-### Legacy detection
+**Who writes it:** `pm-status.py` exclusively, atomically (temp file plus rename) and
+round-trip-safe (comments and key order survive). Path assembly lives in one place,
+`pm_status/nodes/` (check 26), so a layout change touches only that module.
 
-At activation, read resolution checks for the current layout, the legacy per-epic `_bmad/state/` tree, and the legacy flat `sprint-status.yaml`. Detection **counts matches rather than stopping at the first hit** — if more than one layout is present, it blocks rather than guessing which is authoritative. Migration is `/l3io-doctor migrate-state`.
+**`tickets.py move` does not carry the sidecars.** It moves the leaf and the plan and renumbers
+the entry. `sidecar-reconcile`, run by Sofia's replan and board hooks, repoints them; a
+folder's `next_id` never decreases, so an old entry id is never reused.
 
-## Artifact Directory Structure
+**Reads are lock-free.** Every write is an atomic rename, so a reader — `report --watch`
+during a parallel wave — never sees a torn file.
 
-Epic directories are 3-digit zero-padded (`epic-001`); sprints are 2-digit (`sprint-01`); story keys are `E{nnn}-S{nn}-{nnn}`. Zero-padding makes lexical directory order the correct processing order, so there is no separate ordering field to drift.
+**3.x state trees** (`{implementation_artifacts}/state/`) are read only by
+`/l3io-doctor migrate-state`, until Phase 6 replaces it.
 
-```
-{implementation_artifacts}/
-  state/                          ← see State Contract above
-  epic-001/
-    sprint-01/
-      stories/E001-S01-001.md
-      closure/retrospective.md
-      closure/closure-report.md
-      tests/
-    arch/arch-gate-review.md      ← written by the architecture gate
-    epic-closure/retrospective.md
-    epic-closure/closure-report.md
-    tests/
+## The unattended run
 
-{planning_artifacts}/
-  plan-{date}-v{n}.yaml           ← immutable plan snapshots, versioned per day
-  plan-output-meta.yaml           ← stable pointer to the current plan
-  readiness-report.md
-  elaboration-summary.md
-```
+`l3io-execute` runs a v7 initiative or epic with no review, fix loop or planning phase of its
+own (ADR-0017). `dispatch-plan.py` reads the store, `tickets.py status` and `plan-graph.py
+waves`, and emits the run as JSON; the steps then follow it:
 
-## Pre-Execution Architecture Gate
+1. **Sync.** On a tracker store, Sofia's Tracker sync procedure, then `tickets.py next
+   --synced`; on `repo`, `next`. Nothing on a tracker ever calls `mark`.
+2. **Waves.** Epics run in `waves` order. Each epic runs on branch `l3io/<slug>`; when the
+   project commits `_bmad/`, each epic of a wave gets its own worktree and agent session, up to
+   `max_parallel_subagents`, else epics run one at a time in the main checkout ([ADR-0022](adr/0022-one-worktree-per-epic.md)).
+3. **Tickets.** Inside an epic, tickets run one at a time — they share a tree, and
+   `bmad-build-auto` demands a clean one. Each is one `bmad-build-auto` run invoked `thorough`.
+   `plan_checkpoint` and `done_checkpoint` are honoured by asking the user.
+4. **Close.** After its last build, the epic's session runs `bmad-retrospective -H <slug>`. An
+   accepted verdict marks the epic's tickets `done`; a `rejected` verdict leaves them `built`
+   and halts that epic — accepting the work anyway is the user's call alone. The epic branch is
+   then merged.
+5. **Gates.** The run pauses at each epic in `waves`' `gates` — one that a later ticket or epic
+   file waits on for closure — and asks the user to close it in Sofia. It never writes a
+   container status.
 
-Before any sprint runs, `l3io-execute` step-04 gates the whole epic's design. This is a shift-left: architecture gaps surface before development instead of at closure.
-
-The gate is **skipped entirely** for `DOCS` and `CONFIG` work types, and when `l3io-arch-review` is absent — it never partially skips, because at least one reviewer must run for the gate to mean anything.
-
-`l3io-arch-review` Mode B runs **first and alone**. The other detected reviewers (`bmad-agent-architect`, superpowers) spawn in parallel **only if it reports a BLOCKER or MAJOR** — the consolidation table below is why: a single MAJOR already blocks, so extra reviewers cannot turn a clean verdict into a blocking one and were buying a corroboration label for two more full-epic reads on the common path. Once something is wrong, the extra perspectives earn their cost. Findings are consolidated by explicit rules:
-
-| Finding | Rule |
-|---|---|
-| BLOCKER from any reviewer | BLOCKER — never downgraded |
-| MAJOR from ≥2 reviewers | MAJOR confirmed — blocks execution |
-| MAJOR from 1 reviewer | MAJOR flagged (single-source) — still blocks |
-| MINOR from ≥2 reviewers | MINOR confirmed — deferred to issues |
-| MINOR from 1 reviewer | Auto-deferred to issues |
-
-Each blocking finding is resolved by writing an ADR under `{project-root}/docs/adr/` — the one ADR home (ADR-0005), with numbers reserved up front by `pm-status.py adr-reserve` so parallel agents cannot collide — **and** patching the affected story files with the technical ACs the decision implies. One re-validation pass follows; unresolved blockers halt execution.
-
-If the gate finds zero findings on non-trivial CODE scope it asks for confirmation rather than passing silently — a clean result there is unusual enough to be worth a second look.
+The project state root is committed in the main checkout (`close-commit.py state`) before each
+merge and at the end of the run, since a build in a worktree can commit only its own ticket
+sidecar.
 
 ## Bounded Parallelism
 
-Parallelism is used only where it is provably safe, and the safety comes from the state design: atomic per-node writes through `pm-status.py` plus per-epic directories mean concurrent branches never contend for a file. Concurrency is bounded by a fixed default (`max_parallel_subagents`), not adaptively sized — `parallel_mode`, `parallel_ceiling`, and `safe_batch_size` describe an adaptive model that is specced (`docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`) but not implemented.
+Concurrency is bounded by a fixed default, not adaptively sized — `parallel_mode`,
+`parallel_ceiling` and `safe_batch_size` describe an adaptive model that is specced
+(`docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`) but not implemented.
 
 | Level | Concurrency |
 |---|---|
-| Epics within a plan phase | Parallel, up to `max_parallel_subagents` (default 4) |
-| Sprints within an epic | **Always sequential** |
-| Stories within a sprint | Sequential, ordered by `depends_on` |
-| Arch gate reviewers | One by default; parallel across the rest **only on escalation** |
+| Epics within a wave | Parallel, up to `max_parallel_subagents` (default 4), one worktree each — only when the project commits `_bmad/` |
+| Tickets within an epic | Always sequential |
 
-Across phases, the orchestrator verifies every prerequisite epic is `status: done` before starting the next phase. Within an epic, the orchestrator dispatches stories in dependency order, one agent each. A story whose `depends_on` is still unmet ends `BLOCKED` rather than re-queueing: with one story per session there is no queue left to reorder, and nothing changes inside that session — an unmet dependency means the ordering or the graph is wrong, which is worth surfacing.
-
-Epic-level parallelism is additionally bounded by the ownership lock: an epic already claimed by a live session is skipped with a `BLOCKED` line rather than double-executed.
+A wave starts only when the previous one is merged. Another session's epic — its
+`l3io/<slug>` branch checked out in another worktree — is never removed or reused; the run
+halts on it.
 
 ## Cost Model
 
@@ -257,64 +167,37 @@ count — a 263-turn agent pays for its own history 263 times.
 
 The repository-size hypothesis was tested directly and failed: deleting 4,415 lines from a
 project moved the token composition not at all, and `cache_read` stayed 75–94% of every
-story's tokens either way. Architecture here is shaped by that finding rather than by
-intuitions about context size.
+story's tokens either way. That finding shapes the run:
 
-| Rule | Where it is enforced | What it prevents |
-|---|---|---|
-| One story per agent session | `step-05-epic-loop.md` §5b | A single session accumulating a whole sprint's turns. The sprint agent used to run prep, every story, every fix round and closure in one context. |
-| Never poll — arm one wait and stop | `{agent_contract}`, in every spawn prompt | One-line status turns priced as full turns. One measured story spent ~130 of its 263 turns polling, against ~62 turns of implementation. |
-| You have no inbox — end `BLOCKED` | `{agent_contract}` | An agent waiting for a reply that cannot arrive. Blocking waits once made orchestration 76% of a sprint's spend. |
-| Fix loop capped at 3 | `step-01-classify-work.md` §5 | A retry tail bought at the steepest part of the turn curve. Was 10. |
-| Reviewers get a diff and named sections | every review spawn | A reviewer reading the corpus before its first thought. Scoped, review is ~3.4% of a story's tokens. |
-| Escalate the arch gate on signal | `step-04-arch-gate.md` §4 | Two extra full-epic reads buying a corroboration label — a single MAJOR already blocks. |
-| Subagents inherit activation | `step-05-epic-loop.md` §5 | Re-running config resolution, the `pm_status` lookup, layout detection and schema verify once per dispatch. |
-
-## Quality Gate Contracts
-
-### Sprint closure
-
-Phases run in order, with work-type-driven skips:
-
-The authoritative phase matrix lives in `steps/shared/step-01-classify-work.md` §4. The table
-below mirrors its `{skip_phases}`-enforced rows for readability; if the two ever disagree, the
-matrix is correct.
-
-| Phase | CODE | DOCS | CONFIG | MIXED |
-|---|---|---|---|---|
-| Retrospective | run | run | run | run |
-| Clean release review | run | skip | run | run |
-| Adversarial analysis | run | skip | run | run |
-| Red team (l3io-sec) | run | skip | run | run |
-| UX review | run | skip | run | run |
-| Sprint architectural drift | run | skip | run | run |
-| Issue triage | run | run | run | run |
-
-Severity routing is uniform across phases with one exception — the architectural drift review uses `l3io-arch-review`'s own **BLOCKER/MAJOR/MINOR**, because that is the vocabulary it emits. Everywhere else: **CRITICAL/HIGH** block closure and open a fix loop (capped at `{max_fix_iterations}` — 3); **MEDIUM** is fixed in place before the sprint is marked done; **LOW** auto-defers to `issues.yaml` via `pm-status.py append-issue` — a `BL-` item, never a new story, and never a per-item prompt.
-
-### Epic closure
-
-Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode B, CODE/MIXED only) → epic-wide security review (`l3io-sec-redteam`, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
-
-BLOCKER and MAJOR drift findings must be resolved before closure completes — or recorded as an accepted ADR that justifies leaving them — under the same `{max_fix_iterations}` fix-loop cap (default 3); MINOR defers to the issues file. The security review runs at CRITICAL/HIGH/MEDIUM/LOW/OBSERVATION — its own vocabulary (`references/findings-report.md`), not the drift audit's BLOCKER/MAJOR/MINOR — with CRITICAL/HIGH/MEDIUM gating closure the same way.
-
-Redteam is seeded with the epic's cumulative diff, story file paths, and ADR paths, and explicitly permitted to widen beyond them to trace entry points, trust boundaries, and auth checkpoints — its own method (`scope-mapping.md`) requires this, unlike the diff-only scoping used for code and adversarial reviewers.
+| Rule | What it prevents |
+|---|---|
+| One `bmad-build-auto` run per ticket | A single session accumulating many tickets' turns |
+| One agent session per parallel epic | Two epics sharing one measurement window and one growing prefix |
+| No review or fix loop around the build | A second review pass over work `bmad-build-auto` already reviewed `thorough` |
 
 ## Metrics Contract
 
-Every planning point and every closeout — story, sprint, epic, and retrospective — records both an `estimate` and an `actual` for all five metrics: `elapsed_hours` (AI wall-clock), `man_hours` (counterfactual developer effort, assessed at closure — not observed), `hitl_hours` (human attention actually spent supervising), `tokens_k` (a mapping of `total` plus the four token classes), and `cost` (derived from `tokens_k × rates`, never entered directly). This is enforced at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens value, and `--cost*` is rejected on every runtime.
+Every planning point and closeout — ticket and epic — records an `estimate` and an `actual`
+for all five metrics: `elapsed_hours` (AI wall-clock), `man_hours` (counterfactual developer
+effort, assessed at closure — not observed), `hitl_hours` (human attention actually spent
+supervising), `tokens_k` (a mapping of `total` plus the four token classes), and `cost`
+(derived from `tokens_k × rates`, never entered directly). Under `--runtime claude` an `N/A`
+token count is refused, and `--cost*` is refused on every runtime.
 
-Estimates are a strict bottom-up roll-up — `sprint.estimate = Σ story.estimate + calibrated closure band + calibrated orchestration band`, `epic.estimate = Σ sprint.estimate + calibrated epic-closure band + calibrated orchestration band` — so parents reconcile with children by construction rather than by a parallel formula that could drift.
+Estimates are a bottom-up roll-up: an entry's estimate is its class band × the calibrated scope
+ratio × the fix factor, and `epic.estimate = Σ entry estimates + calibrated epic-closure band +
+calibrated orchestration band`, so an epic reconciles with its tickets by construction.
 
-Full model and capture procedure: each PM skill's `references/metrics-contract.md`.
+Actuals come from the hooks: `build-close` writes a ticket's, from the session transcript over
+the build bracket; `epic-close` writes the epic's closure and its total. Full model and capture
+procedure: `metrics-contract.md`, carried by the PM skills.
 
 ## Subagent Invocation
 
-**Preferred method:** Agent tool with a self-contained prompt. No conversation history is forwarded — only paths, keys, and the skill to invoke.
+**Preferred method:** Agent tool with a self-contained prompt. No conversation history is
+forwarded — only paths, keys, and the skill to invoke.
 
-**Fallback:** `claude --print` with a heredoc prompt, when the Agent tool is unavailable.
-
-Every subagent ends with exactly one status line:
+Every session ends with exactly one status line:
 
 ```
 DONE — [brief metrics]
@@ -322,13 +205,8 @@ BLOCKED: [one-line reason]
 FAILED: [one-line reason]
 ```
 
-The orchestrator branches on this line. At the sprint level the distinction matters: `BLOCKED` halts the epic loop, while `FAILED` is non-fatal — the orchestrator logs it, tracks the count, and continues to the next sprint.
-
-Headless sprint runs emit a richer DONE line:
-
-```
-DONE — Stories: N, Issues resolved: N, Issues deferred: N
-```
+An epic session of `l3io-execute` may also end `CHECKPOINT: …`, when a ticket's checkpoint
+needs the user.
 
 ## Customization Model
 
@@ -342,7 +220,9 @@ Each skill ships with a `customize.toml` at its skill root. Overrides layer in t
 {project-root}/_bmad/custom/{skill-name}.user.toml   (personal — gitignore)
 ```
 
-Scalar values override; array values append. `resolve_customization.py` performs the merge at activation; if it fails, the skill falls back to reading the three files in order and applying the same precedence.
+Scalar values override; array values append. `resolve_customization.py` performs the merge at
+activation; if it fails, the skill falls back to reading the three files in order and applying
+the same precedence.
 
 **The root key must match the skill type**, or overrides are ignored silently:
 
@@ -351,4 +231,5 @@ Scalar values override; array values append. `resolve_customization.py` performs
 | Workflow / utility (l3io-execute, l3io-plan, l3io-doctor, l3io-arch-review) | `[workflow]` |
 | Memory agent (l3io-sec-redteam) | `[agent]` |
 
-See [l3io-pm-reference.md](l3io-pm-reference.md#workflow-customization) for the shipped keys and their defaults.
+See [l3io-pm-reference.md](l3io-pm-reference.md#workflow-customization) for the shipped keys and
+their defaults.

@@ -1,15 +1,14 @@
 """pm_status.nodes -- the node layer: the ONLY place a node key becomes a path.
 
-Sharded-layout resolution (`find_epic_dir`, `epic_file`/`sprint_file`/`story_file`,
-`resolve_node_path`, `ensure_node_path`), the node load/save pair, the roll-up
-enumerators, the node-field schemas `set-field` validates against, the story-document
-skeleton, `_check_lock_verdict` and `deps_list`.
+Two resolvers, kept apart. The 3.x sharded tree (`find_epic_dir`,
+`epic_file`/`sprint_file`/`story_file`, `resolve_node_path`, `ensure_node_path`, the node
+load/save pair, the story enumerators, the story-document skeleton and
+`_check_lock_verdict`) serves the migration's writers (`import-node`, `import-actual`)
+and the issues verbs, and retires with them; the v7 sidecar resolvers (`entry_sidecar`,
+`ticket_sidecar`, `project_state_root`, ...) are the 4.x layout.
 
 It sits directly above `core` and below everything else: the issue store, the metrics
-layer, the status verbs and the plan operations all reach state through here. That
-position is what breaks the cycle the original "state" bucket contained -- the status
-verbs consume the issue store, and the issue store consumes this module, so the two
-cannot be one bucket.
+layer and the verbs all reach state through here.
 
 check:docs check 26 ("state paths are assembled only in pm-status.py's resolver
 section") judges each authored file of the package by ITS OWN marker pair, and the pair
@@ -69,63 +68,6 @@ def find_epic_dir(state_root: str, epic_key: str):
         if os.path.isdir(p):
             return p
     return None
-
-
-def iter_epic_dirs(state_root: str):
-    """Yield (bucket, epic_key, epic_dir_path) for every epic directory in the state tree.
-
-    Missing state root yields nothing. Order: bucket in STATUS_DIRS order (active,
-    planned, archived), key sorted within each bucket. Non-conforming entries
-    (a directory that does not match epic-{nnn}, a regular file with that name) are
-    skipped silently -- they are not this enumerator's concern.
-
-    The one enumerator behind list-epics; also the enumerator a future caller uses to
-    answer "does this epic exist and in which bucket?" without probing filesystem paths.
-    """
-    if not os.path.isdir(state_root):
-        return
-    for bucket in STATUS_DIRS:
-        bucket_dir = os.path.join(state_root, bucket)
-        if not os.path.isdir(bucket_dir):
-            continue
-        for name in sorted(os.listdir(bucket_dir)):
-            if not name.startswith("epic-"):
-                continue
-            p = os.path.join(bucket_dir, name)
-            if not os.path.isdir(p):
-                continue
-            suffix = name[len("epic-"):]
-            if not (suffix.isdigit() and len(suffix) == 3):
-                continue
-            yield bucket, f"E{suffix}", p
-
-
-def iter_story_files(state_root: str, epic_key: str, sprint_key=None):
-    """Yield (story_key, story_file_path) for every story node file under an epic,
-    optionally scoped to one sprint.
-
-    A missing epic yields nothing (callers check find_epic_dir separately when they
-    want to distinguish absent from empty). Files that are not stories -- sprint.yaml,
-    epic.yaml, a .yaml.lock sidecar, anything whose name does not parse as
-    E{nnn}-S{nn}-{nnn} -- are filtered out here so callers do not have to.
-    """
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return
-    target_sprint_dir = sprint_dirname(sprint_key) if sprint_key is not None else None
-    for sd_path in list_sprint_dirs(state_root, epic_key):
-        sd_name = os.path.basename(sd_path)
-        if target_sprint_dir is not None and sd_name != target_sprint_dir:
-            continue
-        for name in sorted(os.listdir(sd_path)):
-            if not name.endswith(".yaml"):
-                continue
-            story_key = name[:-len(".yaml")]
-            try:
-                parse_story_key(story_key)
-            except ValueError:
-                continue
-            yield story_key, os.path.join(sd_path, name)
 
 
 def epic_file(state_root: str, epic_key: str):
@@ -222,8 +164,7 @@ def ensure_node_path(state_root: str, args, kind: str, status: str):
     breaks; check 26 in check-docs.mjs fails the build if one appears.
 
     A NEW epic is placed by its status, per the placement rule. An epic that already has
-    a directory is left where it is: relocating on a status change is move-epic's job,
-    which uses `git mv` so history survives. Sprints and stories require their epic's
+    a directory is left where it is. Sprints and stories require their epic's
     directory to exist and exit 3 when it does not.
     """
     if kind == "epic" and status not in DIR_FOR_STATUS:
@@ -297,7 +238,7 @@ def _epic_write_lock(args, kind, require_exists: bool = True):
     """epic_node_lock around a node verb's read-modify-write when the node is an epic; no
     lock for a sprint or story, whose files are not epic.yaml. Resolves the epic first, so
     an absent one exits 3 exactly as before with no lock file created; the verb resolves
-    again inside the hold, since a move-epic may land while it waits.
+    again inside the hold, since a directory move may land while it waits.
 
     require_exists=False is for import-node, whose whole purpose is the node that does not
     exist yet. It still takes the lock -- a concurrent import of the same epic must
@@ -309,14 +250,6 @@ def _epic_write_lock(args, kind, require_exists: bool = True):
     if require_exists:
         resolve_node_path(args.state_root, args, "epic")
     return epic_node_lock(args.state_root, args.epic)
-
-
-def _epic_path_or_die(args) -> str:
-    """Resolve epic path from args.state_root and args.epic; exit 3 if not found."""
-    p = epic_file(args.state_root, args.epic)
-    if p is None:
-        _die_notfound(f"epic {args.epic}")
-    return p
 
 
 # 4.x sidecars beside BMad v7's ticket tree (status-files.md §12). v7 owns `tickets.toml`,
@@ -521,43 +454,6 @@ def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
 
 
 # --------------------------------------------------------------------------- #
-# Node-field schemas — what `set-field` coerces, and what it refuses outright
-# --------------------------------------------------------------------------- #
-# Node fields that are numeric or boolean regardless of how they arrive. `set-field`
-# takes --value as text, so without this a numeric field lands on disk as a quoted
-# string and every later reader has to guess. That is not hypothetical: writing
-# fix_iterations through set-field stored '0', and the calibration path then depended
-# on that string being int()-parseable. '0' happened to work; '0.0' raised ValueError
-# and lost the sample entirely, and an unsubstituted '{fix_iterations}' placeholder --
-# or any other non-numeric text -- silently became provenance=backout on a story that
-# needed no rework at all.
-NUMERIC_NODE_FIELDS = {
-    "completion_evidence.fix_iterations",
-    "completion_evidence.files_changed",
-}
-BOOL_NODE_FIELDS = {"completion_evidence.tests_passing"}
-
-# Fields set-field must refuse outright: each is derived from other recorded data
-# rather than asserted by an agent. completion_evidence.tests_passing used to be a
-# free-form boolean an agent wrote about its own work -- not falsifiable, and not
-# even checked against anything it ran. A story once shipped ten green gates and
-# tests_passing: true having broken a suite it never ran; the break surfaced two
-# stories later by accident. add-test-run records the command and exit code instead,
-# and derives the boolean from that recorded set.
-DERIVED_NODE_FIELDS = {
-    "completion_evidence.tests_passing":
-        "derived from completion_evidence.test_runs — record what you ran with "
-        "`add-test-run --command CMD --exit-code N` instead of asserting the result",
-    "resolves":
-        "written by `promote-issue`, which also schedules the items it names -- a hand "
-        "write would link a story the backlog does not know about",
-    "status":
-        "status changes go through `set-status`, which records the transition event and "
-        "runs the done hook that resolves a story's backlog items",
-}
-
-
-# --------------------------------------------------------------------------- #
 # Story documents — the artifact-tree mirror of a story node, and its skeleton
 # --------------------------------------------------------------------------- #
 def story_doc_path(artifacts_root: str, story_key: str) -> str:
@@ -621,17 +517,12 @@ def init_story_doc(state_root, artifacts_root, story_key, context_md="", ac_line
 # Lock verdict and dependency list — read helpers over an already-loaded node
 # --------------------------------------------------------------------------- #
 def _check_lock_verdict(lock, session_id) -> tuple:
-    """check-lock's verdict on a PRESENT `_lock` value, as (exit, line): 0 when the epic
+    """The verdict on a PRESENT 3.x epic `_lock` value, as (exit, line): 0 when the epic
     is free to claim, 5 when another session holds it within its TTL.
 
-    Extracted verbatim from cmd_check_lock -- same lines, same order of evaluation, and
-    the same ValueError on a non-integer ttl_minutes. promote-issue (`_foreign_lock_error`)
-    takes this verdict only for a lock it can evaluate (`_unevaluable_lock_reason`), so the
-    two agree on every well-formed lock: e.g. `ttl_minutes: 0` is always stale to both,
-    where promote used to read it as 30. A lock this verdict calls unreadable is FREE to
-    check-lock, a read, but refused by both write verbs, set-lock and promote (Ruling 24).
-    cmd_set_lock is deliberately NOT routed through here: it parses the TTL only after the
-    timestamp, so sharing would change one of the two verbs."""
+    promote-issue (`_foreign_lock_error`) takes this verdict only for a lock it can
+    evaluate (`_unevaluable_lock_reason`): e.g. `ttl_minutes: 0` is always stale. A lock
+    this verdict calls unreadable is FREE here but refused by promote, a write (Ruling 24)."""
     if not isinstance(lock, dict):
         return 0, "FREE (unreadable lock — not a mapping — treating as stale)"
     holder = str(lock.get("session_id", ""))

@@ -7,9 +7,8 @@
 read-artifacts.py -- derive records from story .md artifacts alone, for a project that
 has stories but no status file.
 
-This replaces the inline write_node() in steps/bootstrap-state.md, which assembled state
-paths at six sites and wrote nodes directly -- bypassing the epic write lock, the event
-log and status validation.
+It only reads: every node it describes is written by migrate-engine.py through
+`pm-status.py import-node`, under the epic write lock, the event log and status validation.
 
 Stories are READ: each `{artifacts}/epic-XX/sprint-YY/stories/*.md` carries YAML
 frontmatter with its key, title and status. Sprints and epics are INFERRED from the

@@ -124,20 +124,20 @@ three markers × two install mirrors = six phantom hits on a tree with no real d
 not absorb them: H3 matches on `source: code-marker ({file}:{line})` against items already in the
 backlog, and an example nobody harvested matches nothing, so it is classified `new` and offered
 for filing. Reported 2026-09-29 as a Health Check defect, but the sweep is shared — Health
-Check's Check 6 delegates to this contract, so it faithfully reported this mode's wrong number.
-Fixing it here fixes both; fixing it in Check 6 alone would have left `/l3io-doctor
+Check's Check 3 delegates to this contract, so it faithfully reported this mode's wrong number.
+Fixing it here fixes both; fixing it in Check 3 alone would have left `/l3io-doctor
 harvest-debt` still offering to write the examples into the backlog.
 
 ### Steps
 
 **Step H1 — Load config and resolve the backlog file**
 
-Load config (same as layout cleanup). Also resolve:
+Load config (as under On Activation in `SKILL.md`). Also resolve:
 - `harvest_exclude_dirs` — from the `l3io-util` section; default `[]`. Additional directories to exclude from the sweep on top of the built-in exclusion list. Each entry is passed as an additional `--exclude-dir` argument in the [Grep contract](#grep-contract).
 
 Bind `{status_backlog}` = `{pm_issues_file}` (`{pm_state_root}/issues.yaml`) — the single flat
 deferred-issue list of the current layout. Then check for a legacy layout using the same
-three-way count Check 2b uses, and refuse to write past one:
+three-way count the health check's Check 2 uses, and refuse to write past one:
 
 1. If a legacy layout is present (legacy flat `sprint-status*.yaml`, or legacy per-epic
    `_bmad/state/`) and `{pm_state_root}` does not exist → print:

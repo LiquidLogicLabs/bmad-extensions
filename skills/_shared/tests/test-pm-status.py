@@ -5,11 +5,10 @@
 # ///
 """
 Tests for pm-status.py — run with: uv run test-pm-status.py
-Exercises the sharded split-directory layout resolution, key-based node addressing
-(set-status/set-actual/set-estimate/set-field/verify), epic directory moves
-(move-epic), the unconverted --file-based commands (locks,
-append-issue), comment/order preservation, the events.jsonl
-transition log, the progress report, and verify exit codes.
+Exercises the 3.x sharded layout resolution and key-based node addressing
+(import-node/set-actual/set-estimate/verify), the issue verbs, calibration and estimates,
+comment/order preservation, the events.jsonl log, and verify exit codes. The v7 sidecar
+verbs are in test-pm-status-sidecar.py.
 """
 import argparse
 import ast
@@ -71,6 +70,51 @@ def tearDownModule():
         raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
                              f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
                              f"cleanup: {', '.join(leaked[:5])}")
+
+
+def _epic_locked(root, fn, *args, epic="E001"):
+    """Call `fn` holding an epic's lock, as every CLI writer of an epic node does."""
+    with pm.epic_node_lock(root, epic):
+        return fn(*args)
+
+
+def _fx_node_path(root, story=None, epic=None):
+    return pm.story_file(root, story) if story else pm.nodes.epic_file(root, epic)
+
+
+def _fx_set_status(root, status, story=None, epic=None):
+    """Write a node's status directly: a fixture step, not a verb under test."""
+    path = _fx_node_path(root, story, epic)
+    y, node = pm.load_node(path)
+    node["status"] = status
+    _epic_locked(root, pm.core._atomic_dump, y, node, path)
+
+
+def _fx_set_field(root, field, value, story=None, epic=None):
+    path = _fx_node_path(root, story, epic)
+    y, node = pm.load_node(path)
+    cur = node
+    parts = field.split(".")
+    for k in parts[:-1]:
+        cur = cur.setdefault(k, {})
+    cur[parts[-1]] = value
+    _epic_locked(root, pm.core._atomic_dump, y, node, path)
+
+
+def _fx_move_epic(root, epic, to):
+    """Rename an epic's directory into another status folder, as a 3.x placement did."""
+    src = pm.find_epic_dir(root, epic)
+    dest = os.path.join(root, to, os.path.basename(src))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    os.rename(src, dest)
+
+
+def _fx_set_lock(root, epic, session_id, ttl_minutes=30):
+    path = pm.nodes.epic_file(root, epic)
+    y, node = pm.load_node(path)
+    node["_lock"] = {"session_id": session_id, "claimed_at": pm._now_iso(),
+                     "ttl_minutes": ttl_minutes}
+    _epic_locked(root, pm.core._atomic_dump, y, node, path)
 
 
 class Base(unittest.TestCase):
@@ -319,7 +363,7 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
         """`import pm_status.verbs` and `pm.verbs.<name>` must resolve, so that a patch target
         added to `verbs` fails HERE -- with the repair instructions above -- rather than as an
         ImportError at the natural spelling. This is also `verbs`' reader for the gate below."""
-        self.assertIs(pm.verbs.cmd_set_status, pm.cmd_set_status)
+        self.assertIs(pm.verbs.cmd_import_node, pm.verbs.cmd_import_node)
 
     def test_every_re_export_only_name_has_a_reader(self):
         """A `# noqa: F401` on a facade import in `__main__.py` is a claim that SOMETHING reads
@@ -370,7 +414,7 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
 
 
 class TestSubcommandRegistration(unittest.TestCase):
-    """Every one of the 48 subcommands must still be registered on the parser.
+    """Every subcommand in EXPECTED must be registered on the parser, and nothing else.
 
     A REGRESSION guard, not a TDD driver: `build_parser()` already registered all 43 before
     registration was distributed across the modules, so this passed on the day it was
@@ -392,18 +436,23 @@ class TestSubcommandRegistration(unittest.TestCase):
     """
 
     # The CLI surface, in registration order. Adding or removing a verb is a deliberate edit
-    # here.
+    # here. Task 4.8 retired the placement, listing, node-write and lock verbs; the issues
+    # verbs go in Task 4.9, and import-node/import-actual with the migration in Phase 6.
     EXPECTED = (
-        "set-status", "story-doc-init", "set-depends-on", "import-node",
-        "set-actual", "import-actual", "verify", "list-epics", "list-stories", "show",
-        "report", "dispatch", "set-lock", "clear-lock", "check-lock",
-        "set-estimate", "set-field", "add-test-run", "append-issue", "resolve-issue",
-        "update-issue", "promote-issue", "schedule-issue", "audit-issues", "repair-issue",
-        "list-issues", "move-epic", "usage", "calibration", "estimate-story",
-        "estimate-rollup", "rates", "adr-reserve", "dump-plan", "retire-epic",
-        "reparent-story", "reorg-log", "reorg-undo", "notice", "sync-agent-instructions",
-        "sidecar-reconcile", "build-open", "build-close", "estimate-entries", "set-lane",
+        "import-node", "verify", "set-estimate", "add-test-run", "notice",
+        "set-actual", "import-actual", "report", "dispatch", "usage", "calibration",
+        "estimate-story", "estimate-rollup", "rates",
+        "append-issue", "resolve-issue", "update-issue", "promote-issue", "schedule-issue",
+        "audit-issues", "repair-issue", "list-issues", "adr-reserve",
+        "sync-agent-instructions",
+        "sidecar-reconcile", "estimate-entries", "set-lane", "build-open", "build-close",
         "epic-close",
+    )
+    RETIRED = (
+        "set-status", "move-epic", "reparent-story", "retire-epic", "reorg-log",
+        "reorg-undo", "dump-plan", "list-epics", "list-stories", "show",
+        "set-depends-on", "story-doc-init", "set-field", "set-lock", "clear-lock",
+        "check-lock",
     )
 
     def _registered(self):
@@ -437,7 +486,7 @@ class TestSubcommandRegistration(unittest.TestCase):
                 owners.setdefault(verb, name)
         return owners
 
-    def test_build_parser_registers_all_48_subcommands(self):
+    def test_build_parser_registers_every_subcommand(self):
         registered = self._registered()
         owners = self._owners()
         missing = [v for v in self.EXPECTED if v not in registered]
@@ -456,74 +505,19 @@ class TestSubcommandRegistration(unittest.TestCase):
             f"build_parser() registers {len(registered)} subcommands, expected "
             f"{len(self.EXPECTED)}.{detail}")
 
-    def test_the_count_is_46(self):
+    def test_the_count_is_30(self):
         """Stated as its own assertion because the number is quoted in the design spec, the
         task briefs and the surface baseline. A set comparison alone reports 'missing one'
         without ever saying what the total is supposed to be."""
-        self.assertEqual(len(self._registered()), 46)
-        self.assertEqual(len(set(self.EXPECTED)), 46, "EXPECTED has a duplicate")
+        self.assertEqual(len(self._registered()), 30)
+        self.assertEqual(len(set(self.EXPECTED)), 30, "EXPECTED has a duplicate")
 
-
-class TestLockCommands(Base):
-    """set-lock/clear-lock/check-lock using --state-root and --epic."""
-
-    def setUp(self):
-        super().setUp()
-        self.state_root = os.path.join(self.d, "state")
-        epic_dir = os.path.join(self.state_root, "active", "epic-001")
-        os.makedirs(epic_dir)
-        self.epic_file = os.path.join(epic_dir, "epic.yaml")
-        with open(self.epic_file, "w", encoding="utf-8") as fh:
-            fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
-
-    def test_set_lock_writes_block(self):
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                                   "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        self.assertEqual(code, 0)
-        _, data = pm.load_node(self.epic_file)
-        self.assertIn("_lock", data)
-        self.assertEqual(data["_lock"]["session_id"], "sess-abc")
-        self.assertEqual(data["_lock"]["ttl_minutes"], 30)
-        self.assertIn("claimed_at", data["_lock"])
-
-    def test_set_lock_writes_lock_first(self):
-        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                       "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        _, data = pm.load_node(self.epic_file)
-        self.assertEqual(next(iter(data.keys())), "_lock")
-
-    def test_clear_lock_removes_block(self):
-        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                       "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        code, out = self.run_main(["clear-lock", "--state-root", self.state_root, "--epic", "E001"])
-        self.assertEqual(code, 0)
-        _, data = pm.load_node(self.epic_file)
-        self.assertNotIn("_lock", data)
-
-    def test_clear_lock_idempotent(self):
-        # clear on file with no lock must succeed
-        code, _ = self.run_main(["clear-lock", "--state-root", self.state_root, "--epic", "E001"])
-        self.assertEqual(code, 0)
-
-    def test_check_lock_no_lock_is_free(self):
-        code, _ = self.run_main(["check-lock", "--state-root", self.state_root, "--epic", "E001",
-                                  "--session-id", "sess-xyz"])
-        self.assertEqual(code, 0)
-
-    def test_check_lock_own_session_is_free(self):
-        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                       "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        code, _ = self.run_main(["check-lock", "--state-root", self.state_root, "--epic", "E001",
-                                  "--session-id", "sess-abc"])
-        self.assertEqual(code, 0)
-
-    def test_check_lock_other_session_within_ttl_is_blocked(self):
-        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                       "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        code, out = self.run_main(["check-lock", "--state-root", self.state_root, "--epic", "E001",
-                                    "--session-id", "sess-xyz"])
-        self.assertEqual(code, 5)
-        self.assertIn("sess-abc", out)
+    def test_cli_surface_after_placement_retired(self):
+        """Sofia owns the work-item tree (ADR-0015), so the 3.x placement, listing, node-write
+        and lock verbs are gone; none of them may come back as a subcommand."""
+        registered = set(self._registered())
+        self.assertEqual(sorted(registered & set(self.RETIRED)), [])
+        self.assertEqual(registered, set(self.EXPECTED))
 
 
 class TestNotice(Base):
@@ -755,115 +749,6 @@ class TestNoticeReadHappensAfterTheLock(Base):
             f"missing or extra entry means a wrapper did not fire as expected and this "
             f"test is no longer asserting the property -- check whether notices_lock or "
             f"_load was renamed or bypassed in cmd_notice.")
-
-
-class TestSetLockMutualExclusion(Base):
-    """set-lock must itself enforce mutual exclusion -- it used to unconditionally
-    overwrite `_lock` with no read-compare-write, so two concurrent sessions claiming
-    the same epic would silently clobber each other and both proceed. Only check-lock
-    compared session_id/TTL, and nothing in the epic loop calls check-lock before
-    set-lock, so that comparison never ran. set-lock must now refuse a live foreign
-    lock (exit 5, matching check-lock's existing "locked" code), while still allowing
-    a no-op claim, an owner's re-claim, and a takeover of an expired lock."""
-
-    def setUp(self):
-        super().setUp()
-        self.state_root = os.path.join(self.d, "state")
-        epic_dir = os.path.join(self.state_root, "active", "epic-001")
-        os.makedirs(epic_dir)
-        self.epic_file = os.path.join(epic_dir, "epic.yaml")
-        with open(self.epic_file, "w", encoding="utf-8") as fh:
-            fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
-
-    def _write_lock(self, session_id, claimed_at, ttl_minutes=30, extra=""):
-        with open(self.epic_file, "w", encoding="utf-8") as fh:
-            fh.write("_lock:\n"
-                      f"  session_id: '{session_id}'\n"
-                      f"  claimed_at: '{claimed_at}'\n"
-                      f"  ttl_minutes: {ttl_minutes}\n"
-                      f"{extra}"
-                      "title: 'test'\nstatus: in-progress\n")
-
-    def test_claims_when_no_existing_lock(self):
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-a",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 0, out)
-        _, data = pm.load_node(self.epic_file)
-        self.assertEqual(data["_lock"]["session_id"], "sess-a")
-
-    def test_same_session_reclaims_without_refusing(self):
-        """A retry by the owner must not deadlock itself against its own lock."""
-        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                       "--session-id", "sess-a", "--ttl-minutes", "30"])
-        _, before = pm.load_node(self.epic_file)
-        first_claimed = before["_lock"]["claimed_at"]
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-a",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 0, out)
-        _, after = pm.load_node(self.epic_file)
-        self.assertEqual(after["_lock"]["session_id"], "sess-a")
-        self.assertIsNotNone(after["_lock"]["claimed_at"])
-        # Same-second reclaim can legitimately produce an identical timestamp;
-        # the contract under test is "does not deadlock / does not refuse", not
-        # that the clock necessarily ticked between two in-process calls -- so
-        # this only pins that the field is still present and well-formed.
-        self.assertIsInstance(first_claimed, str)
-
-    def test_takes_over_a_stale_lock_from_another_session(self):
-        self._write_lock("sess-a", "2020-01-01T00:00:00Z", ttl_minutes=1)
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-b",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("sess-a", out, "takeover must name the session it took the lock from")
-        _, data = pm.load_node(self.epic_file)
-        self.assertEqual(data["_lock"]["session_id"], "sess-b")
-
-    def test_refuses_a_live_foreign_lock(self):
-        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
-                       "--session-id", "sess-a", "--ttl-minutes", "30"])
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-b",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 5, out)
-        self.assertIn("sess-a", out)
-        _, data = pm.load_node(self.epic_file)
-        self.assertEqual(data["_lock"]["session_id"], "sess-a",
-                          "a refused claim must not touch the persisted lock")
-
-    def test_refuses_malformed_lock_not_a_mapping(self):
-        with open(self.epic_file, "w", encoding="utf-8") as fh:
-            fh.write("_lock: 'just-a-string'\ntitle: 'test'\nstatus: in-progress\n")
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-b",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 5, out)
-        _, data = pm.load_node(self.epic_file)
-        self.assertEqual(data["_lock"], "just-a-string",
-                          "a refused claim must not touch the persisted lock")
-
-    def test_refuses_malformed_lock_missing_claimed_at(self):
-        with open(self.epic_file, "w", encoding="utf-8") as fh:
-            fh.write("_lock:\n  session_id: 'sess-a'\n  ttl_minutes: 30\n"
-                     "title: 'test'\nstatus: in-progress\n")
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-b",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 5, out)
-        _, data = pm.load_node(self.epic_file)
-        self.assertNotIn("claimed_at", data["_lock"])
-
-    def test_refuses_malformed_lock_unparseable_timestamp(self):
-        self._write_lock("sess-a", "not-a-timestamp", ttl_minutes=30)
-        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
-                                    "--epic", "E001", "--session-id", "sess-b",
-                                    "--ttl-minutes", "30"])
-        self.assertEqual(code, 5, out)
-        _, data = pm.load_node(self.epic_file)
-        self.assertEqual(data["_lock"]["session_id"], "sess-a",
-                          "a refused claim must not touch the persisted lock")
 
 
 ISSUES_SAMPLE = """\
@@ -1244,6 +1129,14 @@ class IssueBase(Base):
             code = e.code if isinstance(e.code, int) else 1
         return code, out.getvalue(), err.getvalue()
 
+    def finish(self, story="E001-S02-001", key="BL-E001-001"):
+        """Mark a story done and resolve the item it lists as fixed by it: the state a
+        completed story and its resolved item are in."""
+        _fx_set_status(self.root, "done", story=story)
+        code, _o, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key", key,
+                                      "--resolution", "fixed", "--ref", story])
+        self.assertEqual(code, 0, err)
+
     def append(self, title, epic="001", sprint="01", severity="Low",
                source="code-review (E001-S01-001)", *extra):
         return self.run_all(["append-issue", "--state-root", self.root, "--epic", epic,
@@ -1521,21 +1414,12 @@ class TestResolveIssue(IssueBase):
     def test_resolving_a_scheduled_item_by_hand_warns_that_the_story_still_claims_it(self):
         """The story's `resolves:` is not touched here, so the item is resolved while a story
         still lists it — audit finding 1c. The tail says so, and only outside the done-hook
-        path (`cause != set-status`), where that state is expected and transient."""
+        path, where that state is expected and transient."""
         self.append("A")
         self._promote()
         code, out, _e = self.resolve("BL-E001-001", "obsolete", "--note", "changed my mind")
         self.assertEqual(code, 0)
         self.assertIn("E001-S02-001 still lists it in resolves", out)
-
-    def test_the_done_hook_resolves_without_that_warning(self):
-        """`cause == set-status` is the other arm: the hook resolves as part of the story
-        transition that justifies it, so the same state is not worth a warning."""
-        self.append("A")
-        self._promote()
-        _c, out, _e = self.run_all(["set-status", "--state-root", self.root,
-                                    "--story", "E001-S02-001", "--status", "done"])
-        self.assertNotIn("still lists it in resolves", out)
 
     def test_crash_between_writes_is_cleared_by_rerun(self):
         self.append("A")
@@ -2028,8 +1912,8 @@ class TestAtomicAndCLI(TestLayoutResolution):
         return code, buf.getvalue()
 
     def test_no_temp_files_left(self):
-        self.run_main(["set-status", "--state-root", self.root,
-                       "--story", "E001-S01-003", "--status", "done"])
+        self.run_main(["set-estimate", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--man-hours", "2"])
         sd = os.path.dirname(pm.story_file(self.root, "E001-S01-003"))
         leftovers = [n for n in os.listdir(sd) if n.startswith(".pm-status.")]
         self.assertEqual(leftovers, [])
@@ -2047,57 +1931,10 @@ class TestKeyBasedAddressing(TestLayoutResolution):
             code = e.code
         return code, buf.getvalue()
 
-    def test_set_status_by_story_key(self):
-        code, out = self.run_main(
-            ["set-status", "--state-root", self.root, "--story", "E001-S01-003", "--status", "done"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["status"], "done")
-
-    def test_set_status_by_epic_key(self):
-        code, out = self.run_main(
-            ["set-status", "--state-root", self.root, "--epic", "E001", "--status", "done"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertEqual(node["status"], "done")
-
-    def test_set_status_by_sprint_key(self):
-        code, out = self.run_main(
-            ["set-status", "--state-root", self.root, "--epic", "E001",
-             "--sprint", "S01", "--status", "done"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
-        self.assertEqual(node["status"], "done")
-
-    def test_set_status_sprint_accepts_review(self):
-        err = io.StringIO()
-        try:
-            with redirect_stdout(io.StringIO()), redirect_stderr(err):
-                code = pm.main(["set-status", "--state-root", self.root, "--epic", "E001",
-                                "--sprint", "S01", "--status", "review"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 0, err.getvalue())
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
-        self.assertEqual(node["status"], "review")
-
-    def test_set_status_epic_still_rejects_review(self):
-        # Scope guard: an epic spans sprints in different states, so epic-level
-        # `review` has no single meaning and the epic enum is deliberately unchanged.
-        err = io.StringIO()
-        try:
-            with redirect_stdout(io.StringIO()), redirect_stderr(err):
-                code = pm.main(["set-status", "--state-root", self.root,
-                                "--epic", "E001", "--status", "review"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 2, err.getvalue())
-        self.assertIn("invalid epic status 'review'", err.getvalue())
-        self.assertIn("['backlog', 'done', 'in-progress']", err.getvalue())
-
     def test_missing_node_exits_3(self):
         code, _ = self.run_main(
-            ["set-status", "--state-root", self.root, "--story", "E001-S01-999", "--status", "done"])
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-999",
+             "--man-hours", "1"])
         self.assertEqual(code, 3)
 
     def test_set_actual_writes_all_four_metrics(self):
@@ -2128,20 +1965,13 @@ class TestKeyBasedAddressing(TestLayoutResolution):
         self.assertNotIn("man_hours_low", node["estimate"])
         self.assertNotIn("cost", node["estimate"])
 
-    def test_set_field_dot_path(self):
-        code, out = self.run_main(
-            ["set-field", "--state-root", self.root, "--story", "E001-S01-003",
-             "--field", "review.summary", "--value", "looks good"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["review"]["summary"], "looks good")
-
     def test_backref_mismatch_exits_4(self):
         p = pm.story_file(self.root, "E001-S01-003")
         with open(p, "w") as f:
             f.write("key: 'E001-S01-003'\nepic: 'E999'\nsprint: 'S01'\nstatus: review\n")
         code, _ = self.run_main(
-            ["set-status", "--state-root", self.root, "--story", "E001-S01-003", "--status", "done"])
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
+             "--man-hours", "1"])
         self.assertEqual(code, 4)
 
 
@@ -2609,385 +2439,39 @@ class TestVerifyEpicScope(TestLayoutResolution):
         self.assertIn("E001-S02-001", failures)
 
 
-class TestRollups(TestLayoutResolution):
-    """Sprint/epic aggregates computed from child files, and the `show` CLI
-    that renders them. Reuses TestLayoutResolution's E001/S01/E001-S01-003
-    fixture, adding two more stories to sprint-01."""
-
-    def setUp(self):
-        super().setUp()
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        with open(os.path.join(sd, "E001-S01-001.yaml"), "w") as f:
-            f.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: done\n"
-                    "actual:\n  elapsed_hours: 1.0\n  man_hours: 4\n  tokens_k: 100\n  cost: 1.50\n")
-        with open(os.path.join(sd, "E001-S01-002.yaml"), "w") as f:
-            f.write("key: 'E001-S01-002'\nepic: 'E001'\nsprint: 'S01'\nstatus: done\n"
-                    "actual:\n  elapsed_hours: 2.0\n  man_hours: 6\n  tokens_k: 200\n  cost: 3.00\n")
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def test_list_story_files_sorted(self):
-        files = pm.list_story_files(self.root, "E001", "S01")
-        names = [os.path.basename(p) for p in files]
-        self.assertEqual(names, ["E001-S01-001.yaml", "E001-S01-002.yaml", "E001-S01-003.yaml"])
-
-    def test_list_story_files_excludes_sprint_yaml(self):
-        self.assertNotIn("sprint.yaml",
-                         [os.path.basename(p) for p in pm.list_story_files(self.root, "E001", "S01")])
-
-    def test_rollup_sprint_counts_by_status(self):
-        r = pm.rollup_sprint(self.root, "E001", "S01")
-        self.assertEqual(r["story_count"], 3)
-        self.assertEqual(r["by_status"]["done"], 2)
-        self.assertEqual(r["by_status"]["review"], 1)
-
-    def test_rollup_sprint_sums_actuals(self):
-        r = pm.rollup_sprint(self.root, "E001", "S01")
-        self.assertAlmostEqual(r["actual_totals"]["man_hours"], 10.0)
-        self.assertAlmostEqual(r["actual_totals"]["tokens_k"], 300.0)
-        self.assertAlmostEqual(r["actual_totals"]["cost"], 4.50)
-
-    def test_rollup_epic_aggregates_sprints(self):
-        r = pm.rollup_epic(self.root, "E001")
-        self.assertEqual(r["sprint_count"], 1)
-        self.assertEqual(r["story_count"], 3)
-
-    def test_show_sprint_outputs_summary(self):
-        code, out = self.run_main(
-            ["show", "--state-root", self.root, "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("E001-S01-003", out)
-        self.assertIn("done", out)
-
-    def test_show_epic_outputs_summary(self):
-        code, out = self.run_main(
-            ["show", "--state-root", self.root, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("S01", out)
-        self.assertIn("stories=3", out)
-
-    def test_show_nonexistent_epic_exits_3(self):
-        code, _ = self.run_main(
-            ["show", "--state-root", self.root, "--epic", "E999"])
-        self.assertEqual(code, 3)
-
-    def test_show_nonexistent_sprint_exits_3(self):
-        code, _ = self.run_main(
-            ["show", "--state-root", self.root, "--epic", "E001", "--sprint", "S99"])
-        self.assertEqual(code, 3)
-
-
-class TestLockOnEpicFile(TestLayoutResolution):
-    """Lock commands using --state-root --epic instead of --file."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def test_set_lock_writes_lock_first(self):
-        code, out = self.run_main(
-            ["set-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-a"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertEqual(next(iter(node.keys())), "_lock")
-        self.assertEqual(node["_lock"]["session_id"], "sess-a")
-
-    def test_check_lock_exit_5_for_other_session(self):
-        self.run_main(["set-lock", "--state-root", self.root, "--epic", "E001",
-                       "--session-id", "sess-a"])
-        code, out = self.run_main(
-            ["check-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-b"])
-        self.assertEqual(code, 5)
-        self.assertIn("LOCKED", out)
-
-    def test_check_lock_free_for_own_session(self):
-        self.run_main(["set-lock", "--state-root", self.root, "--epic", "E001",
-                       "--session-id", "sess-a"])
-        code, out = self.run_main(
-            ["check-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-a"])
-        self.assertEqual(code, 0)
-        self.assertIn("FREE", out)
-
-    def test_clear_lock_removes_block(self):
-        self.run_main(["set-lock", "--state-root", self.root, "--epic", "E001",
-                       "--session-id", "sess-a"])
-        code, out = self.run_main(["clear-lock", "--state-root", self.root, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertNotIn("_lock", node)
-
-
-class TestLockOnMissingEpic(Base):
-    """Test lock commands on nonexistent epics to verify contract asymmetry."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def setUp(self):
-        super().setUp()
-        self.state_root = os.path.join(self.d, "state")
-        os.makedirs(self.state_root)
-
-    def test_clear_lock_missing_epic_noop(self):
-        """clear-lock on nonexistent epic returns 0 (no-op), not 3."""
-        code, out = self.run_main(
-            ["clear-lock", "--state-root", self.state_root, "--epic", "E999"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("no-op", out)
-
-    def test_check_lock_missing_epic_is_free(self):
-        """check-lock on nonexistent epic returns 0 and outputs FREE, not 3."""
-        code, out = self.run_main(
-            ["check-lock", "--state-root", self.state_root, "--epic", "E999",
-             "--session-id", "sess-a"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("FREE", out)
-
-    def test_set_lock_missing_epic_exits_3(self):
-        """set-lock on nonexistent epic returns 3 (node not found)."""
-        code, out = self.run_main(
-            ["set-lock", "--state-root", self.state_root, "--epic", "E999",
-             "--session-id", "sess-a"])
-        self.assertEqual(code, 3, out)
-
-    def test_clear_lock_existing_epic_no_lock_noop(self):
-        """clear-lock on existing epic with no _lock returns 0 (regression guard)."""
-        epic_dir = os.path.join(self.state_root, "active", "epic-999")
-        os.makedirs(epic_dir)
-        epic_file_path = os.path.join(epic_dir, "epic.yaml")
-        with open(epic_file_path, "w", encoding="utf-8") as fh:
-            fh.write("key: 'E999'\nstatus: in-progress\n")
-        code, out = self.run_main(
-            ["clear-lock", "--state-root", self.state_root, "--epic", "E999"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("no _lock present", out)
-
-
-class TestEpicMoves(TestLayoutResolution):
-    """move-epic — epic directory moves between status folders."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def test_move_epic_planned_to_active(self):
-        with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
-            new = pm.move_epic(self.root, "E005", "active")
-        self.assertTrue(new.endswith("active/epic-005"))
-        self.assertTrue(os.path.isdir(new))
-        self.assertFalse(os.path.isdir(os.path.join(self.root, "planned", "epic-005")))
-
-    def test_move_epic_preserves_tree(self):
-        with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
-            pm.move_epic(self.root, "E001", "archived")
-        self.assertTrue(os.path.exists(os.path.join(
-            self.root, "archived", "epic-001", "sprint-01", "E001-S01-003.yaml")))
-
-    def test_move_epic_updates_status_field(self):
-        with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
-            pm.move_epic(self.root, "E005", "active")
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E005"))
-        self.assertEqual(node["status"], "in-progress")
-
-    def test_move_epic_rejects_bad_status(self):
-        with self.assertRaises(ValueError):
-            pm.move_epic(self.root, "E001", "nonsense")
-
-    def test_move_epic_refuses_existing_destination(self):
-        os.makedirs(os.path.join(self.root, "archived", "epic-001"))
-        with self.assertRaises(FileExistsError):
-            pm.move_epic(self.root, "E001", "archived")
-
-    def test_move_epic_already_in_place_is_noop(self):
-        """E001 already lives under active/ — moving it to 'active' must return the
-        existing path unchanged and must not touch epic.yaml's status field."""
-        before = pm.nodes.epic_file(self.root, "E001")
-        _, before_node = pm.load_node(before)
-        self.assertEqual(before_node["status"], "in-progress")
-
-        dest = pm.move_epic(self.root, "E001", "active")
-        self.assertEqual(os.path.abspath(dest), os.path.abspath(
-            os.path.join(self.root, "active", "epic-001")))
-
-        _, after_node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertEqual(after_node["status"], "in-progress")
-        self.assertNotIn("updated_at", after_node)  # untouched — no write happened
-
-    # --- CLI-level exit-code contract: cmd_move_epic must translate the
-    # move_epic() exceptions to the documented exit codes when invoked through
-    # pm.main(...), not just when move_epic() is called directly. ---
-
-    def test_cli_move_epic_missing_epic_exits_3(self):
-        code, out = self.run_main(
-            ["move-epic", "--state-root", self.root, "--epic", "E999", "--to", "archived"])
-        self.assertEqual(code, 3, out)
-
-    def test_cli_move_epic_existing_destination_exits_2(self):
-        os.makedirs(os.path.join(self.root, "archived", "epic-001"))
-        code, out = self.run_main(
-            ["move-epic", "--state-root", self.root, "--epic", "E001", "--to", "archived"])
-        self.assertEqual(code, 2, out)
-
-    def test_cli_move_epic_invalid_to_is_rejected(self):
-        # argparse `choices` rejects this before cmd_move_epic ever runs; assert the
-        # observed exit code (2, argparse's own usage-error convention) rather than
-        # assuming it flows through cmd_move_epic's own exception mapping.
-        code, out = self.run_main(
-            ["move-epic", "--state-root", self.root, "--epic", "E001", "--to", "nonsense"])
-        self.assertEqual(code, 2, out)
-
-
-class TestEpicMovesGitBacked(unittest.TestCase):
-    """move_epic's *preferred* path is `git mv`, not the shutil fallback —
-    TestLayoutResolution's fixture is a plain tempdir with no .git ancestor, so
-    every TestEpicMoves case above exercises only the fallback. This class builds
-    a real git repo so the git-mv branch actually runs, and asserts the property
-    the whole directory-move design exists for: `git log --follow` survives the
-    move."""
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.root = os.path.join(self.d, "state")
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        os.makedirs(sd)
-        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
-            f.write("key: 'E001'\nstatus: in-progress\n")
-        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
-            f.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
-        with open(os.path.join(sd, "E001-S01-003.yaml"), "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
-
-        self._run_git(["init", "-q", "."])
-        self._run_git(["config", "user.email", "pm-status-tests@example.invalid"])
-        self._run_git(["config", "user.name", "pm-status-tests"])
-        self._run_git(["add", "-A"])
-        self._run_git(["commit", "-q", "-m", "seed"])
-
-    def _run_git(self, args):
-        import subprocess
-        r = subprocess.run(["git"] + args, cwd=self.root, capture_output=True, text=True)
-        if r.returncode != 0:
-            self.fail(f"git {' '.join(args)} failed: {r.stdout}{r.stderr}")
-        return r.stdout
-
-    def test_move_epic_uses_git_mv_and_stays_tracked(self):
-        moved_story = os.path.join(self.root, "archived", "epic-001", "sprint-01",
-                                    "E001-S01-003.yaml")
-        pm.move_epic(self.root, "E001", "archived")
-        self.assertTrue(os.path.exists(moved_story))
-
-        # If shutil.move had run instead of `git mv`, the destination files would be
-        # untracked (git status would show them as new/untracked "??", not present
-        # in `git ls-files`). Showing up in `git ls-files` at the new path proves
-        # the git-mv branch — not the fallback — actually executed.
-        tracked = self._run_git(["ls-files", "archived/epic-001"])
-        self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
-        self.assertIn("archived/epic-001/epic.yaml", tracked)
-
-    def test_move_epic_with_relative_state_root_still_uses_git_mv(self):
-        """Regression: a RELATIVE --state-root used to resolve twice — once against the
-        caller's process cwd when the operands were built, and again against
-        `cwd=state_root` inside the subprocess — so `git mv` was handed a path that did
-        not exist, failed, and fell silently through to `shutil.move`: exit 0, no
-        warning, no rename recorded. Every other test here uses an absolute tempdir, so
-        that branch went untested. move_epic now absolutizes both operands and the cwd."""
-        prev_cwd = os.getcwd()
-        os.chdir(self.d)
-        try:
-            pm.move_epic("state", "E001", "archived")  # relative state root
-        finally:
-            os.chdir(prev_cwd)
-
-        moved_story = os.path.join(self.root, "archived", "epic-001", "sprint-01",
-                                   "E001-S01-003.yaml")
-        self.assertTrue(os.path.exists(moved_story))
-
-        # git must have RECORDED the rename, not just seen a delete+add.
-        status = self._run_git(["status", "--porcelain"])
-        self.assertTrue(any(ln.startswith("R") for ln in status.splitlines()),
-                        f"expected a staged rename (R), got:\n{status}")
-        tracked = self._run_git(["ls-files", "archived/epic-001"])
-        self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
-        # Nothing left untracked by a shutil fallback. The ONE expected untracked entry is the
-        # state root's .gitignore, which the epic lock wrote so lock files are never committed.
-        untracked = [ln for ln in status.splitlines() if ln.startswith("??")]
-        self.assertEqual(untracked, ["?? .gitignore"], status)
-        # The epic's lock file, state/epic-001.lock, sits outside the moved directory by design
-        # (epic_lock_path) and is now ignored -- pinned exactly among the IGNORED entries, so a
-        # stray lock inside the moved tree still fails.
-        ignored = [ln for ln in self._run_git(["status", "--porcelain", "--ignored"]).splitlines()
-                   if ln.startswith("!!")]
-        self.assertEqual(ignored, ["!! epic-001.lock"], status)
-
-    def test_move_epic_warns_on_stderr_when_git_mv_falls_back(self):
-        """The fallback is a real loss of history, so it must never be silent."""
-        non_git = tempfile.mkdtemp()
-        try:
-            root = os.path.join(non_git, "state")
-            os.makedirs(os.path.join(root, "active", "epic-001"))
-            with open(os.path.join(root, "active", "epic-001", "epic.yaml"), "w") as f:
-                f.write("key: 'E001'\nstatus: in-progress\n")
-            err = io.StringIO()
-            with redirect_stderr(err):
-                pm.move_epic(root, "E001", "archived")
-            msg = err.getvalue()
-            self.assertIn("WARNING", msg)
-            self.assertIn("git mv", msg)
-            self.assertIn("--follow", msg)
-        finally:
-            import shutil
-            shutil.rmtree(non_git, ignore_errors=True)
-
-    def test_move_epic_preserves_history_via_git_log_follow(self):
-        pre_move_log = self._run_git(
-            ["log", "--oneline", "--",
-             "active/epic-001/sprint-01/E001-S01-003.yaml"]).strip()
-        self.assertTrue(pre_move_log, "fixture commit should already show in git log")
-
-        pm.move_epic(self.root, "E001", "archived")
-        # commit the move itself — git mv only stages the rename; --follow across
-        # an uncommitted-but-staged rename works too, but committing matches how
-        # the tool is actually used and removes any ambiguity.
-        self._run_git(["commit", "-q", "-m", "archive epic"])
-
-        follow_log = self._run_git(
-            ["log", "--follow", "--oneline", "--",
-             "archived/epic-001/sprint-01/E001-S01-003.yaml"])
-        lines = [ln for ln in follow_log.splitlines() if ln.strip()]
-        self.assertEqual(len(lines), 2, follow_log)  # "seed" + "archive epic"
-        self.assertIn("seed", follow_log)
-
-
 class TestCalibrationIO(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         os.makedirs(self.root)
+
+    def test_a_file_with_sprint_samples_loads_and_ignores_them(self):
+        """ADR-0016: no sprint level in 4.x. A 3.x file carrying `closure.sprint` and
+        `orchestration.sprint` still loads, shows, rolls up and records -- its sprint
+        samples are kept on disk and never read."""
+        with open(pm.calibration_path(self.root), "w") as f:
+            f.write("version: 2\ngranularity: story\n"
+                    f"{pm.CALIBRATION_METRICS_MARKER}: '2026-10-01T00:00:00Z'\n"
+                    f"{pm.TOKEN_BASIS_MARKER}: '2026-10-01T00:00:00Z'\n"
+                    "scope: {simple: {}, standard: {}, complex: {}}\n"
+                    "fix: {simple: {}, standard: {}, complex: {}}\n"
+                    "closure:\n  sprint:\n    man_hours: {samples: [9.0, 9.0, 9.0]}\n"
+                    "  epic: {}\n"
+                    "orchestration:\n  sprint:\n    man_hours: {samples: [3.0, 3.0, 3.0]}\n"
+                    "  epic: {}\n")
+        y, cal = pm.load_calibration(self.root)
+        self.assertIsNone(pm.active_closure_ratio(cal, "epic", "man_hours"))
+        self.assertIsNone(pm.active_orchestration_fraction(cal, "epic", "man_hours"))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["calibration", "show", "--state-root", self.root])
+        self.assertEqual(code, 0)
+        self.assertNotIn("sprint/", buf.getvalue())
+        pm.metrics.calibration.append_closure_ratios(self.root, "epic", {"man_hours": 1.5})
+        _, again = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(again, "closure", "epic", "man_hours")), 1)
+        self.assertEqual(len(again["closure"]["sprint"]["man_hours"]["samples"]), 3)
 
     def test_missing_file_yields_skeleton_not_error(self):
         _, cal = pm.load_calibration(self.root)
@@ -3058,8 +2542,8 @@ class TestCalibrationIO(unittest.TestCase):
         # closure and fix start fresh, never seeded from the blended ratio.
         # Assert emptiness per bucket rather than comparing a CommentedMap to a
         # plain dict, which is fragile across ruamel versions.
-        for level in ("sprint", "epic"):
-            self.assertEqual(len(cal["closure"][level]), 0)
+        self.assertEqual(len(cal["closure"]["epic"]), 0)
+        self.assertNotIn("sprint", cal["closure"])
         for c in ("simple", "standard", "complex"):
             self.assertEqual(len(cal["fix"][c]), 0)
         # the blended v1 ratio landed on scope, and only on scope
@@ -3164,7 +2648,7 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
 
     def test_new_components_are_seeded_empty(self):
         cal, _ = self._migrate()
-        self.assertEqual(cal["orchestration"]["sprint"], {})
+        self.assertEqual(cal["orchestration"]["epic"], {})
         self.assertEqual(cal["token_mix"]["samples"], [])
 
     def test_pre_migration_file_reads_as_cold_start_not_an_error(self):
@@ -3397,7 +2881,7 @@ class TestCalibrationMetricsMigrationReadOnlySafety(TestLayoutResolution):
         buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(io.StringIO()):
             code = pm.main(["estimate-rollup", "--state-root", self.root,
-                            "--epic", "E001", "--sprint", "S01"])
+                            "--epic", "E001"])
         self.assertEqual(code, 0, buf.getvalue())
         self._unchanged()
 
@@ -3586,38 +3070,38 @@ class TestClosureSampling(TestLayoutResolution):
             if story_estimates is not None:
                 m["estimate"] = {"man_hours": story_estimates[i - 1]}
             self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), m)
-        sm = {"key": "S01", "epic": "E001", "status": "done"}
+        sm = {"key": "E001", "status": "done"}
         if sprint_actual is not None:
             sm["actual"] = {"man_hours": sprint_actual}
         if sprint_estimate is not None:
             sm["estimate"] = sprint_estimate
-        self._write(os.path.join(sd, "sprint.yaml"), sm)
+        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"), sm)
 
     def test_residual_is_parent_minus_children(self):
         self._sprint_with_stories([3.0, 4.0], 9.0,
                                   {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNotNone(s, reason)
         self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
 
     def test_missing_child_actual_skips_with_reason(self):
         self._sprint_with_stories([3.0, None], 9.0,
                                   {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNone(s)
         self.assertIn("actual", reason.lower())
 
     def test_negative_residual_skips_with_reason(self):
         self._sprint_with_stories([5.0, 5.0], 8.0,
                                   {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNone(s)
         self.assertIn("negative", reason.lower())
 
     def test_no_parent_actual_skips(self):
         self._sprint_with_stories([3.0, 4.0], None,
                                   {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNone(s)
 
     def test_record_appends_closure_sample(self):
@@ -3626,9 +3110,9 @@ class TestClosureSampling(TestLayoutResolution):
         self._sprint_with_stories([3.0, 4.0], 9.0,
                                   {"man_hours_low": 8.0, "man_hours_high": 9.0},
                                   story_estimates=[3.0, 4.0])
-        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
         _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
         self.assertEqual(len(samples), 1)
         self.assertAlmostEqual(float(samples[0]), round(2.0 / 1.5, 4))
 
@@ -3638,7 +3122,7 @@ class TestClosureSampling(TestLayoutResolution):
         self._sprint_with_stories([3.0, 4.0], 9.0,
                                   {"man_hours_low": 8.0, "man_hours_high": 9.0},
                                   story_estimates=[3.0, 4.0])
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNotNone(s, reason)
         self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 / 1.5)
 
@@ -3649,7 +3133,7 @@ class TestClosureSampling(TestLayoutResolution):
                                   {"man_hours_low": 8.0, "man_hours_high": 9.0,
                                    "closure_ratios": {"man_hours": 2.0}},
                                   story_estimates=[3.0, 4.0])
-        s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, _ = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 * 2.0 / 1.5)
 
     def test_parent_actual_equal_to_children_sum_is_skipped_not_sampled_as_zero(self):
@@ -3660,12 +3144,12 @@ class TestClosureSampling(TestLayoutResolution):
         self._sprint_with_stories([3.0, 4.0], 7.0,
                                   {"man_hours_low": 8.0, "man_hours_high": 9.0},
                                   story_estimates=[3.0, 4.0])
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNone(s, f"a bare-sum actual must produce NO sample, got {s}")
         self.assertIn("zero residual", reason)
-        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
+        self.assertEqual(pm._component_samples(cal, "closure", "epic", "man_hours"), [])
 
     def test_bare_sum_of_unrepresentable_decimals_is_still_skipped(self):
         """The zero-residual guard must not be exact float equality.
@@ -3686,15 +3170,15 @@ class TestClosureSampling(TestLayoutResolution):
                     children, parent,
                     {"man_hours_low": parent + 1.0, "man_hours_high": parent + 3.0},
                     story_estimates=list(children))
-                s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+                s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
                 self.assertIsNone(s, f"{drift} float drift produced a sample: {s}")
                 self.assertIn("zero residual", reason)
                 self.assertNotIn("miscounted", reason)
-                pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+                _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
                 _, cal = pm.load_calibration(self.root)
                 self.assertEqual(
-                    pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
-                _, snode = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+                    pm._component_samples(cal, "closure", "epic", "man_hours"), [])
+                _, snode = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
                 self.assertNotIn(pm.CALIBRATION_MARKER, snode)
 
     def test_tolerance_does_not_swallow_a_genuine_small_residual(self):
@@ -3704,7 +3188,7 @@ class TestClosureSampling(TestLayoutResolution):
         self._sprint_with_stories([0.3, 0.6], 0.9001,
                                   {"man_hours_low": 1.0, "man_hours_high": 3.0},
                                   story_estimates=[0.3, 0.6])
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNotNone(s, reason)
         self.assertAlmostEqual(s["closure_actual"]["man_hours"], 0.0001, places=7)
 
@@ -3724,21 +3208,21 @@ class TestClosureSampling(TestLayoutResolution):
                             {"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
                              "status": "done", "estimate": {"man_hours": 5.0},
                              "actual": {"man_hours": 5.0}})
-            self._write(os.path.join(sd, "sprint.yaml"),
+            self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
                         {"key": skey, "epic": "E001", "status": "done",
                          "estimate": {"man_hours_low": 11.0, "man_hours_high": 13.0},
                          "actual": {"man_hours": 10.0}})   # the BARE SUM
-            pm.record_closure_sample(self.root, "sprint", "E001", skey)
+            _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
-        self.assertIsNone(pm.active_closure_ratio(cal, "sprint", "man_hours"))
+        self.assertEqual(pm._component_samples(cal, "closure", "epic", "man_hours"), [])
+        self.assertIsNone(pm.active_closure_ratio(cal, "epic", "man_hours"))
 
     def test_zero_estimated_overhead_skips_the_metric(self):
         # parent estimated exactly its children -> nothing to measure against
         self._sprint_with_stories([3.0, 4.0], 9.0,
                                   {"man_hours_low": 7.0, "man_hours_high": 7.0},
                                   story_estimates=[3.0, 4.0])
-        s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, _ = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertNotIn("man_hours", s["ratios"])
         self.assertIn("man_hours", s["skipped"])
 
@@ -3762,12 +3246,12 @@ class TestClosureSampling(TestLayoutResolution):
         self._write(os.path.join(sd, "E001-S01-002.yaml"),
                     {"key": "E001-S01-002", "epic": "E001", "sprint": "S01",
                      "status": "done", "actual": {"man_hours": 4.0, "cost": "$4.00"}})
-        self._write(os.path.join(sd, "sprint.yaml"),
-                    {"key": "S01", "epic": "E001", "status": "done",
+        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
+                    {"key": "E001", "status": "done",
                      "actual": {"man_hours": 9.0, "cost": "$9.00"},
                      "estimate": {"man_hours_low": 8.0, "man_hours_high": 9.0,
                                   "cost_low": 1.0, "cost_high": 3.0}})
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNotNone(s, reason)
         self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
         self.assertNotIn("cost", s["closure_actual"])
@@ -3786,11 +3270,11 @@ class TestClosureSampling(TestLayoutResolution):
         with open(p, "w") as f:
             f.write("version: 1\nratio: 1.3\n")
         with redirect_stderr(io.StringIO()):    # migration announces its steps on stderr
-            pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+            _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
         self.assertTrue(os.path.exists(p + ".v1"))
-        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "epic", "man_hours")), 1)
 
     def test_a_stored_zero_closure_sample_is_ignored_on_read(self):
         """A file written before the write-side guard existed still holds zeros.
@@ -3800,31 +3284,31 @@ class TestClosureSampling(TestLayoutResolution):
         to hold for a file that already exists.
         """
         _, cal = pm.load_calibration(self.root)
-        cal.setdefault("closure", {})["sprint"] = {
+        cal.setdefault("closure", {})["epic"] = {
             "tokens_k": {"samples": [3.7378, 0.0, 132.8062, 48.2812]},
         }
         # 0.0 must not be averaged in, and must not count toward MIN_SAMPLES.
-        got = pm.active_closure_ratio(cal, "sprint", "tokens_k")
+        got = pm.active_closure_ratio(cal, "epic", "tokens_k")
         self.assertIsNotNone(got)
         self.assertAlmostEqual(
             got, pm.weighted_ratio([3.7378, 132.8062, 48.2812]), places=6)
 
     def test_zeros_do_not_count_toward_the_activation_threshold(self):
         _, cal = pm.load_calibration(self.root)
-        cal.setdefault("closure", {})["sprint"] = {
+        cal.setdefault("closure", {})["epic"] = {
             "man_hours": {"samples": [0.0, 0.0, 0.0, 1.5]},
         }
         # Three zeros plus one real sample is one sample, not four.
-        self.assertIsNone(pm.active_closure_ratio(cal, "sprint", "man_hours"))
+        self.assertIsNone(pm.active_closure_ratio(cal, "epic", "man_hours"))
 
     def test_malformed_samples_are_handled_the_same_way_by_count_and_average(self):
         """bool subclasses int; a numeric string is a number everywhere else in
         this file. Whatever the filter decides, len() and the average must agree."""
         _, cal = pm.load_calibration(self.root)
-        cal.setdefault("closure", {})["sprint"] = {
+        cal.setdefault("closure", {})["epic"] = {
             "man_hours": {"samples": [True, "2.0", 3.0]},
         }
-        got = pm.active_closure_ratio(cal, "sprint", "man_hours")
+        got = pm.active_closure_ratio(cal, "epic", "man_hours")
         # True is not a number; "2.0" is. Two real samples -> below MIN_SAMPLES.
         self.assertIsNone(got)
 
@@ -3876,16 +3360,16 @@ class TestClosureComposedWithOrchestration(TestLayoutResolution):
                         {"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
                          "status": "done", "estimate": {"man_hours": self.CHILD},
                          "actual": {"man_hours": self.CHILD}})
-        self._write(os.path.join(sd, "sprint.yaml"),
+        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
                     {"key": skey, "epic": "E001", "status": "in-progress"})
 
     def _seed(self, orchestration=None, closure=None):
         with pm.calibration_lock(self.root):
             y, cal = pm.load_calibration(self.root)
             if orchestration is not None:
-                cal["orchestration"]["sprint"]["man_hours"] = {"samples": [orchestration] * 3}
+                cal["orchestration"]["epic"]["man_hours"] = {"samples": [orchestration] * 3}
             if closure is not None:
-                cal["closure"]["sprint"]["man_hours"] = {"samples": [closure] * 3}
+                cal["closure"]["epic"]["man_hours"] = {"samples": [closure] * 3}
             # an ongoing project's file always carries this after its first write;
             # without it the next set-actual would quarantine the seed as pre-rework
             cal[pm.CALIBRATION_METRICS_MARKER] = pm._now_iso()
@@ -3893,8 +3377,8 @@ class TestClosureComposedWithOrchestration(TestLayoutResolution):
 
     def _rollup_mid(self, skey="S01"):
         self.run_main(["estimate-rollup", "--state-root", self.root,
-                       "--epic", "E001", "--sprint", skey])
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", skey))
+                       "--epic", "E001"])
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         est = node["estimate"]
         return (float(est["man_hours_low"]) + float(est["man_hours_high"])) / 2.0
 
@@ -3904,16 +3388,16 @@ class TestClosureComposedWithOrchestration(TestLayoutResolution):
         mid = self._rollup_mid()
         # 20 x (1 + 1.0x0.10 + 0.5x0.8) = 30 ... 20 x (1 + 1.0x0.25 + 0.5x1.2) = 37
         self.assertAlmostEqual(mid, 33.5, places=4)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertAlmostEqual(
             float(node["estimate"]["orchestration_ratios"]["man_hours"]), 0.5, places=4)
 
         parent_actual = 2 * self.CHILD + self.TRUE_CLOSURE      # 25
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
-                       "--epic", "E001", "--sprint", "S01",
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
+                       "--epic", "E001",
                        "--man-hours", str(parent_actual)])
         _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
         self.assertEqual(len(samples), 1)
         # expected closure overhead = 33.5 - 20 - 20x0.5x1.0 = 3.5  ->  5 / 3.5
         self.assertAlmostEqual(float(samples[0]), 1.4286, places=4)
@@ -3938,11 +3422,11 @@ class TestClosureComposedWithOrchestration(TestLayoutResolution):
         self._children()
         self._seed(orchestration=self.ORCH_FRACTION, closure=1.4286)
         self._rollup_mid()
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
-                       "--epic", "E001", "--sprint", "S01",
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
+                       "--epic", "E001",
                        "--man-hours", str(2 * self.CHILD + self.TRUE_CLOSURE)])
         _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
         self.assertAlmostEqual(float(samples[-1]), 1.4286, places=3)
 
     def test_inactive_orchestration_leaves_the_denominator_untouched(self):
@@ -3952,11 +3436,11 @@ class TestClosureComposedWithOrchestration(TestLayoutResolution):
         self._seed()
         mid = self._rollup_mid()
         self.assertAlmostEqual(mid, 20 * 1.175, places=4)     # closure band only
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
-                       "--epic", "E001", "--sprint", "S01",
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
+                       "--epic", "E001",
                        "--man-hours", str(2 * self.CHILD + self.TRUE_CLOSURE)])
         _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
         self.assertAlmostEqual(float(samples[0]), round(5.0 / (20 * 0.175), 4), places=4)
 
     def test_orch_mid_tracks_the_spread_it_is_derived_from(self):
@@ -4291,13 +3775,13 @@ class TestEstimateRollup(TestLayoutResolution):
                         f"estimate:\n  man_hours: {v}\n  elapsed_hours: 1\n"
                         f"  tokens_k: 10\n  cost: 0.5\n")
 
-    def test_sprint_rollup_sums_children_plus_closure(self):
+    def test_epic_rollup_sums_stories_plus_closure(self):
+        """No sprint level between them (ADR-0016): the epic sums its stories directly."""
         self._story_estimates([4, 6])
         code, out = self.run_main(
-            ["estimate-rollup", "--state-root", self.root, "--epic", "E001",
-             "--sprint", "S01"])
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         est = node["estimate"]
         self.assertGreaterEqual(float(est["man_hours_high"]), 10.0)
         self.assertLessEqual(float(est["man_hours_low"]), float(est["man_hours_high"]))
@@ -4305,8 +3789,8 @@ class TestEstimateRollup(TestLayoutResolution):
     def test_rollup_writes_range_form_not_single_values(self):
         self._story_estimates([4, 6])
         self.run_main(["estimate-rollup", "--state-root", self.root,
-                       "--epic", "E001", "--sprint", "S01"])
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+                       "--epic", "E001"])
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertIn("man_hours_low", node["estimate"])
         self.assertNotIn("man_hours", node["estimate"])
 
@@ -4315,25 +3799,21 @@ class TestEstimateRollup(TestLayoutResolution):
             ["estimate-rollup", "--state-root", self.root, "--epic", "E999"])
         self.assertEqual(code, 3)
 
-    def test_epic_rollup_sums_sprints(self):
+    def test_estimate_rollup_takes_no_sprint(self):
         self._story_estimates([4, 6])
-        self.run_main(["estimate-rollup", "--state-root", self.root,
-                       "--epic", "E001", "--sprint", "S01"])
-        code, out = self.run_main(
-            ["estimate-rollup", "--state-root", self.root, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertIn("man_hours_low", node["estimate"])
+        code, _ = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                 "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 2)
 
     def test_epic_missed_by_the_pre_check_exits_3_and_writes_nothing(self):
-        # Final review M1. find_epic_dir scans active -> planned -> archived, so a move-epic
+        # Final review M1. find_epic_dir scans active -> planned -> archived, so a directory move
         # the other way can land mid-scan: the pre-check reads None while the epic exists.
         # That fell through to the body WITHOUT the epic lock; the body re-resolved the moved
         # epic, reached save_node, and the write guard raised a RuntimeError traceback. The
         # pre-check's answer must be final: exit 3, no traceback, nothing written.
         self._story_estimates([4, 6])
         code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001", "--sprint", "S01"])
+                                   "--epic", "E001"])
         self.assertEqual(code, 0, out)
         real_epic_file, calls = pm.nodes.epic_file, []
         self.assertIsNotNone(real_epic_file(self.root, "E001"))       # the epic does exist
@@ -4382,10 +3862,10 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         buf = io.StringIO()
         with redirect_stderr(buf):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01"])
+                                       "--epic", "E001"])
         self.assertEqual(code, 0, out)
         self.assertIn("orchestration is unestimated", buf.getvalue())
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertEqual(node["estimate"]["orchestration_ratios"]["tokens_k"], 0)
 
     def test_band_applied_once_active(self):
@@ -4393,12 +3873,12 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         with pm.calibration_lock(self.root):
             y, cal = pm.load_calibration(self.root)
             for m in ("man_hours", "hitl_hours", "elapsed_hours", "tokens_k"):
-                cal["orchestration"]["sprint"][m] = {"samples": [2.0, 2.0, 2.0]}
+                cal["orchestration"]["epic"][m] = {"samples": [2.0, 2.0, 2.0]}
             pm.save_calibration(y, cal, self.root)
         code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001", "--sprint", "S01"])
+                                   "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         est = node["estimate"]
         self.assertAlmostEqual(float(est["orchestration_ratios"]["tokens_k"]), 2.0, places=2)
         # story total 176 (88 fresh + 88 projected cache_read, see
@@ -4412,9 +3892,9 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         self._story_estimate()
         with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01"])
+                                       "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         est = node["estimate"]
         _, cal = pm.load_calibration(self.root)
         mix = pm.observed_mix(cal)
@@ -4430,10 +3910,10 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         self._story_estimate()
         with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01",
+                                       "--epic", "E001",
                                        "--model", "claude-haiku-4-5"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         est = node["estimate"]
         self.assertEqual(est["model"], "claude-haiku-4-5")
         _, cal = pm.load_calibration(self.root)
@@ -4455,12 +3935,12 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         self._story_estimate()
         with pm.calibration_lock(self.root):
             y, cal = pm.load_calibration(self.root)
-            cal["orchestration"]["sprint"]["man_hours"] = {"samples": [2.0, 2.0, 2.0]}
+            cal["orchestration"]["epic"]["man_hours"] = {"samples": [2.0, 2.0, 2.0]}
             pm.save_calibration(y, cal, self.root)
         buf = io.StringIO()
         with redirect_stderr(buf):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01"])
+                                       "--epic", "E001"])
         self.assertEqual(code, 0, out)
         msg = buf.getvalue()
         self.assertIn("orchestration is unestimated", msg)
@@ -4468,7 +3948,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         self.assertIn("hitl_hours", msg)
         self.assertIn("elapsed_hours", msg)
         self.assertNotIn("man_hours", msg)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         est = node["estimate"]
         self.assertGreater(float(est["orchestration_ratios"]["man_hours"]), 0)
         self.assertEqual(est["orchestration_ratios"]["tokens_k"], 0)
@@ -4480,18 +3960,18 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         self._story_estimate()
         with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01"])
+                                       "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         baseline_cost = float(node["estimate"]["cost_low"])
 
         overrides = json.dumps({"claude-opus-5": {"input": 500.0}})
         with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01",
+                                       "--epic", "E001",
                                        "--token-rates", overrides])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         overridden_cost = float(node["estimate"]["cost_low"])
         self.assertGreater(overridden_cost, baseline_cost)
 
@@ -4500,7 +3980,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         err = io.StringIO()
         with redirect_stderr(err):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                       "--epic", "E001", "--sprint", "S01",
+                                       "--epic", "E001",
                                        "--model", "not-a-real-model"])
         self.assertEqual(code, 2, out)
         self.assertIn("unknown model", err.getvalue().lower())
@@ -4516,7 +3996,7 @@ class TestParallelClosureResidual(TestLayoutResolution):
         with open(path, "w") as f:
             y.dump(mapping, f)
 
-    def _parallel_sprint(self):
+    def _parallel_epic(self):
         sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
         for f in os.listdir(sd):
             if f.endswith(".yaml") and f != "sprint.yaml":
@@ -4529,43 +4009,42 @@ class TestParallelClosureResidual(TestLayoutResolution):
                          "actual": {"man_hours": mh, "elapsed_hours": eh}})
         # two stories ran concurrently: sprint wall-clock 3.0 < children's 8.0,
         # while man-hours still add up (26 vs 24 -> 2.0 of closure overhead)
-        self._write(os.path.join(sd, "sprint.yaml"),
-                    {"key": "S01", "epic": "E001", "status": "done",
+        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
+                    {"key": "E001", "status": "done",
                      "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0,
                                   "elapsed_hours_low": 9.0, "elapsed_hours_high": 11.0},
                      "actual": {"man_hours": 26.0, "elapsed_hours": 3.0}})
 
     def test_parallel_wall_clock_does_not_discard_the_man_hours_sample(self):
-        self._parallel_sprint()
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self._parallel_epic()
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNotNone(s, reason)
         self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
         self.assertIn("man_hours", s["ratios"])
         self.assertNotIn("elapsed_hours", s["ratios"])
 
     def test_negative_wall_clock_is_not_reported_as_a_miscount(self):
-        self._parallel_sprint()
-        s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self._parallel_epic()
+        s, _ = pm.derive_closure_sample(self.root, "epic", "E001")
         reason = s["skipped"]["elapsed_hours"]
         self.assertIn("parallel", reason.lower())
         self.assertNotIn("miscounted", reason.lower())
 
     def test_negative_man_hours_residual_still_warns_of_a_miscount(self):
-        self._parallel_sprint()
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        self._write(os.path.join(sd, "sprint.yaml"),
-                    {"key": "S01", "epic": "E001", "status": "done",
+        self._parallel_epic()
+        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
+                    {"key": "E001", "status": "done",
                      "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0},
                      "actual": {"man_hours": 20.0, "elapsed_hours": 3.0}})
-        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
         self.assertIsNone(s)
         self.assertIn("miscounted", reason.lower())
 
-    def test_parallel_sprint_records_the_man_hours_closure_sample(self):
-        self._parallel_sprint()
-        note = pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+    def test_parallel_epic_records_the_man_hours_closure_sample(self):
+        self._parallel_epic()
+        note = _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "epic", "man_hours")), 1)
         self.assertIn("parallel", note.lower())
 
 
@@ -4630,14 +4109,14 @@ class TestSampleIdempotency(TestLayoutResolution):
             with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
                 y.dump({"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
                         "estimate": {"man_hours": v}, "actual": {"man_hours": v}}, f)
-        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
-            y.dump({"key": "S01", "epic": "E001", "status": "done",
+        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
+            y.dump({"key": "E001", "status": "done",
                     "estimate": {"man_hours_low": 8.0, "man_hours_high": 9.0},
                     "actual": {"man_hours": 9.0}}, f)
-        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
-        note = pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
+        note = _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "epic", "man_hours")), 1)
         self.assertIn("replay", note.lower())
 
 
@@ -4769,62 +4248,6 @@ class TestConcurrentAppendIssue(unittest.TestCase):
         self.assertEqual({item["key"] for item in data["backlog"]}, expected)
 
 
-class TestConcurrentSetLock(unittest.TestCase):
-    """set-lock's read-existing-lock -> compare -> write-claim cycle must run under ONE
-    lock (the fourth `_file_lock` family, keyed on the epic node path), mirroring
-    TestConcurrentAdrReservation/TestConcurrentAppendIssue above. Without it, N
-    sessions racing to claim one epic could all read "no live foreign lock" and all
-    write a claim -- the exact mutual-exclusion bug this test guards: two concurrent
-    sessions silently overwriting each other's ownership of the same epic.
-
-    Real subprocesses, not threads: `_file_lock`'s reentrancy counter is per-process
-    state, so threads sharing one process would pass this test vacuously even with the
-    lock removed -- this is the second time that vacuous-test shape has bitten this
-    file (see TestConcurrentAppendIssue), so it is called out again here rather than
-    assumed obvious.
-    """
-
-    N = 8
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.root = os.path.join(self.d, "state")
-        epic_dir = os.path.join(self.root, "active", "epic-001")
-        os.makedirs(epic_dir)
-        with open(os.path.join(epic_dir, "epic.yaml"), "w", encoding="utf-8") as fh:
-            fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
-
-    def test_exactly_one_session_claims_the_lock(self):
-        import subprocess
-        procs = [subprocess.Popen(
-            [sys.executable, SCRIPT, "set-lock", "--state-root", self.root,
-             "--epic", "E001", "--session-id", f"sess-{i}", "--ttl-minutes", "30"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            for i in range(self.N)]
-        codes = []
-        for p in procs:
-            out, err = p.communicate(timeout=120)
-            codes.append(p.returncode)
-            self.assertIn(p.returncode, (0, 5),
-                           f"unexpected exit code {p.returncode}: "
-                           f"stdout={out.decode()!r} stderr={err.decode()!r}")
-
-        winners = [i for i, c in enumerate(codes) if c == 0]
-        losers = [i for i, c in enumerate(codes) if c == 5]
-        self.assertEqual(len(winners), 1,
-                          f"expected exactly one winner among {self.N} racers, "
-                          f"got exit codes {codes}")
-        self.assertEqual(len(losers), self.N - 1,
-                          f"every non-winner must exit 5 (locked), got {codes}")
-
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        winner_session = f"sess-{winners[0]}"
-        self.assertEqual(node["_lock"]["session_id"], winner_session,
-                          "the persisted _lock must name the process that actually won, "
-                          "not merely whichever wrote last")
-
-
 class TestConvergence(TestLayoutResolution):
     """Multi-generation convergence — the property every single-sample test
     misses. Each case drives the real loop (estimate -> actual -> re-estimate)
@@ -4865,8 +4288,7 @@ class TestConvergence(TestLayoutResolution):
                        "--classification", "complex"])
         _, node = pm.load_node(pm.story_file(self.root, key))
         est = node["estimate"]
-        self.run_main(["set-field", "--state-root", self.root, "--story", key,
-                       "--field", "completion_evidence.fix_iterations", "--value", "0"])
+        _fx_set_field(self.root, "completion_evidence.fix_iterations", 0, story=key)
         self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
                        "--story", key, "--man-hours", str(self.TRUTH_MAN_HOURS)])
         return float(est["man_hours"]) / float(est["fix_factor"])
@@ -4914,8 +4336,7 @@ class TestConvergence(TestLayoutResolution):
             # the estimate is exactly right: its scope half equals the truth it
             # was built from, and the story consumed no fix reserve
             actual = float(est["man_hours"]) / float(est["fix_factor"])
-            self.run_main(["set-field", "--state-root", self.root, "--story", key,
-                           "--field", "completion_evidence.fix_iterations", "--value", "0"])
+            _fx_set_field(self.root, "completion_evidence.fix_iterations", 0, story=key)
             self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
                            "--story", key, "--man-hours", str(actual)])
             _, cal2 = pm.load_calibration(self.root)
@@ -4936,37 +4357,38 @@ class TestConvergence(TestLayoutResolution):
     CHILDREN = 4
     TRUE_CLOSURE_OVERHEAD = 8.0
 
-    def _make_sprint(self, n):
-        """A sprint whose 4 stories were each estimated exactly right, plus a
-        closure overhead that is the same 8.0 every single time."""
-        skey = f"S{n:02d}"
-        sd = os.path.join(self.root, "active", "epic-001", f"sprint-{n:02d}")
+    def _make_epic(self, n):
+        """An epic whose 4 stories were each estimated exactly right, plus a closure
+        overhead that is the same 8.0 every single time."""
+        ekey = f"E{n:03d}"
+        ed = os.path.join(self.root, "active", f"epic-{n:03d}")
+        sd = os.path.join(ed, "sprint-01")
         os.makedirs(sd, exist_ok=True)
         y = pm._yaml()
         for i in range(1, self.CHILDREN + 1):
-            with open(os.path.join(sd, f"E001-{skey}-{i:03d}.yaml"), "w") as f:
-                y.dump({"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
+            with open(os.path.join(sd, f"{ekey}-S01-{i:03d}.yaml"), "w") as f:
+                y.dump({"key": f"{ekey}-S01-{i:03d}", "epic": ekey, "sprint": "S01",
                         "status": "done",
                         "estimate": {"man_hours": self.CHILD_ESTIMATE},
                         "actual": {"man_hours": self.CHILD_ESTIMATE}}, f)
         with open(os.path.join(sd, "sprint.yaml"), "w") as f:
-            y.dump({"key": skey, "epic": "E001", "status": "in-progress"}, f)
-        return skey
+            y.dump({"key": "S01", "epic": ekey, "status": "in-progress"}, f)
+        with open(os.path.join(ed, "epic.yaml"), "w") as f:
+            y.dump({"key": ekey, "status": "in-progress"}, f)
+        return ekey
 
-    def _rollup_mid(self, skey):
-        self.run_main(["estimate-rollup", "--state-root", self.root,
-                       "--epic", "E001", "--sprint", skey])
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", skey))
+    def _rollup_mid(self, ekey):
+        self.run_main(["estimate-rollup", "--state-root", self.root, "--epic", ekey])
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, ekey))
         est = node["estimate"]
         return (float(est["man_hours_low"]) + float(est["man_hours_high"])) / 2.0
 
     def _closure_generation(self, n):
-        skey = self._make_sprint(n)
-        mid = self._rollup_mid(skey)
+        ekey = self._make_epic(n)
+        mid = self._rollup_mid(ekey)
         total_actual = self.CHILDREN * self.CHILD_ESTIMATE + self.TRUE_CLOSURE_OVERHEAD
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
-                       "--epic", "E001", "--sprint", skey,
-                       "--man-hours", str(total_actual)])
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
+                       "--epic", ekey, "--man-hours", str(total_actual)])
         return mid
 
     def test_learned_closure_rollup_is_closer_to_truth_than_cold_start(self):
@@ -4974,7 +4396,7 @@ class TestConvergence(TestLayoutResolution):
         cold_start = self._closure_generation(2)
         for n in range(3, 9):
             self._closure_generation(n)
-        learned = self._rollup_mid(self._make_sprint(9))
+        learned = self._rollup_mid(self._make_epic(9))
         self.assertLess(abs(learned - truth), abs(cold_start - truth))
         self.assertAlmostEqual(learned, truth, delta=0.01 * truth)
 
@@ -4985,7 +4407,7 @@ class TestConvergence(TestLayoutResolution):
             self._closure_generation(n)
         _, cal = pm.load_calibration(self.root)
         samples = [float(s) for s in
-                   pm._component_samples(cal, "closure", "sprint", "man_hours")]
+                   pm._component_samples(cal, "closure", "epic", "man_hours")]
         self.assertGreaterEqual(len(samples), 6)
         for s in samples[3:]:
             self.assertAlmostEqual(s, samples[0], delta=0.01)
@@ -5013,47 +4435,36 @@ class TestEvents(Base):
         with open(p, encoding="utf-8") as fh:
             return [json.loads(l) for l in fh if l.strip()]
 
-    def test_set_status_appends_event_with_from_and_to(self):
-        code, _ = self.run_main(["set-status", "--state-root", self.root,
-                                 "--story", "E001-S01-001", "--status", "review"])
+    def test_import_node_appends_event_with_kind_and_keys(self):
+        code, _ = self.run_main(["import-node", "--state-root", self.root,
+                                 "--story", "E001-S01-002", "--status", "review",
+                                 "--session-id", "sess-abc"])
         self.assertEqual(code, 0)
         evs = self.read_events()
         self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]["event"], "status")
+        self.assertEqual(evs[0]["event"], "import")
         self.assertEqual(evs[0]["node"], "story")
-        self.assertEqual(evs[0]["key"], "E001-S01-001")
-        self.assertEqual(evs[0]["from"], "in-progress")
+        self.assertEqual(evs[0]["key"], "E001-S01-002")
         self.assertEqual(evs[0]["to"], "review")
-        self.assertEqual(evs[0]["epic"], "E001")
-        self.assertEqual(evs[0]["sprint"], "S01")
+        self.assertEqual((evs[0]["epic"], evs[0]["sprint"]), ("E001", "S01"))
+        self.assertEqual(evs[0]["session"], "sess-abc")
 
     def test_no_events_flag_suppresses(self):
-        self.run_main(["set-status", "--state-root", self.root,
-                       "--story", "E001-S01-001", "--status", "review", "--no-events"])
+        self.run_main(["import-node", "--state-root", self.root,
+                       "--story", "E001-S01-002", "--status", "review", "--no-events"])
         self.assertEqual(self.read_events(), [])
 
-    def test_session_id_recorded_when_given(self):
-        self.run_main(["set-status", "--state-root", self.root, "--story", "E001-S01-001",
-                       "--status", "review", "--session-id", "sess-abc"])
-        self.assertEqual(self.read_events()[0]["session"], "sess-abc")
-
-    def test_session_is_null_by_default(self):
-        self.run_main(["set-status", "--state-root", self.root,
-                       "--story", "E001-S01-001", "--status", "review"])
-        self.assertIsNone(self.read_events()[0]["session"])
-
-    def test_epic_and_sprint_events_carry_right_node_kind(self):
-        self.run_main(["set-status", "--state-root", self.root, "--epic", "E001",
-                       "--sprint", "S01", "--status", "done"])
-        self.run_main(["set-status", "--state-root", self.root, "--epic", "E001",
-                       "--status", "done"])
-        evs = self.read_events()
-        self.assertEqual(evs[0]["node"], "sprint")
-        self.assertEqual(evs[0]["key"], "S01")
-        self.assertEqual(evs[0]["epic"], "E001")
-        self.assertEqual(evs[1]["node"], "epic")
-        self.assertEqual(evs[1]["key"], "E001")
-        self.assertIsNone(evs[1]["sprint"])
+    def test_append_failure_warns_but_write_succeeds(self):
+        # Plant a directory where the log file goes, so open(..., "a") must fail.
+        os.makedirs(pm.events_path(self.root))
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["import-node", "--state-root", self.root,
+                                     "--story", "E001-S01-002", "--status", "review"])
+        self.assertEqual(code, 0)
+        self.assertIn("could not append event", buf.getvalue())
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-002"))
+        self.assertEqual(node["status"], "review")
 
     def test_set_actual_appends_actual_event(self):
         self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
@@ -5063,18 +4474,6 @@ class TestEvents(Base):
         evs = [e for e in self.read_events() if e["event"] == "actual"]
         self.assertEqual(len(evs), 1)
         self.assertEqual(evs[0]["key"], "E001-S01-001")
-
-    def test_append_failure_warns_but_write_succeeds(self):
-        # Plant a directory where the log file goes, so open(..., "a") must fail.
-        os.makedirs(pm.events_path(self.root))
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.root,
-                                     "--story", "E001-S01-001", "--status", "review"])
-        self.assertEqual(code, 0)
-        self.assertIn("could not append event", buf.getvalue())
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-001"))
-        self.assertEqual(node["status"], "review")
 
     def test_concurrent_appends_lose_no_lines(self):
         import threading
@@ -5088,493 +4487,6 @@ class TestEvents(Base):
         for t in ts:
             t.join()
         self.assertEqual(len(self.read_events()), 40)
-
-
-class TestDwellAndFlags(Base):
-    """Per-status dwell time (exact from events, approximate from updated_at) and
-    the fixed stuck thresholds."""
-
-    def test_parse_iso_handles_z_suffix(self):
-        dt = pm._parse_iso("2026-08-17T10:00:00Z")
-        self.assertEqual(dt.year, 2026)
-        self.assertIsNone(pm._parse_iso(None))
-        self.assertIsNone(pm._parse_iso("not-a-date"))
-
-    def test_dwell_prefers_events_and_is_exact(self):
-        root = os.path.join(self.d, "state")
-        os.makedirs(root)
-        pm.append_event(root, {"ts": "2026-08-17T06:00:00Z", "event": "status",
-                               "node": "story", "key": "E001-S01-001",
-                               "from": "in-progress", "to": "review"})
-        idx = pm.build_events_index(root)
-        node = {"key": "E001-S01-001", "status": "review",
-                "updated_at": "2026-08-17T09:00:00Z"}
-        now = pm._parse_iso("2026-08-17T10:00:00Z")
-        hours, exact = pm.dwell_hours(node, idx, now=now)
-        self.assertAlmostEqual(hours, 4.0, places=3)
-        self.assertTrue(exact)
-
-    def test_dwell_falls_back_to_updated_at_when_no_events(self):
-        node = {"key": "E001-S01-001", "status": "review",
-                "updated_at": "2026-08-17T08:00:00Z"}
-        now = pm._parse_iso("2026-08-17T10:00:00Z")
-        hours, exact = pm.dwell_hours(node, {}, now=now)
-        self.assertAlmostEqual(hours, 2.0, places=3)
-        self.assertFalse(exact)
-
-    def test_dwell_falls_back_when_latest_event_status_disagrees(self):
-        # Hand-edited YAML: state says done, the last event said review.
-        root = os.path.join(self.d, "state")
-        os.makedirs(root)
-        pm.append_event(root, {"ts": "2026-08-17T06:00:00Z", "event": "status",
-                               "node": "story", "key": "E001-S01-001",
-                               "from": "in-progress", "to": "review"})
-        idx = pm.build_events_index(root)
-        node = {"key": "E001-S01-001", "status": "done",
-                "updated_at": "2026-08-17T09:30:00Z"}
-        now = pm._parse_iso("2026-08-17T10:00:00Z")
-        hours, exact = pm.dwell_hours(node, idx, now=now)
-        self.assertAlmostEqual(hours, 0.5, places=3)
-        self.assertFalse(exact)
-
-    def test_dwell_none_when_no_timestamp_at_all(self):
-        hours, exact = pm.dwell_hours({"key": "X", "status": "review"}, {})
-        self.assertIsNone(hours)
-        self.assertFalse(exact)
-
-    def test_index_takes_latest_event_per_key(self):
-        root = os.path.join(self.d, "state")
-        os.makedirs(root)
-        for ts, to in [("2026-08-17T06:00:00Z", "review"),
-                       ("2026-08-17T07:00:00Z", "in-progress")]:
-            pm.append_event(root, {"ts": ts, "event": "status", "node": "story",
-                                   "key": "E001-S01-001", "to": to})
-        idx = pm.build_events_index(root)
-        self.assertEqual(idx["E001-S01-001"]["to"], "in-progress")
-
-    def test_index_ignores_actual_events_and_bad_lines(self):
-        root = os.path.join(self.d, "state")
-        os.makedirs(root)
-        pm.append_event(root, {"ts": "2026-08-17T06:00:00Z", "event": "status",
-                               "node": "story", "key": "K", "to": "review"})
-        pm.append_event(root, {"ts": "2026-08-17T07:00:00Z", "event": "actual",
-                               "node": "story", "key": "K"})
-        with open(pm.events_path(root), "a", encoding="utf-8") as fh:
-            fh.write("{ not json\n")
-        idx = pm.build_events_index(root)
-        self.assertEqual(idx["K"]["to"], "review")
-
-    def test_index_empty_when_log_absent(self):
-        self.assertEqual(pm.build_events_index(os.path.join(self.d, "nope")), {})
-
-    def test_flags_fire_at_threshold_per_level(self):
-        self.assertEqual(pm.compute_flags("story", "K", "review", 4.5, True)[0]["kind"], "stuck")
-        self.assertEqual(pm.compute_flags("story", "K", "review", 3.5, True), [])
-        self.assertEqual(pm.compute_flags("story", "K", "in-progress", 5.0, True)[0]["kind"], "stuck")
-        self.assertEqual(pm.compute_flags("sprint", "S01", "in-progress", 25.0, True)[0]["kind"], "stuck")
-        self.assertEqual(pm.compute_flags("sprint", "S01", "in-progress", 5.0, True), [])
-        self.assertEqual(pm.compute_flags("epic", "E001", "in-progress", 80.0, True)[0]["kind"], "stuck")
-
-    def test_ready_for_dev_never_flagged(self):
-        self.assertEqual(pm.compute_flags("story", "K", "ready-for-dev", 500.0, True), [])
-
-    def test_done_never_flagged_and_none_dwell_never_flagged(self):
-        self.assertEqual(pm.compute_flags("story", "K", "done", 500.0, True), [])
-        self.assertEqual(pm.compute_flags("story", "K", "review", None, False), [])
-
-    def test_flag_carries_approximate_marker(self):
-        f = pm.compute_flags("story", "K", "review", 9.0, False)[0]
-        self.assertFalse(f["exact"])
-        self.assertEqual(f["threshold"], 4.0)
-        self.assertEqual(f["status"], "review")
-
-
-class TestProgressModel(Base):
-    """The project-wide walk: hierarchy, archived filtering, flags, tolerance."""
-
-    def setUp(self):
-        super().setUp()
-        self.root = os.path.join(self.d, "state")
-        self.mk("active", "epic-001", "E001", "Foundation", "in-progress",
-                sprints={"sprint-01": ("S01", "done", [("E001-S01-001", "done"),
-                                                       ("E001-S01-002", "done")]),
-                         "sprint-02": ("S02", "in-progress", [("E001-S02-001", "review"),
-                                                              ("E001-S02-002", "backlog")])})
-        self.mk("archived", "epic-002", "E002", "Auth", "done",
-                sprints={"sprint-01": ("S01", "done", [("E002-S01-001", "done")])})
-        self.mk("planned", "epic-004", "E004", "Telemetry", "backlog", sprints={})
-
-    def mk(self, folder, edir, ekey, title, status, sprints):
-        ed = os.path.join(self.root, folder, edir)
-        os.makedirs(ed, exist_ok=True)
-        with open(os.path.join(ed, "epic.yaml"), "w") as fh:
-            fh.write(f"key: '{ekey}'\ntitle: '{title}'\nstatus: {status}\n"
-                     f"updated_at: '2026-08-17T09:00:00Z'\n")
-        for sdir, (skey, sstatus, stories) in sprints.items():
-            sd = os.path.join(ed, sdir)
-            os.makedirs(sd, exist_ok=True)
-            with open(os.path.join(sd, "sprint.yaml"), "w") as fh:
-                fh.write(f"key: '{skey}'\nepic: '{ekey}'\nstatus: {sstatus}\n"
-                         f"updated_at: '2026-08-17T09:00:00Z'\n")
-            for stkey, ststatus in stories:
-                with open(os.path.join(sd, f"{stkey}.yaml"), "w") as fh:
-                    fh.write(f"key: '{stkey}'\nepic: '{ekey}'\nsprint: '{skey}'\n"
-                             f"status: {ststatus}\nupdated_at: '2026-08-17T09:00:00Z'\n")
-
-    def test_list_all_epics_spans_all_status_folders(self):
-        got = pm.list_all_epics(self.root)
-        self.assertEqual(got, [("E001", "active"), ("E002", "archived"), ("E004", "planned")])
-
-    def test_archived_omitted_by_default(self):
-        m = pm.build_progress_model(self.root)
-        keys = [e["key"] for e in m["unplanned_epics"]]
-        self.assertIn("E001", keys)
-        self.assertIn("E004", keys)
-        self.assertNotIn("E002", keys)
-
-    def test_archived_present_with_include_archived(self):
-        m = pm.build_progress_model(self.root, include_archived=True)
-        self.assertIn("E002", [e["key"] for e in m["unplanned_epics"]])
-
-    def test_totals_count_archived_even_when_hidden(self):
-        m = pm.build_progress_model(self.root)
-        self.assertEqual(m["totals"]["epics"], {"in-progress": 1, "done": 1, "backlog": 1})
-        self.assertEqual(m["totals"]["stories"]["done"], 3)   # 2 in E001 + 1 in archived E002
-        self.assertEqual(m["totals"]["stories"]["review"], 1)
-
-    def test_epic_detail_hierarchy(self):
-        m = pm.build_progress_model(self.root)
-        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
-        self.assertEqual(e["title"], "Foundation")
-        self.assertEqual(e["dir_status"], "active")
-        self.assertEqual(e["sprint_count"], 2)
-        self.assertEqual(e["story_count"], 4)
-        self.assertEqual([s["key"] for s in e["sprints"]], ["S01", "S02"])
-        s2 = e["sprints"][1]
-        self.assertEqual([st["key"] for st in s2["stories"]],
-                         ["E001-S02-001", "E001-S02-002"])
-
-    def test_placement_anomaly_flagged(self):
-        p = os.path.join(self.root, "planned", "epic-004", "epic.yaml")
-        with open(p, "w") as fh:
-            fh.write("key: 'E004'\ntitle: 'Telemetry'\nstatus: done\n")
-        m = pm.build_progress_model(self.root)
-        self.assertIn("placement", [f["kind"] for f in m["flags"]])
-
-    def test_unparseable_node_is_flagged_not_fatal(self):
-        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
-        with open(p, "w") as fh:
-            fh.write("key: [unclosed\n")
-        m = pm.build_progress_model(self.root)
-        self.assertIn("unreadable", [f["kind"] for f in m["flags"]])
-
-    def test_stuck_story_flagged_from_updated_at(self):
-        now = pm._parse_iso("2026-08-17T20:00:00Z")   # 11h after the fixture stamp
-        m = pm.build_progress_model(self.root, now=now)
-        stuck = [f for f in m["flags"] if f["kind"] == "stuck"]
-        self.assertIn("E001-S02-001", [f["key"] for f in stuck])      # review, 11h > 4h
-        self.assertNotIn("E001-S02-002", [f["key"] for f in stuck])   # backlog, never
-
-    def test_stale_lock_flagged(self):
-        p = os.path.join(self.root, "active", "epic-001", "epic.yaml")
-        with open(p, "w") as fh:
-            fh.write("_lock:\n  session_id: 'sess-1'\n  claimed_at: '2026-08-17T00:00:00Z'\n"
-                     "  ttl_minutes: 30\nkey: 'E001'\ntitle: 'Foundation'\n"
-                     "status: in-progress\nupdated_at: '2026-08-17T09:00:00Z'\n")
-        now = pm._parse_iso("2026-08-17T10:00:00Z")
-        m = pm.build_progress_model(self.root, now=now)
-        self.assertIn("stale-lock", [f["kind"] for f in m["flags"]])
-        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
-        self.assertTrue(e["lock"]["stale"])
-
-    def test_empty_state_root_yields_empty_model(self):
-        empty = os.path.join(self.d, "nothing")
-        os.makedirs(empty)
-        m = pm.build_progress_model(empty)
-        self.assertEqual(m["unplanned_epics"], [])
-        self.assertEqual(m["phases"], [])
-        self.assertIsNone(m["plan"])
-
-
-class TestFlagScoping(TestProgressModel):
-    """Each node's own `flags` must describe only that node. The aggregate lives at
-    model['flags']. Mixing the two made an epic row report 'stuck' whenever any
-    descendant story was stuck, and left sprints unable to report their own."""
-
-    def test_epic_own_flags_exclude_descendant_stuck(self):
-        now = pm._parse_iso("2026-08-17T20:00:00Z")   # story review 11h > 4h; epic 11h < 72h
-        m = pm.build_progress_model(self.root, now=now)
-        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
-        self.assertEqual([f["kind"] for f in e["flags"]], [])
-        story = e["sprints"][1]["stories"][0]
-        self.assertEqual(story["key"], "E001-S02-001")
-        self.assertEqual([f["kind"] for f in story["flags"]], ["stuck"])
-
-    def test_sprint_carries_its_own_flags_key(self):
-        now = pm._parse_iso("2026-08-19T09:00:00Z")   # 48h: sprint in-progress > 24h
-        m = pm.build_progress_model(self.root, now=now)
-        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
-        s02 = e["sprints"][1]
-        self.assertEqual(s02["key"], "S02")
-        self.assertIn("flags", s02)
-        self.assertEqual([f["kind"] for f in s02["flags"]], ["stuck"])
-        s01 = e["sprints"][0]                         # done — never flagged
-        self.assertEqual(s01["flags"], [])
-
-    def test_epic_own_flags_still_carry_placement_and_lock(self):
-        p = os.path.join(self.root, "planned", "epic-004", "epic.yaml")
-        with open(p, "w") as fh:
-            fh.write("key: 'E004'\ntitle: 'Telemetry'\nstatus: done\n")
-        m = pm.build_progress_model(self.root)
-        e = next(x for x in m["unplanned_epics"] if x["key"] == "E004")
-        self.assertEqual([f["kind"] for f in e["flags"]], ["placement"])
-
-    def test_model_flags_aggregate_every_level(self):
-        now = pm._parse_iso("2026-08-19T09:00:00Z")
-        m = pm.build_progress_model(self.root, now=now)
-        levels = {f["level"] for f in m["flags"] if f["kind"] == "stuck"}
-        self.assertIn("story", levels)
-        self.assertIn("sprint", levels)
-
-    def test_unreadable_story_attaches_to_its_sprint(self):
-        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
-        with open(p, "w") as fh:
-            fh.write("key: [unclosed\n")
-        m = pm.build_progress_model(self.root)
-        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
-        s02 = e["sprints"][1]
-        self.assertIn("unreadable", [f["kind"] for f in s02["flags"]])
-        self.assertIn("unreadable", [f["kind"] for f in m["flags"]])
-
-    def test_tree_does_not_mark_epic_stuck_for_a_stuck_story(self):
-        now = pm._parse_iso("2026-08-17T20:00:00Z")
-        m = pm.build_progress_model(self.root, now=now)
-        lines = pm.render_tree(m).splitlines()
-        epic_line = next(l for l in lines if l.strip().startswith("E001 "))
-        self.assertNotIn("stuck", epic_line)
-        story_line = next(l for l in lines if "E001-S02-001" in l)
-        self.assertIn("stuck", story_line)
-
-    def test_tree_has_no_trailing_whitespace(self):
-        m = pm.build_progress_model(self.root)
-        for line in pm.render_tree(m).splitlines():
-            self.assertEqual(line, line.rstrip(), f"trailing whitespace: {line!r}")
-
-
-class TestPlanJoin(TestProgressModel):
-    """Joining plan-output-meta.yaml -> snapshot phases onto the state hierarchy."""
-
-    def write_plan(self, epics_p1=("E001", "E002"), snapshot="plan-2026-08-17-v1.yaml"):
-        pd = os.path.join(self.d, "planning")
-        os.makedirs(pd, exist_ok=True)
-        with open(os.path.join(pd, "plan-output-meta.yaml"), "w") as fh:
-            fh.write(f'current_plan: "{snapshot}"\ngenerated: "2026-08-17T08:00:00Z"\n'
-                     f"readiness: green\nphase_count: 2\n")
-        with open(os.path.join(pd, snapshot), "w") as fh:
-            fh.write('generated: "2026-08-17T08:00:00Z"\nreadiness: green\nphases:\n')
-            fh.write(f"  - phase: 1\n    parallel: true\n    epics: {list(epics_p1)}\n"
-                     f"    dependencies: []\n")
-            fh.write("  - phase: 2\n    parallel: false\n    epics: ['E004']\n"
-                     "    dependencies: ['E001']\n")
-        return os.path.join(pd, "plan-output-meta.yaml")
-
-    def test_load_plan_follows_pointer_to_snapshot(self):
-        plan = pm.load_plan(self.write_plan())
-        self.assertEqual(plan["meta"]["readiness"], "green")
-        self.assertEqual(len(plan["phases"]), 2)
-        self.assertEqual(list(plan["phases"][0]["epics"]), ["E001", "E002"])
-
-    def test_load_plan_returns_none_when_missing(self):
-        self.assertIsNone(pm.load_plan(os.path.join(self.d, "nope.yaml")))
-
-    def test_load_plan_tolerates_dangling_snapshot(self):
-        ptr = self.write_plan(snapshot="does-not-exist.yaml")
-        os.remove(os.path.join(os.path.dirname(ptr), "does-not-exist.yaml"))
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            plan = pm.load_plan(ptr)
-        self.assertIsNotNone(plan["meta"])
-        self.assertEqual(plan["phases"], [])
-        self.assertIn("missing snapshot", buf.getvalue())
-
-    def test_model_groups_epics_into_phases(self):
-        plan = pm.load_plan(self.write_plan())
-        m = pm.build_progress_model(self.root, plan=plan)
-        self.assertEqual(len(m["phases"]), 2)
-        self.assertEqual(m["phases"][0]["epic_total"], 2)
-        self.assertEqual([e["key"] for e in m["phases"][0]["epics_detail"]], ["E001"])
-        self.assertEqual(m["plan"]["readiness"], "green")
-
-    def test_archived_counted_in_denominator_but_not_displayed(self):
-        plan = pm.load_plan(self.write_plan(epics_p1=("E001", "E002")))
-        m = pm.build_progress_model(self.root, plan=plan)
-        ph = m["phases"][0]
-        self.assertEqual(ph["epic_total"], 2)
-        self.assertEqual(ph["epic_done"], 1)                       # E002 is archived+done
-        self.assertEqual([e["key"] for e in ph["epics_detail"]], ["E001"])
-
-    def test_planned_epics_do_not_appear_as_unplanned(self):
-        plan = pm.load_plan(self.write_plan())
-        m = pm.build_progress_model(self.root, plan=plan)
-        self.assertEqual(m["unplanned_epics"], [])   # E001,E002,E004 all named in phases
-
-
-class TestReport(TestPlanJoin):
-    """The report subcommand and its three renderers."""
-
-    def snapshot_tree(self):
-        seen = {}
-        for base, _, files in os.walk(self.root):
-            for f in files:
-                p = os.path.join(base, f)
-                seen[p] = os.path.getmtime(p)
-        return seen
-
-    def test_json_format_round_trips(self):
-        code, out = self.run_main(["report", "--state-root", self.root, "--format", "json"])
-        self.assertEqual(code, 0)
-        m = json.loads(out)
-        self.assertIn("totals", m)
-        self.assertIn("unplanned_epics", m)
-
-    def test_tree_renders_hierarchy(self):
-        code, out = self.run_main(["report", "--state-root", self.root, "--format", "tree"])
-        self.assertEqual(code, 0)
-        self.assertIn("E001", out)
-        self.assertIn("S02", out)
-        self.assertIn("E001-S02-001", out)
-        self.assertNotIn("E002", out)          # archived, hidden by default
-
-    def test_tree_shows_archived_with_all(self):
-        _, out = self.run_main(["report", "--state-root", self.root,
-                                "--format", "tree", "--all"])
-        self.assertIn("E002", out)
-
-    def test_tree_renders_phases_when_plan_given(self):
-        ptr = self.write_plan()
-        _, out = self.run_main(["report", "--state-root", self.root, "--plan", ptr,
-                                "--format", "tree"])
-        self.assertIn("Phase 1", out)
-        self.assertIn("readiness", out.lower())
-
-    def test_md_format_emits_tables(self):
-        _, out = self.run_main(["report", "--state-root", self.root, "--format", "md"])
-        self.assertIn("|", out)
-        self.assertIn("generated by", out.lower())
-
-    def test_out_writes_file_and_prints_confirmation(self):
-        dest = os.path.join(self.d, "progress-report.md")
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--format", "md", "--out", dest])
-        self.assertEqual(code, 0)
-        self.assertTrue(os.path.isfile(dest))
-        self.assertIn("OK report", out)
-
-    def test_read_only_without_out(self):
-        before = self.snapshot_tree()
-        self.run_main(["report", "--state-root", self.root, "--format", "tree"])
-        self.assertEqual(before, self.snapshot_tree())
-        self.assertFalse(os.path.exists(pm.events_path(self.root)))
-
-    def test_empty_tree_renders_without_raising(self):
-        empty = os.path.join(self.d, "empty-state")
-        os.makedirs(empty)
-        code, out = self.run_main(["report", "--state-root", empty, "--format", "tree"])
-        self.assertEqual(code, 0)
-        self.assertIn("no epics", out.lower())
-
-    def test_stuck_marker_appears_in_tree(self):
-        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
-        with open(p, "w") as fh:
-            fh.write("key: 'E001-S02-001'\nepic: 'E001'\nsprint: 'S02'\n"
-                     "status: review\nupdated_at: '2000-01-01T00:00:00Z'\n")
-        _, out = self.run_main(["report", "--state-root", self.root, "--format", "tree"])
-        self.assertIn("E001-S02-001", out)
-        self.assertIn("stuck", out.lower())
-
-    def test_missing_state_root_exits_3(self):
-        with redirect_stderr(io.StringIO()):
-            code, _ = self.run_main(["report", "--state-root",
-                                     os.path.join(self.d, "absent"), "--format", "tree"])
-        self.assertEqual(code, 3)
-
-    def test_bad_format_is_usage_error(self):
-        with redirect_stderr(io.StringIO()):
-            code, _ = self.run_main(["report", "--state-root", self.root,
-                                     "--format", "nope"])
-        self.assertEqual(code, 2)
-
-
-class TestStatusFilter(TestPlanJoin):
-    """`--status` selects which state folders are displayed. Denominators must keep
-    counting every epic regardless, or a progress bar changes meaning with the view."""
-
-    def test_default_is_planned_and_active(self):
-        m = pm.build_progress_model(self.root)
-        keys = {e["key"] for e in m["unplanned_epics"]}
-        self.assertEqual(keys, {"E001", "E004"})       # active + planned, no archived
-
-    def test_active_only(self):
-        m = pm.build_progress_model(self.root, statuses={"active"})
-        self.assertEqual({e["key"] for e in m["unplanned_epics"]}, {"E001"})
-
-    def test_planned_only(self):
-        m = pm.build_progress_model(self.root, statuses={"planned"})
-        self.assertEqual({e["key"] for e in m["unplanned_epics"]}, {"E004"})
-
-    def test_all_three(self):
-        m = pm.build_progress_model(self.root, statuses={"planned", "active", "archived"})
-        self.assertEqual({e["key"] for e in m["unplanned_epics"]}, {"E001", "E002", "E004"})
-
-    def test_totals_count_everything_regardless_of_filter(self):
-        narrow = pm.build_progress_model(self.root, statuses={"active"})
-        wide = pm.build_progress_model(self.root, statuses={"planned", "active", "archived"})
-        self.assertEqual(narrow["totals"], wide["totals"])
-
-    def test_phase_denominator_is_filter_independent(self):
-        plan = pm.load_plan(self.write_plan())        # phase 1 = E001, E002 (E002 archived+done)
-        narrow = pm.build_progress_model(self.root, plan=plan, statuses={"active"})
-        wide = pm.build_progress_model(self.root, plan=plan,
-                                       statuses={"planned", "active", "archived"})
-        self.assertEqual(narrow["phases"][0]["epic_total"], wide["phases"][0]["epic_total"])
-        self.assertEqual(narrow["phases"][0]["epic_done"], wide["phases"][0]["epic_done"])
-        # ...but the displayed list narrows
-        self.assertEqual([e["key"] for e in narrow["phases"][0]["epics_detail"]], ["E001"])
-
-    def test_model_records_the_filter_it_applied(self):
-        m = pm.build_progress_model(self.root, statuses={"active"})
-        self.assertEqual(m["statuses"], ["active"])
-
-    def test_cli_status_flag(self):
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--status", "active", "--format", "json"])
-        self.assertEqual(code, 0)
-        self.assertEqual({e["key"] for e in json.loads(out)["unplanned_epics"]}, {"E001"})
-
-    def test_cli_status_accepts_comma_list(self):
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--status", "active,archived", "--format", "json"])
-        self.assertEqual(code, 0)
-        self.assertEqual({e["key"] for e in json.loads(out)["unplanned_epics"]}, {"E001", "E002"})
-
-    def test_cli_all_still_means_everything(self):
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--all", "--format", "json"])
-        self.assertEqual(code, 0)
-        self.assertEqual({e["key"] for e in json.loads(out)["unplanned_epics"]},
-                         {"E001", "E002", "E004"})
-
-    def test_cli_rejects_an_unknown_status(self):
-        with redirect_stderr(io.StringIO()):
-            code, _ = self.run_main(["report", "--state-root", self.root,
-                                     "--status", "inprogress", "--format", "json"])
-        self.assertEqual(code, 2)
-
-    def test_tree_names_the_filter_when_narrowed(self):
-        _, out = self.run_main(["report", "--state-root", self.root,
-                                "--status", "active", "--format", "tree"])
-        self.assertIn("active", out.lower())
-        self.assertNotIn("E004", out)
 
 
 class TestDispatchEvents(Base):
@@ -5796,133 +4708,6 @@ class TestVerifyRejectsScalarTokens(TestLayoutResolution):
         self.assertIn("N/A", out)
 
 
-class TestSpendBreakout(Base):
-    """I8: design §9 specifies `report` breaking spend out by story / closure /
-    orchestration. `_accumulate_actuals` read only `node["actual"]`, and neither
-    `rollup_sprint` nor `build_progress_model` ever read `orchestration` — so the
-    72%-of-spend term this whole rework exists to surface was written to disk and
-    then omitted from every report that renders it.
-    """
-
-    def setUp(self):
-        super().setUp()
-        self.root = os.path.join(self.d, "state")
-        self.sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        os.makedirs(self.sd)
-        self._w(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
-                {"key": "E001", "title": "Foundation", "status": "in-progress",
-                 "actual": self._m(3.0, 12, 0.7, 2600),
-                 "orchestration": self._m(0.3, 0, 0.05, 1000)})
-        self._w(os.path.join(self.sd, "sprint.yaml"),
-                {"key": "S01", "epic": "E001", "status": "done",
-                 "actual": self._m(2.5, 10, 0.5, 2400),
-                 "orchestration": self._m(0.6, 0, 0.1, 7200)})
-        for i in (1, 2):
-            self._w(os.path.join(self.sd, f"E001-S01-{i:03d}.yaml"),
-                    {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
-                     "status": "done", "actual": self._m(1.0, 4, 0.2, 1000)})
-
-    @staticmethod
-    def _m(elapsed, man, hitl, tokens):
-        tk = {"total": tokens, "input": tokens, "output": 0,
-              "cache_write": 0, "cache_read": 0}
-        return {"elapsed_hours": elapsed, "man_hours": man, "hitl_hours": hitl,
-                "tokens_k": tk, "cost": pm.cost_from_tokens(tk, "claude-opus-5"),
-                "model": "claude-opus-5"}
-
-    @staticmethod
-    def _w(path, mapping):
-        y = pm._yaml()
-        with open(path, "w") as f:
-            y.dump(mapping, f)
-
-    # --- roll-ups ---------------------------------------------------------- #
-    def test_sprint_rollup_splits_the_three_buckets(self):
-        r = pm.rollup_sprint(self.root, "E001", "S01")
-        self.assertEqual(r["spend"]["stories"]["tokens_k"], 2000)
-        self.assertEqual(r["spend"]["closure"]["tokens_k"], 400)      # 2400 - 2000
-        self.assertEqual(r["spend"]["orchestration"]["tokens_k"], 7200)
-
-    def test_epic_rollup_adds_its_own_closure_and_orchestration(self):
-        r = pm.rollup_epic(self.root, "E001")
-        self.assertEqual(r["spend"]["stories"]["tokens_k"], 2000)
-        # sprint closure 400 + epic closure (2600 - 2400) = 600
-        self.assertEqual(r["spend"]["closure"]["tokens_k"], 600)
-        self.assertEqual(r["spend"]["orchestration"]["tokens_k"], 8200)
-        self.assertEqual(pm._spend_total(r["spend"])["tokens_k"], 10800)
-
-    def test_buckets_partition_the_spend_without_double_counting(self):
-        r = pm.rollup_epic(self.root, "E001")
-        total = pm._spend_total(r["spend"])["tokens_k"]
-        parts = sum(r["spend"][b].get("tokens_k", 0) for b in pm.SPEND_BUCKETS)
-        self.assertEqual(total, parts)
-
-    def test_missing_parent_actual_yields_no_closure_rather_than_a_bogus_one(self):
-        self._w(os.path.join(self.sd, "sprint.yaml"),
-                {"key": "S01", "epic": "E001", "status": "done"})
-        r = pm.rollup_sprint(self.root, "E001", "S01")
-        self.assertEqual(r["spend"]["closure"], {})
-        self.assertEqual(r["spend"]["stories"]["tokens_k"], 2000)
-
-    def test_negative_residual_clamps_to_zero_not_negative_spend(self):
-        self._w(os.path.join(self.sd, "sprint.yaml"),
-                {"key": "S01", "epic": "E001", "status": "done",
-                 "actual": self._m(0.5, 1, 0.0, 100)})     # below the children's sum
-        r = pm.rollup_sprint(self.root, "E001", "S01")
-        self.assertEqual(r["spend"]["closure"]["tokens_k"], 0)
-
-    # --- rendered surfaces ------------------------------------------------- #
-    def test_show_prints_the_breakout(self):
-        code, out = self.run_main(["show", "--state-root", self.root, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("spend/orchestration", out)
-        self.assertIn("tokens_k=8200", out)
-        self.assertIn("spend/TOTAL", out)
-
-    def test_report_tree_carries_orchestration(self):
-        code, out = self.run_main(["report", "--state-root", self.root])
-        self.assertEqual(code, 0, out)
-        self.assertIn("Spend (actual, by attribution", out)
-        self.assertIn("orchestration", out)
-        self.assertIn("tokens_k=8200", out)
-        self.assertIn("tokens_k=10800", out)
-
-    def test_report_md_carries_orchestration(self):
-        code, out = self.run_main(["report", "--state-root", self.root, "--format", "md"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("## Spend", out)
-        self.assertIn("| orchestration |", out)
-        self.assertIn("8200", out)
-
-    def test_report_json_carries_the_buckets(self):
-        code, out = self.run_main(["report", "--state-root", self.root, "--format", "json"])
-        self.assertEqual(code, 0, out)
-        model = json.loads(out)
-        self.assertEqual(model["spend"]["orchestration"]["tokens_k"], 8200)
-        self.assertEqual(model["spend_total"]["tokens_k"], 10800)
-
-    def test_spend_covers_archived_epics_even_when_the_listing_does_not(self):
-        # "what has this project cost" must not change with the display filter.
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--status", "archived", "--format", "json"])
-        self.assertEqual(code, 0, out)
-        model = json.loads(out)
-        self.assertEqual(model["spend"]["orchestration"]["tokens_k"], 8200)
-
-    def test_spend_section_is_omitted_when_nothing_was_spent(self):
-        empty = os.path.join(self.d, "empty-state")
-        os.makedirs(os.path.join(empty, "active"))
-        code, out = self.run_main(["report", "--state-root", empty])
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("Spend (actual", out)
-
-    def test_float_summation_noise_is_not_rendered(self):
-        code, out = self.run_main(["report", "--state-root", self.root])
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("0000000", out)
-        self.assertIn("elapsed_hours=3.9", out)
-
-
 class TestMalformedEventLog(Base):
     """I5/M3: open_dispatches dereferenced every valid-JSON line without an
     isinstance guard and read the file without an OSError guard, while
@@ -5953,37 +4738,6 @@ class TestMalformedEventLog(Base):
                        "--agent", "code-review", "--epic", "E001"])
         self.assertEqual(len(pm.open_dispatches(self.root, 0)), 1)
 
-    def test_report_survives_a_torn_line(self):
-        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
-                       "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
-        self._append("42")
-        self._append('{"ts": "bogus", "event": ')       # torn: invalid JSON
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--stall-minutes", "0"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("STALLED DISPATCH", out)
-        self.assertIn("dev-story", out)
-
-
-class TestReportStalls(Base):
-    def setUp(self):
-        super().setUp()
-        self.root = os.path.join(self.d, "state")
-        os.makedirs(os.path.join(self.root, "active"))
-
-    def test_report_lists_stalled_dispatch(self):
-        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
-                       "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
-        code, out = self.run_main(["report", "--state-root", self.root,
-                                   "--stall-minutes", "0"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("STALLED DISPATCH", out)
-        self.assertIn("dev-story", out)
-
-    def test_report_silent_when_nothing_stalled(self):
-        code, out = self.run_main(["report", "--state-root", self.root])
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("STALLED DISPATCH", out)
 
 
 class TestRates(Base):
@@ -6078,13 +4832,13 @@ class TestOrchestrationBlock(TestLayoutResolution):
         pm.nodes.save_node(y, node, p)
 
     def test_orchestration_writes_to_its_own_block(self):
-        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
-                                   "--epic", "E001", "--sprint", "S01",
+        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
+                                   "--epic", "E001",
                                    "--block", "orchestration",
                                    "--tokens-input", "1000", "--model", "claude-opus-5",
                                    "--elapsed-hours", "2", "--no-calibrate"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertIn("orchestration", node)
         self.assertNotIn("orchestration", node.get("actual") or {})
         self.assertEqual(int(node["orchestration"]["tokens_k"]["total"]), 1000)
@@ -6100,45 +4854,45 @@ class TestOrchestrationBlock(TestLayoutResolution):
             code = e.code
         self.assertEqual(code, 2, err.getvalue())
         self.assertIn("orchestration", err.getvalue().lower())
-        self.assertIn("sprint", err.getvalue().lower())
+        self.assertIn("epic", err.getvalue().lower())
 
     def test_fraction_sample_is_orchestration_over_children(self):
         self._story_actual(1000)
         code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "sprint",
-             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+            ["set-actual", "--state-root", self.root, "--node", "epic",
+             "--epic", "E001", "--block", "orchestration",
              "--tokens-input", "3000", "--model", "claude-opus-5"])
         self.assertEqual(code, 0, out)
         _, cal = pm.load_calibration(self.root)
-        samples = cal["orchestration"]["sprint"]["tokens_k"]["samples"]
+        samples = cal["orchestration"]["epic"]["tokens_k"]["samples"]
         self.assertAlmostEqual(float(samples[-1]), 3.0, places=3)
 
     def test_fraction_inactive_below_three_samples(self):
         cal = pm.new_calibration()
-        self.assertIsNone(pm.active_orchestration_fraction(cal, "sprint", "tokens_k"))
+        self.assertIsNone(pm.active_orchestration_fraction(cal, "epic", "tokens_k"))
 
     def test_fraction_active_at_three_samples(self):
         cal = pm.new_calibration()
-        cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
+        cal["orchestration"]["epic"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
         self.assertAlmostEqual(
-            pm.active_orchestration_fraction(cal, "sprint", "tokens_k"), 2.0, places=3)
+            pm.active_orchestration_fraction(cal, "epic", "tokens_k"), 2.0, places=3)
 
     def test_fraction_still_inactive_at_two_samples_boundary(self):
         # Proves activation is a strict >= MIN_SAMPLES (3), not off-by-one at 2.
         cal = pm.new_calibration()
-        cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0]}
-        self.assertIsNone(pm.active_orchestration_fraction(cal, "sprint", "tokens_k"))
+        cal["orchestration"]["epic"]["tokens_k"] = {"samples": [2.0, 2.0]}
+        self.assertIsNone(pm.active_orchestration_fraction(cal, "epic", "tokens_k"))
 
     def test_orchestration_never_calibrates_cost(self):
         # cost is derived from tokens x rates — a second, drift-capable
         # fraction for it would be redundant with the token fraction.
         self._story_actual(1000)
         self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "sprint",
-             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+            ["set-actual", "--state-root", self.root, "--node", "epic",
+             "--epic", "E001", "--block", "orchestration",
              "--tokens-input", "3000", "--model", "claude-opus-5"])
         _, cal = pm.load_calibration(self.root)
-        self.assertNotIn("cost", cal["orchestration"]["sprint"])
+        self.assertNotIn("cost", cal["orchestration"]["epic"])
 
     def test_denominator_requires_every_child_not_just_some(self):
         # A second story in the same sprint, WITHOUT an actual. A naive
@@ -6152,14 +4906,14 @@ class TestOrchestrationBlock(TestLayoutResolution):
         with open(os.path.join(sd, "E001-S01-004.yaml"), "w") as f:
             f.write("key: 'E001-S01-004'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
         code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "sprint",
-             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+            ["set-actual", "--state-root", self.root, "--node", "epic",
+             "--epic", "E001", "--block", "orchestration",
              "--tokens-input", "3000", "--model", "claude-opus-5"])
         self.assertEqual(code, 0, out)
         self.assertIn("no orchestration sample", out.lower())
         self.assertIn("missing this metric's actual", out.lower())
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(cal["orchestration"]["sprint"]), 0)
+        self.assertEqual(len(cal["orchestration"]["epic"]), 0)
 
     def test_second_orchestration_call_does_not_double_count(self):
         # Assert on the calibration file's sample COUNT, not the command's
@@ -6167,8 +4921,8 @@ class TestOrchestrationBlock(TestLayoutResolution):
         # sample) must read as success to the caller while still recording
         # nothing extra in the shared file.
         self._story_actual(1000)
-        argv = ["set-actual", "--state-root", self.root, "--node", "sprint",
-                "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+        argv = ["set-actual", "--state-root", self.root, "--node", "epic",
+                "--epic", "E001", "--block", "orchestration",
                 "--tokens-input", "3000", "--model", "claude-opus-5"]
         code1, out1 = self.run_main(argv)
         self.assertEqual(code1, 0, out1)
@@ -6176,11 +4930,11 @@ class TestOrchestrationBlock(TestLayoutResolution):
         self.assertEqual(code2, 0, out2)
         self.assertIn("replay", out2.lower())
         _, cal = pm.load_calibration(self.root)
-        samples = cal["orchestration"]["sprint"]["tokens_k"]["samples"]
+        samples = cal["orchestration"]["epic"]["tokens_k"]["samples"]
         self.assertEqual(len(samples), 1)
 
     def test_orchestration_marker_is_distinct_from_closure_marker(self):
-        # The whole reason for a SEPARATE marker: a sprint node carries both
+        # The whole reason for a SEPARATE marker: an epic node carries both
         # a closure/actual sample and an orchestration sample. If they shared
         # CALIBRATION_MARKER, whichever ran first would silently suppress
         # the other. Record a closure sample first, then confirm the
@@ -6190,43 +4944,32 @@ class TestOrchestrationBlock(TestLayoutResolution):
         _, story_node = pm.load_node(story_path)
         story_node["estimate"] = {"man_hours_low": 3, "man_hours_high": 3}
         pm.nodes.save_node(pm._yaml(), story_node, story_path)
-        sprint_path = pm.sprint_file(self.root, "E001", "S01")
+        sprint_path = pm.nodes.epic_file(self.root, "E001")
         _, sprint_node = pm.load_node(sprint_path)
         sprint_node["estimate"] = {"man_hours_low": 12, "man_hours_high": 12}
-        pm.nodes.save_node(pm._yaml(), sprint_node, sprint_path)
+        _epic_locked(self.root, pm.nodes.save_node, pm._yaml(), sprint_node, sprint_path)
         code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "sprint",
-             "--epic", "E001", "--sprint", "S01", "--man-hours", "9"])
+            ["set-actual", "--state-root", self.root, "--node", "epic",
+             "--epic", "E001", "--man-hours", "9"])
         self.assertEqual(code, 0, out)
         _, node_after_closure = pm.load_node(sprint_path)
         self.assertIn(pm.CALIBRATION_MARKER, node_after_closure)
         self.assertNotIn(pm.ORCHESTRATION_MARKER, node_after_closure)
 
         code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "sprint",
-             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+            ["set-actual", "--state-root", self.root, "--node", "epic",
+             "--epic", "E001", "--block", "orchestration",
              "--tokens-input", "3000", "--model", "claude-opus-5"])
         self.assertEqual(code, 0, out)
         self.assertNotIn("replay", out.lower())
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(cal["orchestration"]["sprint"]["tokens_k"]["samples"]), 1)
+        self.assertEqual(len(cal["orchestration"]["epic"]["tokens_k"]["samples"]), 1)
         _, node_after_both = pm.load_node(sprint_path)
         self.assertIn(pm.ORCHESTRATION_MARKER, node_after_both)
 
     def test_epic_level_replay_guard_does_not_double_count(self):
-        # Same exposure exists at epic level: _closure_nodes resolves the
-        # epic's own file as the parent for level="epic", so the guard added
-        # in record_orchestration_sample covers it via the same code path,
-        # with no epic-specific branch needed. Proven here rather than
-        # asserted.
-        sprint_path = pm.sprint_file(self.root, "E001", "S01")
-        _, sprint_node = pm.load_node(sprint_path)
-        sprint_node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
-                                 "tokens_k": {"total": 1000, "input": 1000, "output": 0,
-                                              "cache_write": 0, "cache_read": 0},
-                                 "cost": pm.cost_from_tokens({"input": 1000}, "claude-opus-5"),
-                                 "model": "claude-opus-5"}
-        pm.nodes.save_node(pm._yaml(), sprint_node, sprint_path)
+        # A second orchestration write on the same epic must not append a second sample.
+        self._story_actual(1000)
         argv = ["set-actual", "--state-root", self.root, "--node", "epic",
                 "--epic", "E001", "--block", "orchestration",
                 "--tokens-input", "3000", "--model", "claude-opus-5"]
@@ -6241,12 +4984,12 @@ class TestOrchestrationBlock(TestLayoutResolution):
 
     def test_calibration_show_lists_orchestration_component(self):
         y, cal = pm.load_calibration(self.root)
-        cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
+        cal["orchestration"]["epic"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
         pm.save_calibration(y, cal, self.root)
         code, out = self.run_main(["calibration", "show", "--state-root", self.root])
         self.assertEqual(code, 0, out)
         self.assertIn("orchestration", out)
-        self.assertIn("sprint/tokens_k", out)
+        self.assertIn("epic/tokens_k", out)
 
 
 
@@ -6748,7 +5491,7 @@ class TestTranscriptScoping(Base):
 class TestFixIterationsTyping(Base):
     """fix_iterations stored as text broke the scope-versus-fix split silently.
 
-    set-field takes --value as text and wrote it verbatim, so the field landed quoted.
+    A 3.x field write took the value as text and wrote it verbatim, so the field landed quoted.
     The provenance test then depended on that text parsing as an int: '0' happened to
     work, '0.0' raised ValueError and lost the whole sample, and any non-numeric text --
     an unsubstituted placeholder, an empty string -- read as provenance=backout on a
@@ -6776,91 +5519,9 @@ class TestFixIterationsTyping(Base):
         self.assertEqual(sample["fix_iterations"], 0)
 
 
-class TestSetFieldTyping(TestLayoutResolution):
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code if isinstance(e.code, int) else 1
-        return code, buf.getvalue()
-
-    # --- lane -------------------------------------------------------------------------
-    #
-    # `lane` partitions planned work across developers who each have their OWN clone, where
-    # every flock in this script is useless because there is no shared filesystem. The field
-    # is what lets tooling check a lane is writing only what it owns.
-
-    def test_lane_accepts_a_number(self):
-        code, out = self.run_main(["set-field", "--state-root", self.root,
-                                   "--epic", "E001", "--field", "lane", "--value", "2"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertEqual(str(node["lane"]), "2")
-
-    def test_lane_refuses_a_persons_name(self):
-        # THE POINT OF NUMBERING. A word-shaped token cannot be screened — `backend` and
-        # `sarah` are the same shape, so any regex permitting the second permits the first,
-        # and a list of names to reject would be brittle and culturally parochial. Numbers
-        # make "never a person" mechanical rather than hopeful, which matters because who
-        # works a lane is recorded in the GITIGNORED user layer precisely so that a name
-        # cannot reach the repository.
-        for bad in ("sarah", "Sarah Chen", "s@example.com", "backend", "lane-2"):
-            code, _out = self.run_main(["set-field", "--state-root", self.root,
-                                        "--epic", "E001", "--field", "lane",
-                                        "--value", bad])
-            self.assertEqual(code, 2, f"{bad!r} must be refused")
-
-    def test_lane_refuses_zero_and_out_of_range(self):
-        for bad in ("0", "1000", "-1", ""):
-            code, _out = self.run_main(["set-field", "--state-root", self.root,
-                                        "--epic", "E001", "--field", "lane",
-                                        "--value", bad])
-            self.assertEqual(code, 2, f"{bad!r} must be refused")
-
-    def test_lane_is_refused_on_a_story(self):
-        # 1 epic = 1 lane is the invariant everything else rests on: sprints and stories
-        # inherit their epic's lane from the directory they live in. A story with its own
-        # lane would make the lane graph a DIFFERENT graph from the epic graph, so every
-        # cross-lane question would need its own traversal instead of relabelling one.
-        code, out = self.run_main(["set-field", "--state-root", self.root,
-                                   "--story", "E001-S01-003", "--field", "lane",
-                                   "--value", "1"])
-        self.assertEqual(code, 2, out)
-
-    def test_a_refused_lane_writes_nothing(self):
-        before = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1].get("lane")
-        self.run_main(["set-field", "--state-root", self.root, "--epic", "E001",
-                       "--field", "lane", "--value", "sarah"])
-        after = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1].get("lane")
-        self.assertEqual(before, after)
-
-    def test_set_field_stores_fix_iterations_as_a_number(self):
-        code, out = self.run_main(["set-field", "--state-root", self.root,
-                                   "--story", "E001-S01-003",
-                                   "--field", "completion_evidence.fix_iterations",
-                                   "--value", "0"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        v = node["completion_evidence"]["fix_iterations"]
-        self.assertIsInstance(v, int, f"stored as {type(v).__name__}: {v!r}")
-        self.assertEqual(v, 0)
-
-    def test_set_field_refuses_a_non_numeric_fix_iterations(self):
-        """An unsubstituted template placeholder is the realistic way this arrives."""
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-field", "--state-root", self.root,
-                                     "--story", "E001-S01-003",
-                                     "--field", "completion_evidence.fix_iterations",
-                                     "--value", "{fix_iterations}"])
-        self.assertEqual(code, 2)
-        self.assertIn("non-negative whole number", buf.getvalue())
-
     # test_set_field_stores_tests_passing_as_a_bool removed: Task 4 makes
     # completion_evidence.tests_passing derived-only. See TestTestRunEvidence
-    # below for the replacement (set-field now refuses this field outright).
+    # below for the replacement.
 
 
 class TestTestRunEvidence(TestLayoutResolution):
@@ -6891,17 +5552,6 @@ class TestTestRunEvidence(TestLayoutResolution):
                            "--command", cmd, "--exit-code", rc])
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertIs(node["completion_evidence"]["tests_passing"], False)
-
-    def test_tests_passing_can_no_longer_be_asserted_by_hand(self):
-        """The whole point: the agent records what it ran, not what it concluded."""
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-field", "--state-root", self.root,
-                                     "--story", "E001-S01-003",
-                                     "--field", "completion_evidence.tests_passing",
-                                     "--value", "true"])
-        self.assertEqual(code, 2)
-        self.assertIn("add-test-run", buf.getvalue())
 
     def test_a_malformed_stored_exit_code_fails_rather_than_crashes(self):
         """test_runs is hand-editable YAML; a non-numeric exit_code must derive False,
@@ -7622,8 +6272,7 @@ class TestListIssuesLifecycle(IssueBase):
     def test_origin_archived_follows_the_epic_directory(self):
         self.append("Later thing", "005", "01", "Low", "qa (Q-1)")
         self.assertFalse(self.ls()[0]["origin_archived"])
-        self.assertEqual(self.run_all(["move-epic", "--state-root", self.root,
-                                       "--epic", "E005", "--to", "archived"])[0], 0)
+        _fx_move_epic(self.root, "E005", "archived")
         self.assertTrue(self.ls()[0]["origin_archived"])
         code, out, _ = self.run_all(["list-issues", "--state-root", self.root])
         self.assertIn("archived", out)
@@ -7728,14 +6377,14 @@ class TestEstimateCores(TestLayoutResolution):
         self.assertIn("cost", node["estimate"])
         self.assertEqual(node["classification"], "simple")
 
-    def test_rollup_parent_estimate_raises_for_missing_sprint(self):
+    def test_rollup_parent_estimate_raises_for_missing_epic(self):
         with self.assertRaises(pm.PMError) as cm:
-            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", "S09", pm.DEFAULT_ESTIMATE_MODEL, None)
+            pm.metrics.estimates.rollup_parent_estimate(self.root, "E009", pm.DEFAULT_ESTIMATE_MODEL, None)
         self.assertEqual(cm.exception.code, 3)
 
     def test_rollup_parent_estimate_raises_when_nothing_to_roll_up(self):
         with self.assertRaises(pm.PMError) as cm:
-            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", "S01", pm.DEFAULT_ESTIMATE_MODEL, None)
+            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", pm.DEFAULT_ESTIMATE_MODEL, None)
         self.assertEqual(cm.exception.code, 2)
 
     def test_cli_unknown_model_still_exits_2_and_writes_nothing(self):
@@ -7760,99 +6409,6 @@ class TestEstimateCores(TestLayoutResolution):
         self.assertEqual(json.dumps(node["estimate"], sort_keys=True, default=str), before_est,
                          "a failed estimate must not half-overwrite the previous one")
         self.assertEqual(node["classification"], before_cls)
-
-
-class TestStoryDocInit(TestLayoutResolution):
-    def setUp(self):
-        super().setUp()
-        self.arts = os.path.join(self.d, "impl")
-        self.doc = os.path.join(self.arts, "epic-001", "sprint-01", "stories", "E001-S01-003.md")
-
-    def run_all(self, argv):
-        out, err = io.StringIO(), io.StringIO()
-        try:
-            with redirect_stdout(out), redirect_stderr(err):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, out.getvalue(), err.getvalue()
-
-    def init(self):
-        return self.run_all(["story-doc-init", "--state-root", self.root,
-                             "--artifacts-root", self.arts, "--story", "E001-S01-003"])
-
-    def test_creates_skeleton_from_the_state_node(self):
-        code, out, err = self.init()
-        self.assertEqual(code, 0, err)
-        self.assertIn("created", out)
-        with open(self.doc, encoding="utf-8") as fh:
-            text = fh.read()
-        self.assertTrue(text.startswith("---\n"))
-        meta = pm._yaml().load(text.split("---\n")[1])
-        self.assertEqual(meta["key"], "E001-S01-003")
-        self.assertEqual(meta["status"], "review")
-        self.assertIn("## Acceptance Criteria", text)
-        # the node has no title and no classification: the skeleton falls back to the story
-        # key for both the title and the heading, and to `standard`
-        self.assertEqual(meta["title"], "E001-S01-003")
-        self.assertEqual(meta["classification"], "standard")
-        self.assertIn("---\n\n# E001-S01-003\n\n", text)
-
-    def test_a_title_with_a_quote_and_a_colon_survives_the_frontmatter(self):
-        title = "Don't split: the user's cache: v2"
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S01-003", "--field", "title", "--value", title])
-        self.assertEqual(code, 0, err)
-        code, out, err = self.init()
-        self.assertEqual(code, 0, err)
-        with open(self.doc, encoding="utf-8") as fh:
-            text = fh.read()
-        from ruamel.yaml import YAML
-        meta = YAML(typ="safe", pure=True).load(text.split("---\n")[1])   # not pm's own loader
-        self.assertEqual(meta["title"], title)
-        self.assertIn(f"---\n\n# {title}\n\n", text)
-
-    def test_existing_document_is_left_untouched(self):
-        os.makedirs(os.path.dirname(self.doc))
-        with open(self.doc, "w", encoding="utf-8") as fh:
-            fh.write("hand written\n")
-        code, out, _ = self.init()
-        self.assertEqual(code, 0)
-        self.assertIn("exists", out)
-        with open(self.doc, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), "hand written\n")
-
-    def test_missing_state_node_exits_3(self):
-        code, _, _ = self.run_all(["story-doc-init", "--state-root", self.root,
-                                   "--artifacts-root", self.arts, "--story", "E001-S01-099"])
-        self.assertEqual(code, 3)
-
-    def test_must_not_exist_refuses_an_existing_document(self):
-        os.makedirs(os.path.dirname(self.doc))
-        open(self.doc, "w").close()
-        with self.assertRaises(pm.PMError) as cm:
-            pm.init_story_doc(self.root, self.arts, "E001-S01-003", must_not_exist=True)
-        self.assertEqual(cm.exception.code, 2)
-
-    def test_context_and_acceptance_lines(self):
-        pm.init_story_doc(self.root, self.arts, "E001-S01-003",
-                          context_md="## Context\n\nfrom BL-E001-002",
-                          ac_lines=["The deferred finding BL-E001-002 is resolved: X"])
-        with open(self.doc, encoding="utf-8") as fh:
-            text = fh.read()
-        self.assertIn("## Context\n\nfrom BL-E001-002", text)
-        self.assertIn("- The deferred finding BL-E001-002 is resolved: X", text)
-        self.assertLess(text.index("## Context"), text.index("## Acceptance Criteria"))
-
-    def test_failed_write_leaves_no_temp_file_and_no_document(self):
-        with mock.patch.object(pm.os, "replace", side_effect=OSError("injected")), \
-             mock.patch.object(pm.os, "link", side_effect=OSError("injected")):
-            with self.assertRaises(OSError):
-                pm.init_story_doc(self.root, self.arts, "E001-S01-003")
-        stories = os.path.dirname(self.doc)
-        self.assertFalse(os.path.exists(self.doc))
-        self.assertEqual([n for n in os.listdir(stories) if n.endswith(".tmp")], [],
-                         "a failed write left a temp file behind")
 
 
 def _tree_snapshot(top):
@@ -7926,7 +6482,7 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(node["status"], "backlog")
         self.assertEqual(list(node["resolves"]), ["BL-E001-001"])
         self.assertIn("cost", node["estimate"])
-        self.assertIn("estimate", pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1])
+        self.assertNotIn("estimate", pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1])
         self.assertIn("estimate", pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1])
         item = self.load_open()["backlog"][0]
         self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
@@ -8014,7 +6570,7 @@ class TestPromoteIssue(IssueBase):
 
     def test_archived_epic_is_refused(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
-        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
+        _fx_move_epic(self.root, "E005", "archived")
         before = _tree_snapshot(self.d)
         code, _, err = self.promote("BL-E005-001", epic="005", sprint="01")
         self.assertEqual(code, 2)
@@ -8030,8 +6586,7 @@ class TestPromoteIssue(IssueBase):
 
     def test_live_foreign_lock_refuses_own_lock_allows(self):
         self.append("A")
-        self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
-                      "--session-id", "other"])
+        _fx_set_lock(self.root, "E001", "other")
         before = _tree_snapshot(self.d)
         code, _, err = self.promote("BL-E001-001")
         self.assertEqual(code, 5, err)
@@ -8050,11 +6605,16 @@ class TestPromoteIssue(IssueBase):
             n["_lock"] = YAML().load(lock_yaml)
             pm.nodes.save_node(y, n, p)
 
+    def _lock_verdict(self):
+        """`_check_lock_verdict` on E001's present `_lock`, for session `me`."""
+        _, n = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        return pm.nodes._check_lock_verdict(n["_lock"], "me")[0]
+
     def test_foreign_lock_verdict_matches_check_lock(self):
-        """For a WELL-FORMED lock, promote takes check-lock's verdict (carryover 16) -- its
+        """For a WELL-FORMED lock, promote takes `_check_lock_verdict` (carryover 16) -- its
         TTL semantics, including ttl_minutes 0 as always stale."""
         now = pm._now_iso()
-        cases = {  # name: (lock, check-lock's verdict -- pinned, so check-lock cannot drift)
+        cases = {  # name: (lock, the verdict -- pinned, so it cannot drift)
             "live":     (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 30\n", 5),
             "stale":    (("session_id: other\nclaimed_at: '2020-01-01T00:00:00Z'\n"
                          "ttl_minutes: 1\n"), 0),
@@ -8063,8 +6623,7 @@ class TestPromoteIssue(IssueBase):
         for i, (name, (lock, verdict)) in enumerate(cases.items(), start=1):
             self.append(f"L{i}")
             self._set_epic_lock(lock)
-            check, _, _ = self.run_all(["check-lock", "--state-root", self.root, "--epic",
-                                        "E001", "--session-id", "me"])
+            check = self._lock_verdict()
             self.assertEqual(check, verdict, name)
             before = _tree_snapshot(self.d)
             code, _, err = self.promote(f"BL-E001-{i:03d}")
@@ -8074,9 +6633,9 @@ class TestPromoteIssue(IssueBase):
 
     def test_unevaluable_foreign_lock_refuses_and_writes_nothing(self):
         """Ruling 24: promote is a write verb, so a foreign lock it cannot evaluate refuses
-        (exit 5) -- even where check-lock, a read, reports it free -- and writes nothing."""
+        (exit 5) -- even where `_check_lock_verdict`, a read, calls it free -- and writes nothing."""
         now = pm._now_iso()
-        cases = {  # name: (lock, check-lock's verdict, pinned; None where check-lock raises)
+        cases = {  # name: (lock, the verdict, pinned; None where the verdict raises)
             "not-a-mapping":   ("'just-a-string'\n", 0),
             "no-timestamp":    ("session_id: other\nttl_minutes: 30\n", 0),
             "bad-timestamp":   ("session_id: other\nclaimed_at: 'not-a-time'\nttl_minutes: 30\n", 0),
@@ -8089,33 +6648,29 @@ class TestPromoteIssue(IssueBase):
         for name, (lock, verdict) in cases.items():
             self._set_epic_lock(lock)
             if verdict is not None:
-                check, _, _ = self.run_all(["check-lock", "--state-root", self.root, "--epic",
-                                            "E001", "--session-id", "me"])
-                self.assertEqual(check, verdict, name)             # check-lock is unchanged
+                self.assertEqual(self._lock_verdict(), verdict, name)
             before = _tree_snapshot(self.d)
             code, _, err = self.promote("BL-E001-001")
             self.assertEqual(code, 5, (name, err))
             self.assertIn("epic E001", err, name)
             self.assertIn("cannot be evaluated", err, name)
-            self.assertIn("clear-lock", err, name)
+            self.assertIn("delete the _lock block", err, name)
             self.assertEqual(_tree_snapshot(self.d), before, name)
-        # the refusal does not reach a lock that names THIS session: set-lock re-claims it too
+        # the refusal does not reach a lock that names THIS session
         self._set_epic_lock("session_id: me\nttl_minutes: 30\n")
         code, _, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
         self.assertEqual(code, 0, err)
 
     def test_a_padded_holder_session_is_foreign(self):
-        """Ruling F2: the holder is compared to the caller EXACTLY, as check-lock and set-lock
+        """Ruling F2: the holder is compared to the caller EXACTLY, as `_check_lock_verdict`
         compare it. promote used to strip a hand-edited 'me ' and read it as its own -- then
         wave an otherwise unevaluable lock through."""
         now = pm._now_iso()
         self.append("A")
         me = ("--session-id", "me")
-        # well-formed and live: foreign to `me`, and check-lock's verdict agrees
+        # well-formed and live: foreign to `me`, and the verdict agrees
         self._set_epic_lock(f"session_id: 'me '\nclaimed_at: '{now}'\nttl_minutes: 30\n")
-        check, _, _ = self.run_all(["check-lock", "--state-root", self.root, "--epic", "E001",
-                                    "--session-id", "me"])
-        self.assertEqual(check, 5)
+        self.assertEqual(self._lock_verdict(), 5)
         before = _tree_snapshot(self.d)
         code, _, err = self.promote("BL-E001-001", extra=me)
         self.assertEqual(code, 5, err)
@@ -8175,14 +6730,6 @@ class TestPromoteIssue(IssueBase):
         self.assertNotIn("story", item)
         self.assertFalse(os.path.exists(pm.story_doc_path(self.arts, "E001-S02-001")))
 
-    def test_set_field_refuses_resolves(self):
-        self.append("A")
-        self.promote("BL-E001-001")
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--field", "resolves", "--value", "x"])
-        self.assertEqual(code, 2)
-        self.assertIn("promote-issue", err)
-
     def test_key_in_both_files_is_refused_as_resolved(self):
         self.append("A")
         with _dump_failing_on(2), self.assertRaises(OSError):
@@ -8208,7 +6755,7 @@ class TestPromoteIssue(IssueBase):
         """A resolve racing a promote must never leave an estimated story listing a resolved
         item: promote holds issues_lock from its item check through scheduling."""
         # The resolve starts inside promote's first roll-up. It must be SEEN blocked on
-        # issues_lock there, and again at the second roll-up (batch B). A fixed wait window
+        # issues_lock there (batch B). A fixed wait window
         # passed without checking anything whenever an unlocked resolve was merely slower than
         # the window.
         import subprocess
@@ -8246,116 +6793,6 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])      # the resolve ran after
         self.assertEqual(self.load_resolved()["resolved"][0].get("story"), "E001-S02-001")
         self.assert_invariants()
-
-    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
-    def test_promote_holds_the_epic_lock_through_both_rollups(self):
-        # Spec §2.4 step 3: promote rolls up the sprint, then the epic, while it still holds
-        # epic_node_lock, so no other epic.yaml writer can interleave with those saves. A real
-        # `set-field --epic` subprocess takes the same lock (batch D1). It is launched from inside
-        # the FIRST roll-up.
-        # - It must be SEEN blocked on the epic lock as each roll-up starts.
-        # - It must still be waiting, with its field absent, after each roll-up's save.
-        # - Its write then lands only after promote releases the lock, beside the epic roll-up's
-        #   estimate, which that write must leave intact.
-        import subprocess
-        self.append("A")
-        real_rollup = pm.metrics.estimates.rollup_parent_estimate
-        lock = pm.epic_lock_path(self.root, "E001")
-        procs, failures, after, holds = [], [], [], []
-
-        def watched_rollup(state_root, epic, sprint, *a, **kw):
-            level = f"sprint {sprint}" if sprint else "epic"
-            try:
-                # The hold promote took must be the one still held at each roll-up. A release
-                # and retake between them opens a NEW lock file object, so `is` catches it
-                # deterministically, whether or not the waiting set-field won the gap. Keeping
-                # the reference in `holds` stops the old object from being freed and reused.
-                holds.append((pm._EPIC_NODE_LOCK["fh"], pm._EPIC_NODE_LOCK["depth"]))
-                self.assertGreaterEqual(holds[-1][1], 1, f"no epic lock held at the {level} roll-up")
-                self.assertIs(holds[-1][0], holds[0][0],
-                              f"the epic lock was released and retaken before the {level} roll-up")
-                if not procs:
-                    p = subprocess.Popen([sys.executable, SCRIPT, "set-field", "--state-root",
-                                          self.root, "--epic", "001", "--field", "notes.b9",
-                                          "--value", "landed"],
-                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    procs.append(p)
-                    self.addCleanup(p.kill)              # reaps on failure; no-op once done
-                _wait_until_blocked_on(procs[0], lock, f"set-field --epic (at the {level} roll-up)")
-            except AssertionError as e:
-                failures.append(e)          # re-raised below, whatever promote does with it
-                raise
-            result = real_rollup(state_root, epic, sprint, *a, **kw)
-            after.append((level, procs[0].poll(), pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]))
-            return result
-
-        with mock.patch.object(pm.metrics.estimates, "rollup_parent_estimate", watched_rollup):
-            try:
-                code, out, err = self.promote("BL-E001-001")
-            except AssertionError:
-                pass
-        if failures:
-            raise failures[0]
-        _, serr = procs[0].communicate(timeout=30)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(procs[0].returncode, 0, serr.decode())
-        self.assertEqual([lvl for lvl, _, _ in after], ["sprint S02", "epic"])
-        self.assertEqual(len(holds), 2)
-        self.assertIsNotNone(holds[0][0])
-        self.assertIs(holds[1][0], holds[0][0], "one epic lock hold spans both roll-ups")
-        self.assertTrue(all(depth >= 1 for _, depth in holds), holds)
-        for lvl, rc, node in after:
-            self.assertIsNone(rc, f"set-field finished during the {lvl} roll-up")
-            self.assertNotIn("notes", node, f"set-field's write landed during the {lvl} roll-up")
-        rolled = after[-1][2]["estimate"]                # what the epic roll-up saved
-        node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]
-        self.assertEqual(node["notes"]["b9"], "landed")
-        self.assertEqual(node["estimate"], rolled, "set-field's save undid the epic roll-up")
-        self.assert_invariants()
-
-    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
-    def test_clear_lock_waits_for_promote_and_is_not_undone(self):
-        # A clear-lock racing promote's epic roll-up must not be silently reverted (batch D1).
-        # promote saves the epic's estimate roll-up under epic_node_lock; a clear-lock that
-        # did not hold that lock could land between the roll-up's load and its save, and
-        # promote's copy would then restore the `_lock` the operator had just removed. The
-        # clear is launched from inside the epic roll-up's save -- after the load, before the
-        # write. (A comment, not a docstring: verbose unittest prints a docstring to stderr.)
-        import subprocess
-        self.append("A")
-        code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
-                                     "--session-id", "me"])
-        self.assertEqual(code, 0, err)
-        real_save = pm.nodes.save_node
-        lock = pm.epic_lock_path(self.root, "E001")
-        procs, failures = [], []
-
-        def racing_save(y, node, path, *a, **kw):
-            if os.path.basename(path) == "epic.yaml" and not procs:
-                p = subprocess.Popen([sys.executable, SCRIPT, "clear-lock", "--state-root",
-                                      self.root, "--epic", "E001"],
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                procs.append(p)
-                try:    # deterministic: seen blocked on the epic lock, or it exited first
-                    _wait_until_blocked_on(p, lock, "clear-lock")
-                except AssertionError as e:
-                    failures.append(e)      # re-raised below, whatever promote does with it
-                    raise
-            return real_save(y, node, path, *a, **kw)
-
-        with mock.patch.object(pm.nodes, "save_node", racing_save):
-            try:
-                code, out, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
-            except AssertionError:
-                pass
-        if failures:
-            raise failures[0]
-        _, cerr = procs[0].communicate(timeout=30)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(procs[0].returncode, 0, cerr.decode())
-        node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]
-        self.assertNotIn("_lock", node, "promote's roll-up save restored a cleared lock")
-        self.assertIn("estimate", node)                              # the roll-up itself landed
 
     def test_keys_split_across_stories_refuse_to_triage(self):
         self.append("A")
@@ -8453,18 +6890,6 @@ class TestEventReadersTolerateMalformedFields(Base):
     # hand-edit or a half-flushed write most plausibly produces.
     BAD = ([1, 2], {"a": 1})
 
-    def test_build_events_index_survives_an_unhashable_key(self):
-        """`idx[ev["key"]] = ev` -- `ev.get("key")` was only truthy-checked, and a
-        non-empty list is truthy."""
-        for bad in self.BAD:
-            with self.subTest(bad=bad):
-                self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "status",
-                            "key": bad, "to": "done"},
-                           {"ts": "2026-01-02T00:00:00+00:00", "event": "status",
-                            "key": "E001-S01-001", "to": "done"})
-                idx = pm.build_events_index(self.root)
-                self.assertIn("E001-S01-001", idx)
-
     def test_actual_event_times_survives_an_unhashable_key(self):
         """`if k not in idx` raises on an unhashable k just as a subscript does -- a
         membership test is not the safe alternative to indexing."""
@@ -8501,19 +6926,6 @@ class TestEventReadersTolerateMalformedFields(Base):
                 self.assertIsInstance(
                     pm._total_blocked_hours(self.root, "E001-S01-001"), float)
 
-    def test_a_malformed_field_does_not_hide_the_records_beside_it(self):
-        """Tolerating a bad record must mean SKIPPING it, not abandoning the scan. A
-        reader that bailed at the first bad line would pass every "does not crash" test
-        while silently reporting over a truncated log -- the false-green shape."""
-        self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "status",
-                    "key": "E001-S01-001", "to": "review"},
-                   {"ts": "2026-01-02T00:00:00+00:00", "event": "status",
-                    "key": {"bad": 1}, "to": "done"},
-                   {"ts": "2026-01-03T00:00:00+00:00", "event": "status",
-                    "key": "E001-S01-002", "to": "done"})
-        idx = pm.build_events_index(self.root)
-        self.assertEqual(sorted(idx), ["E001-S01-001", "E001-S01-002"])
-
     def test_an_index_drops_a_bad_key_while_a_dispatch_carries_it(self):
         """The asymmetry is deliberate and easy to "tidy" into a bug, so it is pinned.
 
@@ -8548,9 +6960,7 @@ class TestScheduleIssue(IssueBase):
     1d, which fires only when the story already names the key in `resolves` — so it
     repairs a half-finished scheduling and provably cannot create one. `promote-issue`
     only ever allocates a NEW story, so aiming it at an epic that already has the right
-    story produces a second story claiming the same acceptance criteria. `set-field
-    --field resolves` coerces only NUMERIC_NODE_FIELDS, so a list field receives a raw
-    string and the node is corrupted.
+    story produces a second story claiming the same acceptance criteria.
 
     The asymmetry that made this invisible to us: stories created by `promote-issue`
     carry a populated `resolves`, and every fixture in this file created stories that
@@ -8832,7 +7242,7 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
 
     While this test holds E001's lock, every writer of E001's epic.yaml must wait. Each one
     runs as a real subprocess, because the lock's re-entrancy counter is per process. A
-    move-epic that lands while they wait must not strand them: each re-resolves the epic
+    directory move that lands while they wait must not strand them: each re-resolves the epic
     under the lock and writes into the moved directory, never into a recreated ghost of the
     old one. The lock file lives outside the epic directory, which is why a move cannot
     carry it away from a waiter."""
@@ -8842,23 +7252,21 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
         import subprocess
         self.append("A")
         sr = self.root
-        for argv in (["set-lock", "--state-root", sr, "--epic", "E001", "--session-id", "me"],
-                     ["set-estimate", "--state-root", sr, "--epic", "E001", "--sprint", "S01",
-                      "--man-hours-low", "1", "--man-hours-high", "2"]):
+        _fx_set_lock(sr, "E001", "me")
+        for argv in (["set-estimate", "--state-root", sr, "--epic", "E001",
+                      "--man-hours-low", "1", "--man-hours-high", "2"],
+                     ["import-node", "--state-root", sr, "--story", "E001-S01-001",
+                      "--status", "done"],
+                     ["set-estimate", "--state-root", sr, "--story", "E001-S01-001",
+                      "--man-hours", "2"]):
             code, _, err = self.run_all(argv)
             self.assertEqual(code, 0, err)
         writers = {
-            "set-field": ["set-field", "--state-root", sr, "--epic", "001",
-                          "--field", "notes.d1", "--value", "x"],
             "set-estimate": ["set-estimate", "--state-root", sr, "--epic", "001",
                              "--man-hours-low", "4", "--man-hours-high", "5"],
             "set-actual": ["set-actual", "--state-root", sr, "--node", "epic", "--epic", "001",
                            "--man-hours", "3"],
-            "set-status": ["set-status", "--state-root", sr, "--epic", "001",
-                           "--status", "backlog"],
-            "clear-lock": ["clear-lock", "--state-root", sr, "--epic", "E001"],
             "estimate-rollup": ["estimate-rollup", "--state-root", sr, "--epic", "001"],
-            "move-epic": ["move-epic", "--state-root", sr, "--epic", "E001", "--to", "planned"],
             "promote-issue": ["promote-issue", "--state-root", sr, "--artifacts-root", self.arts,
                               "--key", "BL-E001-001", "--epic", "001", "--sprint", "02",
                               "--classification", "standard", "--session-id", "me"],
@@ -8877,8 +7285,7 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
                 _wait_until_blocked_on(p, lock, name)
             with open(epic_yaml, "rb") as fh:
                 during = fh.read()
-            with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
-                pm.move_epic(sr, "E001", "planned")          # re-entrant: this process holds it
+            _fx_move_epic(sr, "E001", "planned")             # while every writer waits
         results = {n: (p.communicate(timeout=60), p.returncode) for n, p in procs.items()}
         self.assertEqual(during, before)
         for name, ((out, err), rc) in results.items():
@@ -8888,10 +7295,7 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
         path = pm.nodes.epic_file(sr, "E001")
         self.assertTrue(path.endswith(os.path.join("planned", "epic-001", "epic.yaml")), path)
         node = pm.load_node(path)[1]
-        self.assertEqual(node["notes"]["d1"], "x")
         self.assertEqual(float(node["actual"]["man_hours"]), 3.0)
-        self.assertEqual(node["status"], "backlog")
-        self.assertNotIn("_lock", node)
         self.assertIn("estimate", node)
         self.assertTrue(os.path.exists(os.path.join(sr, "planned", "epic-001", "sprint-02",
                                                     "E001-S02-001.yaml")))
@@ -8965,8 +7369,7 @@ class TestEpicNodeLockScope(unittest.TestCase):
         self.assertTrue(os.path.exists(lock))
         self.assertFalse(os.path.realpath(lock).startswith(
             os.path.realpath(pm.find_epic_dir(self.root, "E001")) + os.sep))
-        with redirect_stderr(io.StringIO()):                 # no .git here: the fallback warns
-            pm.move_epic(self.root, "E001", "archived")
+        _fx_move_epic(self.root, "E001", "archived")
         self.assertEqual(pm.epic_lock_path(self.root, "E001"), lock)
         self.assertTrue(os.path.exists(lock))
 
@@ -9036,222 +7439,12 @@ class TestConcurrentPromote(unittest.TestCase):
             self.assertEqual(p.returncode, 0, err.decode())
         stories = pm.list_story_files(self.root, "E001", "S02")
         self.assertEqual(len(stories), self.N)
-        after_race = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
+        after_race = dict(pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]["estimate"])
         with redirect_stderr(io.StringIO()):
-            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", "S02", pm.DEFAULT_ESTIMATE_MODEL, None)
-        fresh = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
+            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", pm.DEFAULT_ESTIMATE_MODEL, None)
+        fresh = dict(pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]["estimate"])
         self.assertEqual(after_race["man_hours_low"], fresh["man_hours_low"],
                          "the last roll-up saved during the race missed a story")
-
-
-class TestDoneHook(IssueBase):
-    def setUp(self):
-        super().setUp()
-        self.append("A")
-        code, _, err = self.run_all(["promote-issue", "--state-root", self.root,
-                                     "--artifacts-root", self.arts, "--key", "BL-E001-001",
-                                     "--epic", "001", "--sprint", "02",
-                                     "--classification", "simple"])
-        self.assertEqual(code, 0, err)
-
-    def set_status(self, status, *extra, story="E001-S02-001"):
-        return self.run_all(["set-status", "--state-root", self.root, "--story", story,
-                             "--status", status, *extra])
-
-    def story_status(self, key="E001-S02-001"):
-        return pm.load_node(pm.story_file(self.root, key))[1]["status"]
-
-    def test_done_resolves_the_items_the_story_lists(self):
-        code, out, err = self.set_status("done", "--session-id", "S-3")
-        self.assertEqual(code, 0, err)
-        self.assertIn("resolved BL-E001-001 (fixed, ref E001-S02-001)", out)
-        self.assertEqual(self.open_keys(), [])
-        entry = self.load_resolved()["resolved"][0]
-        self.assertEqual((entry["resolution"], entry["ref"]), ("fixed", "E001-S02-001"))
-        ev = self.events("issue_resolved")[-1]
-        self.assertEqual((ev["cause"], ev["session"]), ("set-status", "S-3"))
-
-    def test_hook_runs_under_no_events(self):
-        self.set_status("done", "--no-events")
-        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
-
-    def test_second_done_is_a_noop(self):
-        self.set_status("done")
-        code, out, _ = self.set_status("done")
-        self.assertEqual(code, 0)
-        self.assertIn("ok BL-E001-001 already resolved (fixed)", out)
-        self.assertEqual([l for l in out.splitlines() if l.startswith("resolved BL-")], [],
-                         "a `resolved BL-` line must mean a NEW resolution only")
-        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
-
-    def test_hook_failure_warns_and_set_status_still_exits_0(self):
-        with mock.patch.object(pm.issues.store, "resolve_issue_core",
-                               side_effect=SystemExit(2)):
-            code, _, err = self.set_status("done")
-        self.assertEqual(code, 0)
-        self.assertIn("done hook failed", err)
-        self.assertEqual(self.story_status(), "done")
-        self.assertEqual(self.open_keys(), ["BL-E001-001"])
-
-    def test_malformed_issues_file_warns_and_status_stands(self):
-        with open(self.issues, "w", encoding="utf-8") as fh:
-            fh.write("backlog: oops\n")
-        code, _, err = self.set_status("done")
-        self.assertEqual(code, 0)
-        self.assertIn("pm-status.py: warning -- done hook failed for E001-S02-001: PMError(", err)
-        self.assertIn("has a malformed 'backlog' field", err)
-        self.assertIn("; the status write stands. Run /l3io-doctor triage (audit-issues "
-                      "finding 1c) to finish it.", err)
-        self.assertEqual(self.story_status(), "done")
-
-    def test_other_statuses_do_not_resolve(self):
-        self.set_status("in-progress")
-        self.set_status("review")
-        self.assertEqual(self.open_keys(), ["BL-E001-001"])
-
-    def test_story_without_resolves_touches_no_issue_file(self):
-        p = os.path.join(self.root, "active", "epic-001", "sprint-01", "E001-S01-001.yaml")
-        with open(p, "w", encoding="utf-8") as fh:
-            fh.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
-        self.set_status("done", story="E001-S01-001")
-        self.assertFalse(os.path.exists(self.resolved))
-
-    def test_set_field_refuses_status(self):
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--field", "status", "--value", "done"])
-        self.assertEqual(code, 2)
-        self.assertIn("set-status", err)
-        self.assertEqual(self.story_status(), "backlog")
-        self.assertEqual(self.open_keys(), ["BL-E001-001"])
-
-    def _story_bytes(self, key):
-        with open(pm.story_file(self.root, key), "rb") as fh:
-            return fh.read()
-
-    def test_set_field_refuses_a_subpath_of_resolves(self):
-        """`resolves.x` used to walk into the node and save a mapping under resolves:."""
-        p = os.path.join(self.root, "active", "epic-001", "sprint-01", "E001-S01-001.yaml")
-        with open(p, "w", encoding="utf-8") as fh:              # a story with no resolves:
-            fh.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
-        before = self._story_bytes("E001-S01-001")
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S01-001", "--field", "resolves.x", "--value", "v"])
-        self.assertEqual(code, 2, err)
-        self.assertIn("--field resolves.x is not directly writable", err)
-        self.assertEqual(self._story_bytes("E001-S01-001"), before)
-
-    def test_set_field_refuses_a_subpath_of_status(self):
-        before = self._story_bytes("E001-S02-001")
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--field", "status.x", "--value", "done"])
-        self.assertEqual(code, 2, err)
-        self.assertIn("--field status.x is not directly writable", err)
-        self.assertEqual(self._story_bytes("E001-S02-001"), before)
-        # the rule is `<name>.` -- a sibling name that merely starts with it stays writable
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--field", "status_note", "--value", "x"])
-        self.assertEqual(code, 0, err)
-
-    def test_set_field_refuses_a_subpath_of_every_derived_field(self):
-        """Scope from the source of truth: every DERIVED_NODE_FIELDS entry, not a hand list."""
-        before = self._story_bytes("E001-S02-001")
-        for name in pm.DERIVED_NODE_FIELDS:
-            code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                         "E001-S02-001", "--field", f"{name}.x", "--value", "v"])
-            self.assertEqual(code, 2, (name, err))
-            self.assertIn("is not directly writable", err, name)
-        self.assertEqual(self._story_bytes("E001-S02-001"), before)
-
-    def test_set_field_refuses_a_parent_path_of_a_derived_field(self):
-        """`--field completion_evidence` replaced the whole mapping, discarding test_runs and
-        the tests_passing derived from them."""
-        code, _, err = self.run_all(["add-test-run", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--command", "pytest", "--exit-code", "0"])
-        self.assertEqual(code, 0, err)                          # premise: real test_runs exist
-        before = self._story_bytes("E001-S02-001")
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--field", "completion_evidence",
-                                     "--value", "x"])
-        self.assertEqual(code, 2, err)
-        self.assertIn("--field completion_evidence is not directly writable (it contains "
-                      "completion_evidence.tests_passing)", err)
-        self.assertIn("add-test-run", err)
-        self.assertEqual(self._story_bytes("E001-S02-001"), before)
-        # the rule is `<field>.` -- a sibling name that merely starts with it stays writable
-        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                     "E001-S02-001", "--field", "completion_evidence_note",
-                                     "--value", "x"])
-        self.assertEqual(code, 0, err)
-
-    def test_set_field_refuses_every_parent_path_of_every_derived_field(self):
-        """Scope from the source of truth: every proper dot-prefix of every DERIVED_NODE_FIELDS
-        entry, not a hand list."""
-        parents = {".".join(name.split(".")[:i]) for name in pm.DERIVED_NODE_FIELDS
-                   for i in range(1, name.count(".") + 1)}
-        self.assertTrue(parents, "no derived field has a parent path: this loop checks nothing")
-        before = self._story_bytes("E001-S02-001")
-        for field in sorted(parents):
-            code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
-                                         "E001-S02-001", "--field", field, "--value", "v"])
-            self.assertEqual(code, 2, (field, err))
-            self.assertIn(f"--field {field} is not directly writable (it contains ", err, field)
-        self.assertEqual(self._story_bytes("E001-S02-001"), before)
-
-    def _set_resolves(self, value):
-        p = pm.story_file(self.root, "E001-S02-001")
-        y, n = pm.load_node(p)
-        n["resolves"] = value
-        pm.nodes.save_node(y, n, p)
-
-    def test_non_list_resolves_warns_and_set_status_still_exits_0(self):
-        self._set_resolves(5)
-        code, _, err = self.set_status("done")
-        self.assertEqual(code, 0, err)
-        self.assertIn("malformed resolves", err)
-        self.assertEqual(self.story_status(), "done")
-        self.assertEqual(self.open_keys(), ["BL-E001-001"])
-
-    def test_string_resolves_is_treated_as_one_key(self):
-        self._set_resolves("BL-E001-001")
-        code, out, err = self.set_status("done")
-        self.assertEqual(code, 0, err)
-        self.assertIn("resolved BL-E001-001 (fixed, ref E001-S02-001)", out)
-        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
-
-    def test_unresolvable_key_warning_names_triage(self):
-        self._set_resolves(["BL-E001-001", "BL-E001-050"])
-        code, _, err = self.set_status("done")
-        self.assertEqual(code, 0, err)
-        self.assertIn("could not resolve BL-E001-050 for E001-S02-001", err)
-        self.assertIn("-- run /l3io-doctor triage", err)
-        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
-
-    def test_hook_lines_follow_set_status_and_a_failed_key_does_not_stop_later_ones(self):
-        # The existing mixed test lists the real key FIRST, so it never shows a key resolving
-        # AFTER an earlier key's PMError, and it reads stdout and stderr apart, so it pins no
-        # order. Here the keys are listed unknown -> already resolved -> open, and both streams
-        # go to ONE buffer: its line order is the order the lines were written.
-        self.append("B", "001", "02")
-        code, _, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
-                                     "BL-E001-002", "--resolution", "wontfix", "--note", "ok"])
-        self.assertEqual(code, 0, err)
-        self._set_resolves(["BL-E001-050", "BL-E001-002", "BL-E001-001"])
-        buf = io.StringIO()
-        with redirect_stdout(buf), redirect_stderr(buf):
-            code = pm.main(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                            "--status", "done"])
-        lines = buf.getvalue().splitlines()
-        self.assertEqual(code, 0, lines)
-        want = ["OK set-status ",
-                "pm-status.py: warning -- could not resolve BL-E001-050 for E001-S02-001: ",
-                "ok BL-E001-002 already resolved (wontfix)",
-                "resolved BL-E001-001 (fixed, ref E001-S02-001)"]
-        self.assertEqual(len(lines), len(want), lines)
-        for line, prefix in zip(lines, want):
-            self.assertTrue(line.startswith(prefix), (prefix, lines))
-        self.assertTrue(lines[0].endswith(" -> done"), lines[0])
-        entry = [r for r in self.load_resolved()["resolved"] if r["key"] == "BL-E001-001"]
-        self.assertEqual([(r["resolution"], r["ref"]) for r in entry], [("fixed", "E001-S02-001")])
 
 
 class TestAuditIssues(IssueBase):
@@ -9286,8 +7479,7 @@ class TestAuditIssues(IssueBase):
     def test_clean_lifecycle_exits_0(self):
         self.append("A")
         self.promote()
-        self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                      "--status", "done"])
+        self.finish()
         self.assertEqual(self.audit(), (0, []))
 
     def test_missing_state_root_is_clean(self):
@@ -9362,7 +7554,7 @@ class TestAuditIssues(IssueBase):
     def test_1g_scheduled_to_an_archived_story_that_never_finished(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
         self.promote("BL-E005-001", "005", "01")
-        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
+        _fx_move_epic(self.root, "E005", "archived")
         self.found("1g", "BL-E005-001")
 
     def test_1h_two_stories_claim_one_item(self):
@@ -9383,15 +7575,14 @@ class TestAuditIssues(IssueBase):
     def test_1j_story_reverted_after_done(self):
         self.append("A")
         self.promote()
-        for st in ("done", "in-progress"):
-            self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                          "--status", st])
+        self.finish()
+        _fx_set_status(self.root, "in-progress", story="E001-S02-001")
         self.found("1j", "BL-E001-001")
 
     def rekey_story(self, old, new):
         """Leave the residue a re-key produces: the story carries `new` and records `old` in
         previous_keys, and every backlog field still names `old`. Built by hand rather than
-        by calling reparent-story, because reparent only moves PLANNED stories and `promote`
+        by a 3.x re-key, because a re-key only moved PLANNED stories and `promote`
         lands its story under active/ -- and because the residue is what matters here, not
         the operation that produced it (3.3.0-3.4.1 produced it by crashing mid-write)."""
         p = pm.story_file(self.root, old)
@@ -9596,10 +7787,9 @@ class TestRepairIssue(TestAuditIssues):
         most often, because resolution outlives the story's placement."""
         self.append("A")
         self.promote()
-        # The ordinary route: marking the story done resolves its `resolves:` list as
-        # fixed, with ref = the story key. That is the field the later re-key invalidates.
-        self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                      "--status", "done"])
+        # A resolved item records ref = the story key. That is the field the later re-key
+        # invalidates.
+        self.finish()
         self.rekey_story("E001-S02-001", "E001-S02-009")
         code, out, err = self.repair("BL-E001-001", "repoint")
         self.assertEqual(code, 0, err)
@@ -9647,9 +7837,7 @@ class TestRepairIssue(TestAuditIssues):
         """Put the item's epic in archived/, i.e. status done."""
         # IssueBase._build_issue_tree already creates E001, and import-node is idempotent
         # by skip -- so this must MOVE the existing epic, not try to create an archived one.
-        code, out, err = self.run_all(["move-epic", "--state-root", self.root,
-                                       "--epic", f"E{epic}", "--to", "archived"])
-        self.assertEqual(code, 0, err)
+        _fx_move_epic(self.root, f"E{epic}", "archived")
 
     def test_legacy_item_behind_an_ARCHIVED_epic_resolves_as_deferred(self):
         """The finding that made the blanket mapping wrong. `deferred` was a DISPOSITION;
@@ -9673,8 +7861,8 @@ class TestRepairIssue(TestAuditIssues):
         """Behind an open epic the loss is harmless -- the item is open either way -- so the
         original mapping is still right and nothing is resolved."""
         self.append("A")
-        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E001",
-                      "--to", "active"])
+        if "planned" in pm.find_epic_dir(self.root, "E001"):
+            _fx_move_epic(self.root, "E001", "active")
         self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
         code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
                                        "--action", "normalize-status", "--all-legacy"])
@@ -9775,7 +7963,7 @@ class TestRepairIssue(TestAuditIssues):
     def test_unschedule_clears_1g(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
         self.promote("BL-E005-001", "005", "01")
-        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
+        _fx_move_epic(self.root, "E005", "archived")
         self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
         self.assertNotIn(("1g", "BL-E005-001"), self.ids())
         # the archived story still lists the key, but its claim is dead: no 1d, no loop
@@ -9785,7 +7973,7 @@ class TestRepairIssue(TestAuditIssues):
     def test_repromote_after_1g_creates_a_new_story(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
         self.promote("BL-E005-001", "005", "01")
-        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
+        _fx_move_epic(self.root, "E005", "archived")
         self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
         code, out, err = self.run_all(["promote-issue", "--state-root", self.root,
                                        "--artifacts-root", self.arts, "--key", "BL-E005-001",
@@ -9805,8 +7993,7 @@ class TestRepairIssue(TestAuditIssues):
         the key, so 1j must not fire -- and reopen must not manufacture a 1b from it."""
         self.append("A")
         self.promote()                                          # E001-S02-001 lists 001 only
-        self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                      "--status", "in-progress"])
+        _fx_set_status(self.root, "in-progress", story="E001-S02-001")
         self.append("B", "001", "02")
         code, _, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
                                      "BL-E001-002", "--resolution", "fixed", "--ref",
@@ -10062,9 +8249,8 @@ class TestRepairIssue(TestAuditIssues):
     def test_reopen_clears_1j(self):
         self.append("A")
         self.promote()
-        for st in ("done", "in-progress"):
-            self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                          "--status", st])
+        self.finish()
+        _fx_set_status(self.root, "in-progress", story="E001-S02-001")
         code, _, err = self.repair("BL-E001-001", "reopen", "--session-id", "S-4")
         self.assertEqual(code, 0, err)
         item = self.load_open()["backlog"][0]
@@ -10086,9 +8272,8 @@ class TestRepairIssue(TestAuditIssues):
     def test_reopen_interrupted_after_the_open_write_completes_on_rerun(self):
         self.append("A")
         self.promote()
-        for st in ("done", "in-progress"):
-            self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
-                          "--status", st])
+        self.finish()
+        _fx_set_status(self.root, "in-progress", story="E001-S02-001")
         with _dump_failing_on(2):
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 with self.assertRaises(OSError):
@@ -10374,8 +8559,8 @@ class TestLockFilesIgnored(IssueBase):
         self.assertIn(".notices.yaml", lines)
 
     def test_epic_lock_creates_gitignore(self):
-        code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
-                                     "--session-id", "s1", "--ttl-minutes", "30"])
+        code, _, err = self.run_all(["set-estimate", "--state-root", self.root, "--epic", "E001",
+                                     "--man-hours-low", "1", "--man-hours-high", "2"])
         self.assertEqual(code, 0, err)
         lines = self.gi_lines()
         self.assertIn("*.lock", lines)
@@ -10385,8 +8570,8 @@ class TestLockFilesIgnored(IssueBase):
         self.append("A")
         before = self.gi_bytes()
         pm._LOCK_IGNORE_CHECKED.clear()          # as a second process would see it
-        code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
-                                     "--session-id", "s1", "--ttl-minutes", "30"])
+        code, _, err = self.run_all(["set-estimate", "--state-root", self.root, "--epic", "E001",
+                                     "--man-hours-low", "1", "--man-hours-high", "2"])
         self.assertEqual(code, 0, err)
         self.append("B")
         self.assertEqual(self.gi_bytes(), before)
@@ -10795,10 +8980,10 @@ class TestLenientArgsAreStoredCanonical(unittest.TestCase):
         """--status and --story are deliberately NOT in the lenient set. If either ever
         starts accepting a non-canonical spelling, it joins the class above and needs the
         same storage guarantee."""
-        r = self.cli("set-status", "--state-root", self.root, "--story", "E003-S01-001",
+        r = self.cli("import-node", "--state-root", self.root, "--story", "E003-S01-009",
                      "--status", "DONE")
-        self.assertNotEqual(r.returncode, 0, "--status must reject 'DONE', not normalise it")
-        r = self.cli("set-status", "--state-root", self.root, "--story", "e003-s01-001",
+        self.assertEqual(r.returncode, 2, "--status must reject 'DONE', not normalise it")
+        r = self.cli("import-node", "--state-root", self.root, "--story", "e003-s01-009",
                      "--status", "done")
         self.assertNotEqual(r.returncode, 0, "--story must reject a lowercase key")
 
@@ -11008,207 +9193,6 @@ class TestEnsureNodePath(Base):
         self.assertEqual(cm.exception.code, 2)
 
 
-class TestSetDependsOn(Base):
-    """`depends_on` is an epic-only list of epic keys (status-files.md §11). set-field takes a
-    single string, so writing a list through it would store '[E001]' as a scalar -- worse than
-    not writing it, because a later reader would treat it as one. Hence a list-shaped verb."""
-
-    def _epic(self, key, status="backlog"):
-        code, out = self.run_main(["import-node", "--state-root", self.d, "--epic", key,
-                                   "--status", status, "--title", key])
-        self.assertEqual(code, 0, out)
-
-    def _node(self, key):
-        return pm.load_node(pm.nodes.epic_file(self.d, key))[1]
-
-    def _story(self, story_key, deps=()):
-        """A story node under its epic, with optional cross-epic depends_on."""
-        e, sp, _ = story_key.split("-")
-        self.run_main(["import-node", "--state-root", self.d, "--epic", e,
-                       "--sprint", sp, "--status", "backlog", "--title", sp])
-        self.run_main(["import-node", "--state-root", self.d, "--story", story_key,
-                       "--status", "backlog", "--title", story_key])
-        if deps:
-            self.run_main(["set-depends-on", "--state-root", self.d, "--story", story_key,
-                           *[x for d in deps for x in ("--add", d)]])
-
-    # --- removal -------------------------------------------------------------------
-    #
-    # This verb was append-only, and set-field refuses a list, so dropping a dependency meant
-    # hand-editing epic.yaml -- which the state contract forbids, for the reason this whole
-    # script exists. The concrete cost: a reorg that removes the last story edge justifying
-    # `E001 depends_on E003` leaves the declaration standing, phases come from epic-level
-    # depends_on, so the epics keep serialising and the reorg's purpose goes unrealised.
-
-    def test_remove_drops_the_key(self):
-        self._epic("E010")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E010",
-                       "--add", "E011", "--add", "E012"])
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                   "--epic", "E010", "--remove", "E011"])
-        self.assertEqual(code, 0, out)
-        self.assertEqual(list(self._node("E010")["depends_on"]), ["E012"])
-
-    def test_remove_is_idempotent_on_a_key_that_is_not_there(self):
-        # A caller acting on a stale read asked for a state the tree is already in.
-        self._epic("E013")
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                   "--epic", "E013", "--remove", "E099"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("nothing present", out)
-
-    def test_removing_the_last_key_leaves_an_empty_list_not_a_missing_field(self):
-        self._epic("E014")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E014",
-                       "--add", "E015"])
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E014",
-                       "--remove", "E015"])
-        node = self._node("E014")
-        self.assertIn("depends_on", node)
-        self.assertEqual(list(node["depends_on"]), [],
-                         "[] and absent both mean no dependencies; every reader agrees")
-
-    def test_removing_a_still_justified_dependency_is_refused(self):
-        # THE GUARD. Dropping the edge tells the planner these epics may run concurrently
-        # when a story in one still needs a story in the other.
-        self._epic("E020")
-        self._epic("E021")
-        self._story("E020-S01-001", ["E021-S01-001"])
-        self._story("E021-S01-001")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E020",
-                       "--add", "E021"])
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                   "--epic", "E020", "--remove", "E021"])
-        self.assertEqual(code, 2, out)
-        self.assertEqual(list(self._node("E020")["depends_on"]), ["E021"],
-                         "a refusal writes nothing")
-
-    def test_force_removes_a_still_justified_dependency(self):
-        # An epic dependency can encode sequencing no story edge expresses ("ship the API
-        # before the client"). This script cannot tell those apart, only make it deliberate.
-        self._epic("E022")
-        self._epic("E023")
-        self._story("E022-S01-001", ["E023-S01-001"])
-        self._story("E023-S01-001")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E022",
-                       "--add", "E023"])
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d, "--epic",
-                                   "E022", "--remove", "E023", "--force"])
-        self.assertEqual(code, 0, out)
-        self.assertEqual(list(self._node("E022")["depends_on"]), [])
-
-    def test_removing_an_unjustified_dependency_needs_no_force(self):
-        # The post-reorg case this verb exists for: no story edge crosses any more.
-        self._epic("E024")
-        self._epic("E025")
-        self._story("E024-S01-001")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E024",
-                       "--add", "E025"])
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                   "--epic", "E024", "--remove", "E025"])
-        self.assertEqual(code, 0, out)
-        self.assertEqual(list(self._node("E024")["depends_on"]), [])
-
-    def test_add_and_remove_in_one_call_is_refused(self):
-        self._epic("E026")
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d, "--epic",
-                                   "E026", "--add", "E027", "--remove", "E028"])
-        self.assertEqual(code, 2, out)
-
-    def test_neither_add_nor_remove_is_refused(self):
-        self._epic("E028")
-        code, _out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                    "--epic", "E028"])
-        self.assertEqual(code, 2)
-
-    def test_add_creates_the_list_when_absent(self):
-        self._epic("E002")
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                   "--epic", "E002", "--add", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertEqual(list(self._node("E002")["depends_on"]), ["E001"])
-
-    def test_several_adds_in_one_call(self):
-        self._epic("E003")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
-                       "--add", "E001", "--add", "E002"])
-        self.assertEqual(list(self._node("E003")["depends_on"]), ["E001", "E002"])
-
-    def test_add_is_idempotent_and_preserves_order(self):
-        self._epic("E003")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
-                       "--add", "E001", "--add", "E002"])
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
-                       "--add", "E002", "--add", "E001"])
-        self.assertEqual(list(self._node("E003")["depends_on"]), ["E001", "E002"],
-                         "a re-run must not duplicate or reorder")
-
-    def test_a_malformed_key_is_refused(self):
-        self._epic("E002")
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
-                                 "--epic", "E002", "--add", "not-an-epic"])
-        self.assertEqual(code, 2)
-        self.assertNotIn("depends_on", self._node("E002"))
-
-    def test_self_dependency_is_refused(self):
-        self._epic("E002")
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
-                                 "--epic", "E002", "--add", "E002"])
-        self.assertEqual(code, 2)
-
-    def test_a_missing_epic_exits_3(self):
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
-                                 "--epic", "E404", "--add", "E001"])
-        self.assertEqual(code, 3)
-
-    def test_a_story_node_takes_STORY_keys(self):
-        """status-files.md §11 puts depends_on on epic AND story nodes, with different key
-        shapes. Reading only that section's first sentence gives the epic case and loses the
-        story case -- which is the shape the migration fixtures actually carry."""
-        self._epic("E001")
-        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-001",
-                       "--status", "done", "--title", "S"])
-        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
-                                   "--story", "E001-S01-001", "--add", "E001-S01-002"])
-        self.assertEqual(code, 0, out)
-        node = pm.load_node(pm.story_file(self.d, "E001-S01-001"))[1]
-        self.assertEqual(list(node["depends_on"]), ["E001-S01-002"])
-
-    def test_an_epic_key_on_a_story_node_is_refused(self):
-        self._epic("E001")
-        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-001",
-                       "--status", "done", "--title", "S"])
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
-                                 "--story", "E001-S01-001", "--add", "E002"])
-        self.assertEqual(code, 2)
-
-    def test_a_story_key_on_an_epic_node_is_refused(self):
-        self._epic("E002")
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
-                                 "--epic", "E002", "--add", "E001-S01-001"])
-        self.assertEqual(code, 2)
-
-    def test_a_sprint_node_is_refused(self):
-        self._epic("E001")
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--sprint", "S01", "--status", "backlog", "--title", "Sp"])
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E001",
-                                 "--sprint", "S01", "--add", "E002"])
-        self.assertEqual(code, 2)
-
-    def test_nothing_is_written_when_any_key_is_bad(self):
-
-        """All-or-nothing: a half-applied dependency list is worse than none."""
-        self._epic("E003")
-        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
-                       "--add", "E001"])
-        code, _ = self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
-                                 "--add", "E002", "--add", "rubbish"])
-        self.assertEqual(code, 2)
-        self.assertEqual(list(self._node("E003")["depends_on"]), ["E001"],
-                         "the good key in a rejected call must not land")
-
-
 class TestImportActual(Base):
     """`import-actual` is set-actual with the migration contract baked into its defaults.
 
@@ -11331,8 +9315,8 @@ class TestImportNode(Base):
         self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-002",
                        "--status", "done", "--title", "S"])
         code, out = self.run_main([
-            "set-status", "--state-root", self.d, "--story", "E001-S01-002",
-            "--status", "review"])
+            "set-estimate", "--state-root", self.d, "--story", "E001-S01-002",
+            "--man-hours", "1"])
         self.assertEqual(code, 0, out)
 
     def test_origin_is_written_when_given_and_absent_otherwise(self):
@@ -11391,14 +9375,6 @@ class TestImportNode(Base):
                        "--status", "backlog", "--title", "E"])
         self.assertEqual(len([e for e in self._events() if e.get("event") == "import"]), 1)
 
-    def test_set_status_still_refuses_a_missing_node(self):
-        """import-node must not have loosened set-status."""
-        code, _ = self.run_main([
-            "set-status", "--state-root", self.d, "--epic", "E999", "--status", "done"])
-        self.assertEqual(code, 3)
-
-    # ---- import-node --status blocked (2026-09-25) -----------------------------
-
     def test_import_node_story_blocked_without_reason_exits_2(self):
         """A migration source that reports a story at status: blocked without a reason
         is a broken source shape -- name it at the boundary rather than land silent."""
@@ -11424,8 +9400,8 @@ class TestImportNode(Base):
         self.assertEqual(node.get("blocked_reason"), "external decision X")
 
     def test_import_node_story_blocked_emits_a_block_open_event(self):
-        """A paired block_open is emitted so a future set-status transitioning off
-        blocked can derive duration_hours the same way a set-status-created block does."""
+        """A paired block_open is emitted, so the event log carries the block the way a
+        block recorded live would."""
         self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
                        "--status", "backlog", "--title", "E"])
         self.run_main([
@@ -11472,429 +9448,6 @@ class TestImportNode(Base):
         self.assertNotIn("blocks_seen", ce)
 
 
-class TestListEpics(Base):
-    """Read-only enumeration of every epic in the state tree with its bucket.
-
-    The verb exists so callers stop probing filesystem paths per epic
-    (`ls -d {state}/{planned,active,archived}/epic-{nnn}/` in a loop) to answer
-    "does this epic exist and where?". These tests pin the read-only shape:
-    the state tree is not touched, an empty tree is empty output not an error,
-    and the bucket ordering is stable so a downstream index is deterministic.
-    """
-    def _import(self, *argv):
-        code, out = self.run_main(["import-node", "--state-root", self.d, *argv])
-        self.assertEqual(code, 0, out)
-
-    def test_empty_state_prints_nothing(self):
-        code, out = self.run_main(["list-epics", "--state-root", self.d])
-        self.assertEqual(code, 0)
-        self.assertEqual(out, "")
-
-    def test_absent_state_root_prints_nothing(self):
-        """An unrun project shape -- the state root does not exist yet -- is not an error."""
-        missing = os.path.join(self.d, "no-such-state")
-        code, out = self.run_main(["list-epics", "--state-root", missing])
-        self.assertEqual(code, 0)
-        self.assertEqual(out, "")
-
-    def test_one_epic_per_bucket_keys_format(self):
-        self._import("--epic", "E001", "--status", "backlog", "--title", "one")
-        self._import("--epic", "E002", "--status", "in-progress", "--title", "two")
-        self._import("--epic", "E003", "--status", "done", "--title", "three")
-        code, out = self.run_main(["list-epics", "--state-root", self.d])
-        self.assertEqual(code, 0)
-        self.assertEqual(out.split(), ["E002", "E001", "E003"])  # active, planned, archived
-
-    def test_json_format_carries_bucket_and_status(self):
-        self._import("--epic", "E001", "--status", "backlog", "--title", "one")
-        self._import("--epic", "E002", "--status", "in-progress", "--title", "two")
-        self._import("--epic", "E003", "--status", "done", "--title", "three")
-        code, out = self.run_main(["list-epics", "--state-root", self.d, "--format", "json"])
-        self.assertEqual(code, 0, out)
-        rows = json.loads(out)
-        by_key = {r["key"]: r for r in rows}
-        self.assertEqual(by_key["E001"], {"key": "E001", "bucket": "planned", "status": "backlog"})
-        self.assertEqual(by_key["E002"], {"key": "E002", "bucket": "active", "status": "in-progress"})
-        self.assertEqual(by_key["E003"], {"key": "E003", "bucket": "archived", "status": "done"})
-        # STATUS_DIRS order: active, planned, archived
-        self.assertEqual([r["bucket"] for r in rows], ["active", "planned", "archived"])
-
-    def test_keys_within_a_bucket_are_sorted(self):
-        for k in ("E003", "E001", "E002"):
-            self._import("--epic", k, "--status", "backlog", "--title", k)
-        code, out = self.run_main(["list-epics", "--state-root", self.d])
-        self.assertEqual(out.split(), ["E001", "E002", "E003"])
-
-    def test_non_epic_entries_in_a_bucket_are_ignored(self):
-        """A regular file, or a directory not matching epic-{nnn}, must not appear."""
-        self._import("--epic", "E001", "--status", "backlog", "--title", "e1")
-        planned = os.path.join(self.d, "planned")
-        # A stray file that happens to sit under planned/ (a .gitignore, an editor swap file):
-        with open(os.path.join(planned, ".gitignore"), "w") as fh:
-            fh.write("*.lock\n")
-        # A directory that is not zero-padded to three digits:
-        os.makedirs(os.path.join(planned, "epic-42"))
-        # A directory whose suffix is not a number:
-        os.makedirs(os.path.join(planned, "epic-legacy"))
-        code, out = self.run_main(["list-epics", "--state-root", self.d])
-        self.assertEqual(out.split(), ["E001"])
-
-    def test_read_only_leaves_the_tree_untouched(self):
-        """A read verb must not mutate: no lock files, no event lines, no directory creates."""
-        self._import("--epic", "E001", "--status", "in-progress", "--title", "one")
-        before = sorted(os.walk(self.d))
-        events_before = os.path.getsize(os.path.join(self.d, "events.jsonl"))
-        self.run_main(["list-epics", "--state-root", self.d, "--format", "json"])
-        after = sorted(os.walk(self.d))
-        events_after = os.path.getsize(os.path.join(self.d, "events.jsonl"))
-        self.assertEqual(before, after)
-        self.assertEqual(events_before, events_after)
-
-
-class TestListStories(Base):
-    """Read-only enumeration of story node files under an epic, optionally scoped
-    to one sprint.
-
-    The verb replaces `ls .../sprint-{nn}/*.yaml | grep -v '^sprint$'` in the drift
-    check -- with the filtering and the story-key parse inside pm-status.py rather
-    than downstream in shell.
-    """
-    def _import(self, *argv):
-        code, out = self.run_main(["import-node", "--state-root", self.d, *argv])
-        self.assertEqual(code, 0, out)
-
-    def _seed(self):
-        """Two sprints in E001, four stories total. Also an unrelated E002 to prove filtering."""
-        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
-        self._import("--story", "E001-S01-001", "--status", "done", "--title", "s1")
-        self._import("--story", "E001-S01-002", "--status", "review", "--title", "s2")
-        self._import("--story", "E001-S02-001", "--status", "ready-for-dev", "--title", "s3")
-        self._import("--story", "E001-S02-002", "--status", "backlog", "--title", "s4")
-        self._import("--epic", "E002", "--status", "backlog", "--title", "e2")
-        self._import("--story", "E002-S01-001", "--status", "backlog", "--title", "other")
-
-    def test_absent_epic_exits_3(self):
-        code, _ = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E999"])
-        self.assertEqual(code, 3)
-
-    def test_absent_sprint_prints_nothing(self):
-        """A sprint that has not been created yet is not an error."""
-        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S99"])
-        self.assertEqual(code, 0)
-        self.assertEqual(out, "")
-
-    def test_one_sprint_scope_keys_format(self):
-        self._seed()
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(code, 0)
-        self.assertEqual(out.split(), ["E001-S01-001", "E001-S01-002"])
-
-    def test_all_sprints_when_sprint_omitted(self):
-        self._seed()
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001"])
-        self.assertEqual(code, 0)
-        self.assertEqual(out.split(), [
-            "E001-S01-001", "E001-S01-002", "E001-S02-001", "E001-S02-002"])
-
-    def test_json_format_carries_sprint(self):
-        self._seed()
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001",
-            "--sprint", "S02", "--format", "json"])
-        self.assertEqual(code, 0, out)
-        self.assertEqual(json.loads(out), [
-            {"key": "E001-S02-001", "sprint": "S02"},
-            {"key": "E001-S02-002", "sprint": "S02"},
-        ])
-
-    def test_sprint_yaml_and_epic_yaml_are_filtered(self):
-        """The drift-check use case fails if sprint.yaml leaks through -- pinned here."""
-        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
-        self._import("--epic", "E001", "--sprint", "S01",
-                     "--status", "in-progress", "--title", "sp1")
-        self._import("--story", "E001-S01-001", "--status", "done", "--title", "s1")
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(out.split(), ["E001-S01-001"])
-        self.assertNotIn("sprint", out)
-
-    def test_stories_of_a_different_epic_do_not_leak(self):
-        self._seed()
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E002"])
-        self.assertEqual(out.split(), ["E002-S01-001"])
-
-    def test_non_story_yaml_files_are_filtered(self):
-        """A .yaml file whose stem does not parse as E{nnn}-S{nn}-{nnn} must not appear."""
-        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
-        self._import("--story", "E001-S01-001", "--status", "done", "--title", "s")
-        sprint_dir = os.path.join(self.d, "active", "epic-001", "sprint-01")
-        # A stray fixture / legacy file / editor swap:
-        with open(os.path.join(sprint_dir, "notes.yaml"), "w") as fh:
-            fh.write("# random\n")
-        code, out = self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(out.split(), ["E001-S01-001"])
-
-    def test_read_only_leaves_the_tree_untouched(self):
-        self._seed()
-        before = sorted(os.walk(self.d))
-        events_before = os.path.getsize(os.path.join(self.d, "events.jsonl"))
-        self.run_main([
-            "list-stories", "--state-root", self.d, "--epic", "E001", "--format", "json"])
-        after = sorted(os.walk(self.d))
-        events_after = os.path.getsize(os.path.join(self.d, "events.jsonl"))
-        self.assertEqual(before, after)
-        self.assertEqual(events_before, events_after)
-
-
-class TestBlockedStoryStatus(Base):
-    """Stage 1 of the blocked story-lifecycle design lands the enum entry, the
-    transition table, --reason enforcement, blocked_reason on the node, and paired
-    block_open/block_close events. Each of those is the property of a real defect
-    the design was written to prevent -- a blocked story with no reason on record
-    (silent halt), a blocked -> done with no --resolution (invisible drop), a
-    blocked_reason surviving off blocked (state that doesn't reflect reality)."""
-
-    def _seed_story(self, key="E001-S01-002", status="in-progress"):
-        """Import an epic and a story at `status`; return the story path."""
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "e1"])
-        self.run_main(["import-node", "--state-root", self.d, "--story", key,
-                       "--status", status, "--title", "s1"])
-        return pm.story_file(self.d, key)
-
-    def _events(self, event_name=None):
-        p = os.path.join(self.d, "events.jsonl")
-        if not os.path.exists(p):
-            return []
-        with open(p, encoding="utf-8") as fh:
-            evs = [json.loads(line) for line in fh if line.strip()]
-        return [e for e in evs if event_name is None or e.get("event") == event_name]
-
-    # ---- Enum + argparse rejections -------------------------------------------------
-
-    def test_blocked_enum_is_accepted(self):
-        path = self._seed_story()
-        code, out = self.run_main(["set-status", "--state-root", self.d,
-                                   "--story", "E001-S01-002", "--status", "blocked",
-                                   "--reason", "Spec Q: token refresh jitter"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(path)
-        self.assertEqual(node["status"], "blocked")
-
-    def test_blocked_without_reason_exits_2(self):
-        self._seed_story()
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--story", "E001-S01-002", "--status", "blocked"])
-        self.assertEqual(code, 2)
-        self.assertIn("--status blocked requires --reason", buf.getvalue())
-
-    def test_reason_on_non_blocked_status_exits_2(self):
-        """--reason is only valid with --status blocked; other statuses reject it."""
-        self._seed_story()
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--story", "E001-S01-002", "--status", "review",
-                                     "--reason", "spurious"])
-        self.assertEqual(code, 2)
-        self.assertIn("--reason is only valid with --status blocked", buf.getvalue())
-
-    def test_reason_on_sprint_or_epic_exits_2(self):
-        """--reason and --resolution are story-only flags."""
-        self._seed_story()
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--epic", "E001", "--status", "in-progress",
-                                     "--reason", "why"])
-        self.assertEqual(code, 2)
-        self.assertIn("story-only", buf.getvalue())
-
-    # ---- Transition table ----------------------------------------------------------
-
-    def test_backlog_cannot_go_to_blocked(self):
-        """A story never picked up is not blocked, it is just not ready."""
-        self._seed_story(status="backlog")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--story", "E001-S01-002", "--status", "blocked",
-                                     "--reason", "external"])
-        self.assertEqual(code, 2)
-        self.assertIn("invalid story transition 'backlog' -> 'blocked'", buf.getvalue())
-
-    def test_ready_for_dev_cannot_go_to_blocked(self):
-        self._seed_story(status="ready-for-dev")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--story", "E001-S01-002", "--status", "blocked",
-                                     "--reason", "external"])
-        self.assertEqual(code, 2)
-        self.assertIn("invalid story transition", buf.getvalue())
-
-    def test_in_progress_can_go_to_blocked(self):
-        self._seed_story(status="in-progress")
-        code, out = self.run_main(["set-status", "--state-root", self.d,
-                                   "--story", "E001-S01-002", "--status", "blocked",
-                                   "--reason", "waiting on spec"])
-        self.assertEqual(code, 0, out)
-
-    def test_review_can_go_to_blocked(self):
-        self._seed_story(status="review")
-        code, out = self.run_main(["set-status", "--state-root", self.d,
-                                   "--story", "E001-S01-002", "--status", "blocked",
-                                   "--reason", "decision needed"])
-        self.assertEqual(code, 0, out)
-
-    def test_done_cannot_go_to_blocked_directly(self):
-        """A done story reopened for more work must first re-enter in-progress; keeps
-        `blocked` entered only from active work rather than from history."""
-        self._seed_story(status="review")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "done"])
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--story", "E001-S01-002", "--status", "blocked",
-                                     "--reason", "reopen"])
-        self.assertEqual(code, 2)
-        self.assertIn("invalid story transition 'done' -> 'blocked'", buf.getvalue())
-
-    def test_blocked_can_exit_to_in_progress_with_no_resolution(self):
-        """The ordinary unblock: resume work, resolution field not applicable."""
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "wait"])
-        code, out = self.run_main(["set-status", "--state-root", self.d,
-                                   "--story", "E001-S01-002", "--status", "in-progress"])
-        self.assertEqual(code, 0, out)
-
-    def test_blocked_to_done_without_resolution_exits_2(self):
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "wait"])
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                     "--story", "E001-S01-002", "--status", "done"])
-        self.assertEqual(code, 2)
-        self.assertIn("blocked -> done requires --resolution", buf.getvalue())
-
-    def test_blocked_to_done_with_resolution_is_allowed(self):
-        """The rare path: the story was resolved by the same event that unblocked it."""
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "spec question"])
-        code, out = self.run_main(["set-status", "--state-root", self.d,
-                                   "--story", "E001-S01-002", "--status", "done",
-                                   "--resolution", "spec change removed the need"])
-        self.assertEqual(code, 0, out)
-
-    # ---- blocked_reason on the node ------------------------------------------------
-
-    def test_blocked_reason_is_written_to_the_node(self):
-        path = self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "waiting on decision X"])
-        _, node = pm.load_node(path)
-        self.assertEqual(node.get("blocked_reason"), "waiting on decision X")
-
-    def test_blocked_reason_is_cleared_on_exit_from_blocked(self):
-        """Current node reflects current state; block history lives in the log."""
-        path = self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "spec question"])
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "in-progress"])
-        _, node = pm.load_node(path)
-        self.assertNotIn("blocked_reason", node)
-
-    # ---- Event log -----------------------------------------------------------------
-
-    def test_entering_blocked_appends_a_block_open_event(self):
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "spec question"])
-        opens = self._events("block_open")
-        self.assertEqual(len(opens), 1)
-        self.assertEqual(opens[0]["story"], "E001-S01-002")
-        self.assertEqual(opens[0]["reason"], "spec question")
-
-    def test_leaving_blocked_appends_a_block_close_with_duration(self):
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "wait"])
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "in-progress"])
-        closes = self._events("block_close")
-        self.assertEqual(len(closes), 1)
-        self.assertIn("duration_hours", closes[0])
-        self.assertIsInstance(closes[0]["duration_hours"], (int, float))
-        self.assertGreaterEqual(closes[0]["duration_hours"], 0)
-
-    def test_block_close_on_blocked_to_done_carries_resolution(self):
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "spec"])
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "done",
-                       "--resolution", "spec change made it moot"])
-        closes = self._events("block_close")
-        self.assertEqual(len(closes), 1)
-        self.assertEqual(closes[0].get("resolution"), "spec change made it moot")
-
-    def test_block_close_on_blocked_to_in_progress_has_no_resolution(self):
-        """Exit-to-active carries no resolution field."""
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "wait"])
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "in-progress"])
-        closes = self._events("block_close")
-        self.assertNotIn("resolution", closes[0])
-
-    def test_no_events_flag_suppresses_the_block_open_too(self):
-        """--no-events is one gate over the whole call, not per-event-type."""
-        self._seed_story(status="in-progress")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "wait", "--no-events"])
-        self.assertEqual(self._events("block_open"), [])
-        self.assertEqual(self._events("status"), [])
-
-    def test_two_blocked_cycles_produce_two_open_close_pairs(self):
-        """Idempotence of the mechanism: a story that blocks-resumes-blocks-resumes writes
-        two paired events, not one open with two closes or vice versa."""
-        self._seed_story(status="in-progress")
-        for _ in range(2):
-            self.run_main(["set-status", "--state-root", self.d,
-                           "--story", "E001-S01-002", "--status", "blocked",
-                           "--reason", "wait"])
-            self.run_main(["set-status", "--state-root", self.d,
-                           "--story", "E001-S01-002", "--status", "in-progress"])
-        self.assertEqual(len(self._events("block_open")), 2)
-        self.assertEqual(len(self._events("block_close")), 2)
-
-
 class TestBlockedCalibration(Base):
     """Stage 2: a story that spent any time blocked excludes elapsed_hours from
     its calibration sample and emits WARN naming the {N.N}h in blocked. Other
@@ -11934,42 +9487,6 @@ class TestBlockedCalibration(Base):
         self._seed()
         _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
         self.assertNotIn("blocks_seen", (node.get("completion_evidence") or {}))
-
-    def test_blocks_seen_increments_on_each_block_open(self):
-        self._seed()
-        for _ in range(3):
-            self.run_main(["set-status", "--state-root", self.d,
-                           "--story", "E001-S01-002", "--status", "blocked",
-                           "--reason", "wait"])
-            self.run_main(["set-status", "--state-root", self.d,
-                           "--story", "E001-S01-002", "--status", "in-progress"])
-        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
-        self.assertEqual(node["completion_evidence"]["blocks_seen"], 3)
-
-    def test_blocks_seen_survives_exit_from_blocked(self):
-        """Counter is monotonic; leaving blocked does NOT decrement it. It counts
-        events, not current state."""
-        self._seed()
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "blocked",
-                       "--reason", "wait"])
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "in-progress"])
-        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
-        self.assertEqual(node["completion_evidence"]["blocks_seen"], 1)
-
-    def test_blocks_seen_is_not_written_when_never_blocked(self):
-        """A story that stays clean of blocked events does not accumulate an
-        empty completion_evidence.blocks_seen: 0 -- the field is absent unless
-        it has something to say."""
-        self._seed()
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "review"])
-        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
-        ce = node.get("completion_evidence") or {}
-        self.assertNotIn("blocks_seen", ce)
-
-    # ---- _total_blocked_hours helper ------------------------------------------------
 
     def test_total_blocked_hours_is_zero_when_no_events(self):
         self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 0.0)
@@ -12130,147 +9647,6 @@ class TestBlockedCalibration(Base):
             "--model", "claude-sonnet-5", "--runtime", "claude"])
         self.assertEqual(code, 0, err)
         self.assertNotIn("WARN blocked story", err)
-
-
-class TestBlockedShowAndReport(Base):
-    """Stage 3: rollups carry blocked_stories/blocked_details/blocks_seen_cumulative;
-    show renders [blocked: reason] inline; render_tree/render_md grow a
-    'Blocked stories' section; sprint-of-all-blocked shows the cosmetic wart from
-    §13 as a header refinement rather than a status transition.
-
-    Design: docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §7 §8 §13.
-    """
-
-    def _seed_epic_with_two_stories(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "in-progress", "--title", "e"])
-        for k in ("E001-S01-001", "E001-S01-002"):
-            self.run_main(["import-node", "--state-root", self.d, "--story", k,
-                           "--status", "in-progress", "--title", k])
-
-    def _block(self, story, reason):
-        code, _ = self.run_main(["set-status", "--state-root", self.d,
-                                 "--story", story, "--status", "blocked",
-                                 "--reason", reason])
-        self.assertEqual(code, 0)
-
-    # ---- rollup fields ------------------------------------------------------------
-
-    def test_rollup_sprint_reports_blocked_stories_and_details(self):
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "spec question: token refresh jitter")
-        r = pm.rollup_sprint(self.d, "E001", "S01")
-        self.assertEqual(r["blocked_stories"], 1)
-        self.assertEqual(len(r["blocked_details"]), 1)
-        self.assertEqual(r["blocked_details"][0]["key"], "E001-S01-002")
-        self.assertEqual(r["blocked_details"][0]["reason"],
-                         "spec question: token refresh jitter")
-
-    def test_rollup_epic_aggregates_blocked_across_sprints_with_sprint_tag(self):
-        self._seed_epic_with_two_stories()
-        # add a second sprint with its own blocked story
-        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S02-001",
-                       "--status", "in-progress", "--title", "s3"])
-        self._block("E001-S01-002", "wait A")
-        self._block("E001-S02-001", "wait B")
-        r = pm.rollup_epic(self.d, "E001")
-        self.assertEqual(r["blocked_stories"], 2)
-        details = {d["key"]: d["sprint"] for d in r["blocked_details"]}
-        self.assertEqual(details, {"E001-S01-002": "S01", "E001-S02-001": "S02"})
-
-    def test_rollup_blocks_seen_cumulative_survives_exit(self):
-        """A story blocked-and-resumed still contributes to the cumulative event count."""
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "one")
-        self.run_main(["set-status", "--state-root", self.d,
-                       "--story", "E001-S01-002", "--status", "in-progress"])
-        r = pm.rollup_sprint(self.d, "E001", "S01")
-        self.assertEqual(r["blocked_stories"], 0,
-                         "no currently-blocked stories, but the counter survives")
-        self.assertEqual(r["blocks_seen_cumulative"], 1)
-
-    # ---- cmd_show rendering -------------------------------------------------------
-
-    def test_show_sprint_renders_blocked_reason_inline(self):
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "spec question: X")
-        code, out = self.run_main(["show", "--state-root", self.d,
-                                   "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("E001-S01-002", out)
-        self.assertIn("[blocked: spec question: X]", out)
-
-    def test_show_sprint_renders_all_stories_blocked_wart(self):
-        """§13 cosmetic wart: a sprint whose stories are ALL blocked shows the
-        refinement in the header without changing sprint.status itself."""
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-001", "one")
-        self._block("E001-S01-002", "two")
-        code, out = self.run_main(["show", "--state-root", self.d,
-                                   "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(code, 0)
-        self.assertIn("(all 2 stories blocked)", out)
-
-    def test_show_epic_reports_blocked_stories_count(self):
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "wait")
-        code, out = self.run_main(["show", "--state-root", self.d, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("blocked_stories: 1", out)
-
-    def test_show_epic_omits_blocked_line_when_zero(self):
-        """No `blocked_stories: 0` noise when nothing is blocked."""
-        self._seed_epic_with_two_stories()
-        code, out = self.run_main(["show", "--state-root", self.d, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("blocked_stories", out)
-
-    # ---- report renderers ---------------------------------------------------------
-
-    def test_report_tree_includes_blocked_stories_section(self):
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "waiting on decision X")
-        code, out = self.run_main(["report", "--state-root", self.d, "--format", "tree"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("Blocked stories (1):", out)
-        self.assertIn("waiting on decision X", out)
-
-    def test_report_md_includes_blocked_stories_table(self):
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "waiting on decision Y")
-        code, out = self.run_main(["report", "--state-root", self.d, "--format", "md"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("## Blocked stories (1)", out)
-        self.assertIn("waiting on decision Y", out)
-
-    def test_report_omits_blocked_section_when_none(self):
-        self._seed_epic_with_two_stories()
-        code, out = self.run_main(["report", "--state-root", self.d, "--format", "tree"])
-        self.assertEqual(code, 0)
-        self.assertNotIn("Blocked stories", out)
-
-    def test_report_json_carries_blocked_reason_in_the_model(self):
-        """JSON output is the model; the rendered sections do not appear as-is.
-        Blocked details are visible via `phases[*].epics_detail[*].sprints[*].stories[*]`
-        which now carry blocked_reason on blocked entries."""
-        self._seed_epic_with_two_stories()
-        self._block("E001-S01-002", "wait")
-        code, out = self.run_main(["report", "--state-root", self.d, "--format", "json"])
-        self.assertEqual(code, 0, out)
-        model = json.loads(out)
-        # walk every story regardless of phasing
-        found = None
-        scopes = list(model.get("phases") or [])
-        scopes.append({"epics_detail": model.get("unplanned_epics") or []})
-        for scope in scopes:
-            for d in scope.get("epics_detail") or []:
-                for sp in d.get("sprints") or []:
-                    for st in sp.get("stories") or []:
-                        if st["key"] == "E001-S01-002":
-                            found = st
-        self.assertIsNotNone(found)
-        self.assertEqual(found["status"], "blocked")
-        self.assertEqual(found["blocked_reason"], "wait")
 
 
 class TestAgentInstructionsEngine(unittest.TestCase):
@@ -12756,6 +10132,9 @@ class TestNoticeIsPerHarness(unittest.TestCase):
 
 
 
+SECOND = timedelta(seconds=1)
+
+
 class TestStoryKeyAllocator(unittest.TestCase):
     """`_next_story_key` is a high-water allocator, not a scan of the disk.
 
@@ -12871,893 +10250,6 @@ class TestStoryKeyAllocator(unittest.TestCase):
         # require one, it just cannot persist a high-water in that case.
         self._story(3)
         self.assertEqual(self._next(), "E001-S01-004")
-
-
-class TestReparentStory(unittest.TestCase):
-    """Moving a planned story to another sprint, re-keying it.
-
-    Both trees move together, git records renames so history survives, and every reference
-    that named the old key is repointed. The references are the half most likely to rot
-    silently: a dangling `depends_on` does not fail until something tries to order it.
-    """
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.sr = os.path.join(self.d, "state")
-        self.ar = os.path.join(self.d, "art")
-        subprocess.run(["git", "init", "-q", self.d], check=True, capture_output=True)
-        self._epic("001", "01")
-        self._epic("003", "02")
-
-    def _epic(self, epic, sprint):
-        p = os.path.join(self.sr, "planned", f"epic-{epic}", f"sprint-{sprint}")
-        os.makedirs(p, exist_ok=True)
-        self._w(os.path.join(self.sr, "planned", f"epic-{epic}", "epic.yaml"),
-                f"key: 'E{epic}'\nstatus: backlog\n")
-        self._w(os.path.join(p, "sprint.yaml"),
-                f"key: 'S{sprint}'\nepic: 'E{epic}'\nstatus: backlog\n")
-
-    def _w(self, path, text):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-    def _story(self, key, extra="", status_dir="planned"):
-        e, sp, _ = key.split("-")
-        p = os.path.join(self.sr, status_dir, f"epic-{e[1:]}", f"sprint-{sp[1:]}",
-                         f"{key}.yaml")
-        self._w(p, f"key: '{key}'\nepic: '{e}'\nsprint: '{sp}'\nstatus: backlog\n{extra}")
-        return p
-
-    def _doc(self, key, slug=""):
-        e, sp, _ = key.split("-")
-        p = os.path.join(self.ar, f"epic-{e[1:]}", f"sprint-{sp[1:]}", "stories",
-                         f"{key}{slug}.md")
-        self._w(p, f"---\nkey: '{key}'\ntitle: 'T'\n---\n\n# T\n\nBody the author owns.\n")
-        return p
-
-    def _move(self, key, to_epic, to_sprint):
-        return pm.reparent_story(self.sr, self.ar, key, to_epic, to_sprint)
-
-    def _read(self, path):
-        with open(path, encoding="utf-8") as fh:
-            return fh.read()
-
-    def test_moves_both_trees_and_rekeys(self):
-        self._story("E001-S01-001")
-        self._doc("E001-S01-001")
-        new = self._move("E001-S01-001", "E003", "S02")
-        self.assertEqual(new, "E003-S02-001")
-        self.assertIsNone(pm.story_file(self.sr, "E001-S01-001"))
-        self.assertIsNotNone(pm.story_file(self.sr, new))
-        self.assertTrue(os.path.isfile(os.path.join(
-            self.ar, "epic-003", "sprint-02", "stories", f"{new}.md")))
-
-    def test_the_slug_is_preserved_across_the_rename(self):
-        self._story("E001-S01-001")
-        self._doc("E001-S01-001", "-centralized-file-config")
-        new = self._move("E001-S01-001", "E003", "S02")
-        self.assertTrue(os.path.isfile(os.path.join(
-            self.ar, "epic-003", "sprint-02", "stories",
-            f"{new}-centralized-file-config.md")), "the slug is UX and must survive")
-
-    def test_inbound_depends_on_is_repointed(self):
-        self._story("E001-S01-001")
-        dep = self._story("E001-S01-002", "depends_on: ['E001-S01-001']\n")
-        new = self._move("E001-S01-001", "E003", "S02")
-        _, node = pm.load_node(dep)
-        self.assertEqual(list(node["depends_on"]), [new],
-                         "a dangling depends_on does not fail until something orders it")
-
-    # --- branch audit of _rewrite_references ------------------------------------------- #
-    # Every branch in that function has a fixture reaching BOTH sides, and the three tests
-    # below are the ones that close the arms a single-value fixture never reaches: a
-    # `depends_on` list with entries beside the match, an issues file holding no match at
-    # all, and a non-mapping item in a backlog list. A precondition-guarded branch is
-    # unreachable from a fixture that does not satisfy the precondition, so "the function is
-    # tested" says nothing about them — the question each of these answers is "which fixture
-    # reaches the false side".
-
-    def test_a_depends_on_sibling_key_is_left_alone(self):
-        """The inner `if v == old_key` has two arms and the single-element fixture only ever
-        exercised one. A rewrite that replaced the whole list, or indexed wrongly, would pass
-        every other test here while silently dropping the story's other dependency."""
-        self._story("E001-S01-001")
-        self._story("E001-S01-003")
-        dep = self._story("E001-S01-002",
-                          "depends_on: ['E001-S01-003', 'E001-S01-001', 'E001-S01-003']\n")
-        new = self._move("E001-S01-001", "E003", "S02")
-        _, node = pm.load_node(dep)
-        self.assertEqual(list(node["depends_on"]),
-                         ["E001-S01-003", new, "E001-S01-003"],
-                         "only the moved key changes, in place, and duplicates of another "
-                         "key are preserved rather than collapsed")
-
-    def test_an_issues_file_naming_a_different_story_is_left_untouched(self):
-        """`if hit:` had no false-arm fixture: every test with an issues file had a matching
-        reference in it. A write that saved unconditionally — or saved the wrong file — was
-        invisible, and this function writes BOTH issue files when it writes either."""
-        self._story("E001-S01-001")
-        self._story("E001-S01-002")
-        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
-                 "S01", "--severity", "Low", "--source", "code-review", "--title", "other",
-                 "--ref", "E001-S01-002"])
-        issues = os.path.join(self.sr, "issues.yaml")
-        before = self._read(issues)
-        resolved = os.path.join(self.sr, "issues-resolved.yaml")
-        self.assertFalse(os.path.exists(resolved))
-        self._move("E001-S01-001", "E003", "S02")
-        self.assertEqual(self._read(issues), before, "byte-identical, not merely equivalent")
-        self.assertFalse(os.path.exists(resolved),
-                         "a no-op must not bring the resolved file into existence")
-
-    def test_a_non_mapping_backlog_entry_is_skipped_not_crashed_on(self):
-        """The `if not isinstance(item, dict): continue` arm. A hand-edited or
-        externally-round-tripped issues file can hold a bare scalar in that list, and a
-        re-key must step over it rather than raise — this function runs mid-move, so a raise
-        here leaves the story moved and its references half-rewritten."""
-        self._story("E001-S01-001")
-        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
-                 "S01", "--severity", "Low", "--source", "code-review", "--title", "t",
-                 "--ref", "E001-S01-001"])
-        issues = os.path.join(self.sr, "issues.yaml")
-        y, data = pm.core._load(issues)
-        data["backlog"].insert(0, "a bare string nobody should have written")
-        pm.core._atomic_dump(y, data, issues)
-        new = self._move("E001-S01-001", "E003", "S02")
-        _, after = pm.load_node(issues)
-        self.assertEqual(after["backlog"][0], "a bare string nobody should have written")
-        self.assertEqual(after["backlog"][1]["ref"], new)
-
-    def test_the_documents_frontmatter_key_is_rewritten_and_the_body_is_not(self):
-        self._story("E001-S01-001")
-        self._doc("E001-S01-001")
-        new = self._move("E001-S01-001", "E003", "S02")
-        text = self._read(os.path.join(self.ar, "epic-003", "sprint-02", "stories",
-                                       f"{new}.md"))
-        self.assertIn(f"key: '{new}'", text)
-        self.assertNotIn("E001-S01-001", text)
-        self.assertIn("Body the author owns.", text)
-
-    def test_previous_keys_is_a_list_and_accumulates(self):
-        self._story("E001-S01-001")
-        k2 = self._move("E001-S01-001", "E003", "S02")
-        self._epic("007", "01")
-        k3 = self._move(k2, "E007", "S01")
-        _, node = pm.load_node(pm.story_file(self.sr, k3))
-        self.assertEqual(list(node["previous_keys"]), ["E001-S01-001", k2],
-                         "a single previous_key would lose the first hop and break sync "
-                         "reconciliation for anything mapped before the first move")
-
-    def test_a_backlog_ref_to_the_moved_story_is_repointed(self):
-        """A backlog `ref` naming the moved story is repointed.
-
-        The reference half of the move is what rots silently: this runs after the node and
-        document have been renamed, so anything it fails to rewrite leaves the tree holding
-        a story at its new key with a reference still naming the old one.
-        """
-        self._story("E001-S01-001")
-        code, out = pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001",
-                             "--sprint", "S01", "--severity", "Low", "--source",
-                             "code-review", "--title", "deferred thing",
-                             "--ref", "E001-S01-001"]), None
-        self.assertEqual(code, 0, out)
-        new = self._move("E001-S01-001", "E003", "S02")
-
-        _, issues = pm.load_node(os.path.join(self.sr, "issues.yaml"))
-        refs = [i.get("ref") for i in issues["backlog"]]
-        self.assertEqual(refs, [new],
-                         "a backlog ref left on the old key reads as an unlinked promotion "
-                         "in audit-issues rather than as damage this operation did")
-
-    def test_a_resolved_ref_to_the_moved_story_is_repointed(self):
-        # The resolved file is the second half of the same bug: `store.resolved` was called
-        # the same way, so a project with any closed issue hit it identically.
-        self._story("E001-S01-001")
-        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
-                 "S01", "--severity", "Low", "--source", "code-review",
-                 "--title", "done thing", "--ref", "E001-S01-001"])
-        # `--resolution fixed` requires --ref: a resolved item records WHAT fixed it, and
-        # that ref is a story key, so it is exactly the field a re-key must repoint.
-        pm.main(["resolve-issue", "--state-root", self.sr, "--key", "BL-E001-001",
-                 "--resolution", "fixed", "--ref", "E001-S01-001", "--note", "n"])
-        new = self._move("E001-S01-001", "E003", "S02")
-        _, res = pm.load_node(os.path.join(self.sr, "issues-resolved.yaml"))
-        self.assertEqual([i.get("ref") for i in res["resolved"]], [new])
-
-    def test_the_move_succeeds_and_prints_the_new_key_with_an_issues_file_present(self):
-        # The reorg apply loop reads the new key from this line. Without it the whole
-        # proposal stops with no journal entry, so there is nothing to undo.
-        self._story("E001-S01-001")
-        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
-                 "S01", "--severity", "Low", "--source", "code-review",
-                 "--title", "t", "--ref", "E001-S01-001"])
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            code = pm.main(["reparent-story", "--state-root", self.sr, "--artifacts-root",
-                            self.ar, "--story", "E001-S01-001", "--to-epic", "E003",
-                            "--to-sprint", "S02"])
-        self.assertEqual(code, 0)
-        self.assertIn("OK reparent-story E001-S01-001 -> E003-S02-001", buf.getvalue())
-
-    def test_a_scheduled_items_story_field_is_repointed(self):
-        """A scheduled item's `story` field is repointed, not just its `ref`.
-
-        The moved story keeps the item in its `resolves:` under the NEW key, so a `story`
-        left on the old one is audit finding 1b — whose repair (`unschedule`) discards the
-        scheduling rather than restoring it.
-        """
-        self._story("E001-S01-001", "resolves: ['BL-E001-001']\n")
-        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
-                 "S01", "--severity", "Low", "--source", "code-review", "--title", "t"])
-        pm.main(["schedule-issue", "--state-root", self.sr, "--key", "BL-E001-001",
-                 "--story", "E001-S01-001"])
-        new = self._move("E001-S01-001", "E003", "S02")
-        _, issues = pm.load_node(os.path.join(self.sr, "issues.yaml"))
-        self.assertEqual([i.get("story") for i in issues["backlog"]], [new])
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            code = pm.main(["audit-issues", "--state-root", self.sr])
-        self.assertEqual((code, buf.getvalue().strip()),
-                         (0, "audit-issues: no integrity findings"),
-                         "a correct move leaves nothing for audit-issues to repair")
-
-    def test_a_resolved_ref_is_repointed_with_no_open_issues_file(self):
-        """A project whose every issue is closed has no open file, and its resolved refs
-        must still be repointed — the issues arm is guarded on EITHER file existing."""
-        self._story("E001-S01-001")
-        self._w(os.path.join(self.sr, "issues-resolved.yaml"),
-                "resolved:\n- key: BL-E001-001\n  epic: '001'\n  title: t\n"
-                "  source: code-review\n  severity: Low\n  status: resolved\n"
-                "  resolution: fixed\n  ref: E001-S01-001\n")
-        self.assertFalse(os.path.exists(os.path.join(self.sr, "issues.yaml")))
-        new = self._move("E001-S01-001", "E003", "S02")
-        _, res = pm.load_node(os.path.join(self.sr, "issues-resolved.yaml"))
-        self.assertEqual([i.get("ref") for i in res["resolved"]], [new])
-
-    def test_a_scalar_depends_on_is_refused_before_anything_moves(self):
-        """A scalar `depends_on` iterates as characters, which drops the edge entirely (see
-        deps_list). It is checked in the CHECK phase because `_rewrite_references` reads
-        these nodes AFTER the move — refusing there would half-apply it."""
-        self._story("E001-S01-001")
-        self._story("E001-S01-002", "depends_on: 'E001-S01-001'\n")
-        with self.assertRaises(pm.PMError) as cm:
-            self._move("E001-S01-001", "E003", "S02")
-        self.assertEqual(cm.exception.code, 2)
-        self.assertIn("not a list", cm.exception.msg)
-        self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"), "nothing moved")
-
-    def test_a_refusal_is_one_stderr_line_and_exit_2_not_a_traceback(self):
-        """`except PMError: raise` re-raised out of main(), which has no handler, so every
-        refusal this verb makes reached a CLI user as a traceback and exit 1 — on the one
-        verb whose real crash had just taught everyone to read a traceback as data loss."""
-        self._story("E009-S01-001", status_dir="archived")
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            code = pm.main(["reparent-story", "--state-root", self.sr, "--artifacts-root",
-                            self.ar, "--story", "E009-S01-001", "--to-epic", "E003",
-                            "--to-sprint", "S02"])
-        self.assertEqual(code, 2, "a refusal is a usage error, not an unexpected failure")
-        self.assertEqual(out.getvalue(), "")
-        self.assertEqual(len(err.getvalue().strip().splitlines()), 1, err.getvalue())
-        self.assertTrue(err.getvalue().startswith("pm-status.py: "))
-
-    def test_a_story_with_no_document_moves_fine(self):
-        self._story("E001-S01-001")
-        new = self._move("E001-S01-001", "E003", "S02")
-        self.assertIsNotNone(pm.story_file(self.sr, new))
-
-    def test_refuses_a_story_that_is_not_planned(self):
-        self._w(os.path.join(self.sr, "active", "epic-002", "epic.yaml"),
-                "key: 'E002'\nstatus: in-progress\n")
-        self._story("E002-S01-001", status_dir="active")
-        with self.assertRaises(pm.PMError) as cm:
-            self._move("E002-S01-001", "E003", "S02")
-        self.assertIn("planned", str(cm.exception).lower())
-
-    def test_refuses_a_missing_destination_sprint(self):
-        self._story("E001-S01-001")
-        with self.assertRaises(pm.PMError):
-            self._move("E001-S01-001", "E003", "S09")
-        self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"),
-                             "a refusal must leave the source in place")
-
-    def test_refuses_a_destination_that_is_not_planned(self):
-        # `sprint_file` resolves through `find_epic_dir`, which searches EVERY bucket, so
-        # gating only the source would let planned work be moved into an archived epic:
-        # it would sit under archived/ still reading `status: backlog`, and the next
-        # move-epic would carry it somewhere nobody chose.
-        self._story("E001-S01-001")
-        self._w(os.path.join(self.sr, "archived", "epic-041", "epic.yaml"),
-                "key: 'E041'\nstatus: done\n")
-        self._w(os.path.join(self.sr, "archived", "epic-041", "sprint-01", "sprint.yaml"),
-                "key: 'S01'\nepic: 'E041'\nstatus: done\n")
-        with self.assertRaises(pm.PMError) as cm:
-            self._move("E001-S01-001", "E041", "S01")
-        self.assertIn("planned", str(cm.exception))
-        self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"),
-                             "a refusal must leave the source in place")
-
-    def test_a_move_to_where_it_already_is_is_a_no_op(self):
-        self._story("E001-S01-001")
-        self.assertEqual(self._move("E001-S01-001", "E001", "S01"), "E001-S01-001")
-
-    def test_the_vacated_key_is_never_reissued_in_the_source_sprint(self):
-        # The whole reason the allocator landed first.
-        self._story("E001-S01-001")
-        self._move("E001-S01-001", "E003", "S02")
-        self.assertEqual(pm._next_story_key(self.sr, self.ar, "E001", "S01"),
-                         "E001-S01-002",
-                         "reissuing E001-S01-001 would silently retarget its remote issue")
-
-    def test_git_records_a_rename_not_a_delete_and_add(self):
-        self._story("E001-S01-001")
-        self._doc("E001-S01-001")
-        subprocess.run(["git", "add", "-A"], cwd=self.d, check=True, capture_output=True)
-        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
-                        "commit", "-qm", "init"], cwd=self.d, check=True, capture_output=True)
-        self._move("E001-S01-001", "E003", "S02")
-        out = subprocess.run(["git", "status", "--porcelain"], cwd=self.d,
-                             capture_output=True, text=True).stdout
-        self.assertIn("R", out.split("\n")[0][:2] + "R",
-                      "preserving history is why this moves files instead of rewriting them")
-
-
-class TestRetireEpic(unittest.TestCase):
-    """Retirement: move to archived/, record why, never delete.
-
-    Epic-level only, and that follows from the layout rather than being a simplification:
-    planned/active/archived are folders of EPIC directories, so a single retired story has
-    nowhere to go.
-    """
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.sr = os.path.join(self.d, "state")
-        p = os.path.join(self.sr, "planned", "epic-041", "sprint-01")
-        os.makedirs(p)
-        self._w(os.path.join(self.sr, "planned", "epic-041", "epic.yaml"),
-                "key: 'E041'\ntitle: 'Legacy export shim'\nstatus: backlog\n")
-        self._w(os.path.join(p, "sprint.yaml"), "key: 'S01'\nepic: 'E041'\nstatus: backlog\n")
-        self._w(os.path.join(p, "E041-S01-001.yaml"),
-                "key: 'E041-S01-001'\nepic: 'E041'\nsprint: 'S01'\nstatus: backlog\n")
-
-    def _w(self, path, text):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-    def test_moves_to_archived_and_records_the_reason(self):
-        dest = pm.retire_epic(self.sr, "E041", "nothing depends on it; spec anchor removed")
-        self.assertIn(os.path.join("archived", "epic-041"), dest)
-        _, node = pm.load_node(os.path.join(dest, "epic.yaml"))
-        self.assertEqual(node["status"], "done")
-        self.assertIn("nothing depends on it", str(node["retired_reason"]))
-        self.assertTrue(str(node["retired_at"]))
-
-    def test_the_whole_directory_travels(self):
-        # The placement rule: sprints and stories travel with their epic, never separately.
-        dest = pm.retire_epic(self.sr, "E041", "r")
-        self.assertTrue(os.path.isfile(os.path.join(dest, "sprint-01", "E041-S01-001.yaml")))
-
-    def test_nothing_is_deleted(self):
-        # Counts only the epic's own content. Taking the lock also writes `epic-041.lock`
-        # and a `.gitignore` at the state root -- infrastructure, not the epic's files.
-        def content():
-            out = set()
-            for root, _d, files in os.walk(self.sr):
-                for f in files:
-                    if f.endswith((".lock",)) or f == ".gitignore":
-                        continue
-                    out.add(f)
-            return out
-        before = content()
-        pm.retire_epic(self.sr, "E041", "r")
-        self.assertEqual(before, content(),
-                         "retire moves; only an explicit request deletes")
-
-    def test_refuses_an_empty_reason(self):
-        for bad in ("", "   "):
-            with self.assertRaises(pm.PMError):
-                pm.retire_epic(self.sr, "E041", bad)
-        self.assertIsNotNone(pm.find_epic_dir(self.sr, "E041"))
-        self.assertIn("planned", pm.find_epic_dir(self.sr, "E041"),
-                      "a refusal must leave the epic where it was")
-
-    def test_a_missing_epic_is_not_found(self):
-        with self.assertRaises(FileNotFoundError):
-            pm.retire_epic(self.sr, "E099", "r")
-
-
-class TestPlanShapeHash(unittest.TestCase):
-    """The digest undo rests on. It must move for exactly the changes undo cares about.
-
-    Too sensitive and the guard fires on ordinary re-estimation, which trains people to work
-    around it. Too insensitive and an undo silently replays placements against a plan that
-    has gained or lost stories since.
-    """
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.sr = os.path.join(self.d, "state")
-        p = os.path.join(self.sr, "planned", "epic-001", "sprint-01")
-        os.makedirs(p)
-        self._w(os.path.join(self.sr, "planned", "epic-001", "epic.yaml"),
-                "key: 'E001'\nstatus: backlog\n")
-        self._w(os.path.join(p, "sprint.yaml"), "key: 'S01'\nepic: 'E001'\nstatus: backlog\n")
-        self.story = os.path.join(p, "E001-S01-001.yaml")
-        self._w(self.story,
-                "key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: backlog\n")
-
-    def _w(self, path, text):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-    def test_is_stable_across_repeated_reads(self):
-        self.assertEqual(pm.plan_shape_hash(self.sr), pm.plan_shape_hash(self.sr))
-
-    def test_re_estimating_a_story_does_not_move_it(self):
-        # An undo moves nodes and nothing else. Refusing over an estimate written between
-        # the reorg and the undo would make the guard fire for a change it does not care
-        # about -- and a guard that fires constantly gets worked around.
-        before = pm.plan_shape_hash(self.sr)
-        self._w(self.story, "key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\n"
-                            "status: backlog\nestimate:\n  elapsed_hours: 9\n")
-        self.assertEqual(before, pm.plan_shape_hash(self.sr))
-
-    def test_adding_a_story_moves_it(self):
-        before = pm.plan_shape_hash(self.sr)
-        self._w(os.path.join(self.sr, "planned", "epic-001", "sprint-01",
-                             "E001-S01-002.yaml"),
-                "key: 'E001-S01-002'\nepic: 'E001'\nsprint: 'S01'\nstatus: backlog\n")
-        self.assertNotEqual(before, pm.plan_shape_hash(self.sr),
-                            "a story that appeared since the reorg is exactly the case the "
-                            "guard exists to catch")
-
-    def test_removing_a_story_moves_it(self):
-        before = pm.plan_shape_hash(self.sr)
-        os.remove(self.story)
-        self.assertNotEqual(before, pm.plan_shape_hash(self.sr))
-
-    def test_active_and_archived_work_is_not_part_of_it(self):
-        # Reorg writes planned work only, so nothing else can invalidate an undo.
-        before = pm.plan_shape_hash(self.sr)
-        self._w(os.path.join(self.sr, "active", "epic-005", "epic.yaml"),
-                "key: 'E005'\nstatus: in-progress\n")
-        self.assertEqual(before, pm.plan_shape_hash(self.sr))
-
-
-class TestReorgJournal(unittest.TestCase):
-    """Recording a reorg, and putting it back.
-
-    The journal's only purpose is to make an undo possible, so every test here is really
-    about one question: can a human get back to where they were, and does the tooling refuse
-    clearly when it cannot?
-    """
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.sr = os.path.join(self.d, "state")
-        self.ar = os.path.join(self.d, "art")
-        subprocess.run(["git", "init", "-q", self.d], check=True, capture_output=True)
-        self._epic("001", "01")
-        self._epic("003", "02")
-
-    def _epic(self, epic, sprint):
-        p = os.path.join(self.sr, "planned", f"epic-{epic}", f"sprint-{sprint}")
-        os.makedirs(p, exist_ok=True)
-        self._w(os.path.join(self.sr, "planned", f"epic-{epic}", "epic.yaml"),
-                f"key: 'E{epic}'\nstatus: backlog\n")
-        self._w(os.path.join(p, "sprint.yaml"),
-                f"key: 'S{sprint}'\nepic: 'E{epic}'\nstatus: backlog\n")
-
-    def _w(self, path, text):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-    def _story(self, key):
-        e, sp, _ = key.split("-")
-        self._w(os.path.join(self.sr, "planned", f"epic-{e[1:]}", f"sprint-{sp[1:]}",
-                             f"{key}.yaml"),
-                f"key: '{key}'\nepic: '{e}'\nsprint: '{sp}'\nstatus: backlog\n")
-
-    def _apply_one_move(self, key, to_epic, to_sprint):
-        """Do a real reorg of one story and return the record for it."""
-        pre = pm.plan_shape_hash(self.sr)
-        from_epic, from_sprint, _ = pm.parse_story_key(key)
-        new = pm.reparent_story(self.sr, self.ar, key, to_epic, to_sprint)
-        return new, {
-            "rationale": "Moved to shorten the critical path.",
-            "pre_hash": pre,
-            "operations": [{"op": "reparent-story", "story": key, "new_key": new,
-                            "from_epic": from_epic, "from_sprint": from_sprint,
-                            "to_epic": to_epic, "to_sprint": to_sprint}],
-        }
-
-    # --- recording ------------------------------------------------------------------
-
-    def test_records_an_entry_and_hands_back_its_id(self):
-        self._story("E001-S01-001")
-        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        self.assertEqual(pm.record_reorg(self.sr, rec), "R0001")
-        _, log = pm._load_reorg_log(self.sr)
-        self.assertEqual(len(log["entries"]), 1)
-        self.assertEqual(str(log["entries"][0]["post_hash"]), pm.plan_shape_hash(self.sr))
-
-    def test_ids_are_sequential_and_next_never_goes_backwards(self):
-        self._story("E001-S01-001")
-        self._story("E001-S01-002")
-        _n, r1 = self._apply_one_move("E001-S01-001", "E003", "S02")
-        self.assertEqual(pm.record_reorg(self.sr, r1), "R0001")
-        _n2, r2 = self._apply_one_move("E001-S01-002", "E003", "S02")
-        self.assertEqual(pm.record_reorg(self.sr, r2), "R0002")
-
-    def test_the_rationale_is_stored_verbatim(self):
-        # It is the only part of the entry a human reads months later.
-        self._story("E001-S01-001")
-        _n, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rec["rationale"] = "E003 now owns the auth surface,\nso S02 absorbs the dependent."
-        pm.record_reorg(self.sr, rec)
-        _, log = pm._load_reorg_log(self.sr)
-        self.assertEqual(str(log["entries"][0]["rationale"]).rstrip("\n"),
-                         rec["rationale"].rstrip("\n"))
-        with open(pm.reorg_log_path(self.sr), encoding="utf-8") as fh:
-            raw = fh.read()
-        self.assertIn("rationale: |", raw,
-                      "an escaped one-liner is the same text and unreadable in the file a "
-                      "human opens months later to decide whether to undo")
-        self.assertIn("\n    so S02 absorbs the dependent.", raw)
-
-    def test_refuses_an_operation_kind_undo_cannot_invert(self):
-        # An entry that looks undoable and is not is worse than no entry at all.
-        with self.assertRaises(pm.PMError) as cm:
-            pm.record_reorg(self.sr, {"rationale": "r", "pre_hash": "sha256:x",
-                                      "operations": [{"op": "delete-everything"}]})
-        self.assertIn("invert", str(cm.exception))
-
-    def test_refuses_an_operation_missing_the_fields_undo_needs(self):
-        with self.assertRaises(pm.PMError) as cm:
-            pm.record_reorg(self.sr, {"rationale": "r", "pre_hash": "sha256:x",
-                                      "operations": [{"op": "reparent-story",
-                                                      "story": "E001-S01-001"}]})
-        self.assertIn("missing", str(cm.exception))
-
-    def test_refuses_an_empty_rationale_and_a_missing_pre_hash(self):
-        for rec in ({"rationale": "  ", "pre_hash": "sha256:x", "operations": [
-                        {"op": "create-sprint", "epic": "E003", "sprint": "S09"}]},
-                    {"rationale": "r", "operations": [
-                        {"op": "create-sprint", "epic": "E003", "sprint": "S09"}]}):
-            with self.assertRaises(pm.PMError):
-                pm.record_reorg(self.sr, rec)
-        self.assertFalse(os.path.exists(pm.reorg_log_path(self.sr)),
-                         "a refused record must not create the journal")
-
-    # --- undo -----------------------------------------------------------------------
-
-    def test_undo_puts_the_story_back_in_its_original_sprint(self):
-        self._story("E001-S01-001")
-        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rid = pm.record_reorg(self.sr, rec)
-        res = pm.undo_reorg(self.sr, self.ar, rid)
-        back = res["restored"][new]
-        self.assertTrue(back.startswith("E001-S01-"))
-        self.assertIsNotNone(pm.story_file(self.sr, back))
-        self.assertIsNone(pm.story_file(self.sr, new))
-
-    def test_undo_restores_placement_but_not_the_original_key(self):
-        # The allocator's high-water never decreases -- that is what stops a freed key
-        # being reissued to different work and silently retargeting its remote issue. So
-        # the story comes home with a new number, and the result says which.
-        self._story("E001-S01-001")
-        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rid = pm.record_reorg(self.sr, rec)
-        back = pm.undo_reorg(self.sr, self.ar, rid)["restored"][new]
-        self.assertNotEqual(back, "E001-S01-001")
-        self.assertEqual(back, "E001-S01-002")
-
-    def test_undo_keeps_the_whole_previous_keys_chain(self):
-        self._story("E001-S01-001")
-        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rid = pm.record_reorg(self.sr, rec)
-        back = pm.undo_reorg(self.sr, self.ar, rid)["restored"][new]
-        _, node = pm.load_node(pm.story_file(self.sr, back))
-        self.assertEqual(list(node["previous_keys"]), ["E001-S01-001", new],
-                         "sync reconciles on previous_keys, so the undo hop must be in it "
-                         "too or the mapping is lost a second time")
-
-    def test_undo_refuses_when_the_plan_has_moved_on_since(self):
-        self._story("E001-S01-001")
-        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rid = pm.record_reorg(self.sr, rec)
-        self._story("E001-S01-009")                   # somebody adds work afterwards
-        with self.assertRaises(pm.PMError) as cm:
-            pm.undo_reorg(self.sr, self.ar, rid)
-        self.assertIn("changed since", str(cm.exception))
-        self.assertIsNotNone(pm.story_file(self.sr, "E003-S02-001"),
-                             "a refusal must move nothing")
-
-    def test_undo_refuses_a_second_time(self):
-        self._story("E001-S01-001")
-        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rid = pm.record_reorg(self.sr, rec)
-        pm.undo_reorg(self.sr, self.ar, rid)
-        with self.assertRaises(pm.PMError) as cm:
-            pm.undo_reorg(self.sr, self.ar, rid)
-        self.assertIn("already undone", str(cm.exception))
-
-    def test_undo_refuses_an_unknown_entry(self):
-        with self.assertRaises(pm.PMError) as cm:
-            pm.undo_reorg(self.sr, self.ar, "R9999")
-        self.assertEqual(cm.exception.code, 3)
-
-    def test_check_reports_without_moving_anything(self):
-        self._story("E001-S01-001")
-        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        rid = pm.record_reorg(self.sr, rec)
-        before = pm.plan_shape_hash(self.sr)
-        res = pm.undo_reorg(self.sr, self.ar, rid, check_only=True)
-        self.assertTrue(res["undoable"])
-        self.assertEqual(before, pm.plan_shape_hash(self.sr))
-        _, log = pm._load_reorg_log(self.sr)
-        self.assertIsNone(log["entries"][0].get("undone_at"),
-                          "--check must not claim the entry")
-
-    def test_an_epic_is_un_retired_before_work_moves_back_into_it(self):
-        # THE ORDERING TEST. Forward order retires last; undo must therefore un-retire
-        # FIRST, or the story has nowhere to land and the undo fails halfway.
-        self._epic("041", "01")
-        self._story("E041-S01-001")
-        pre = pm.plan_shape_hash(self.sr)
-        new = pm.reparent_story(self.sr, self.ar, "E041-S01-001", "E001", "S01")
-        pm.retire_epic(self.sr, "E041", "emptied by this reorg")
-        rid = pm.record_reorg(self.sr, {
-            "rationale": "E041 is empty once its one story moves.",
-            "pre_hash": pre,
-            "operations": [
-                {"op": "reparent-story", "story": "E041-S01-001", "new_key": new,
-                 "from_epic": "E041", "from_sprint": "S01",
-                 "to_epic": "E001", "to_sprint": "S01"},
-                {"op": "retire-epic", "epic": "E041", "reason": "emptied by this reorg",
-                 "from_status": "planned"},
-            ]})
-        res = pm.undo_reorg(self.sr, self.ar, rid)
-        self.assertIn("planned", pm.find_epic_dir(self.sr, "E041"))
-        back = res["restored"][new]
-        self.assertTrue(back.startswith("E041-S01-"))
-        _, enode = pm.load_node(pm.nodes.epic_file(self.sr, "E041"))
-        self.assertNotIn("retired_reason", enode,
-                         "an un-retired epic that still claims a retirement reason would "
-                         "read as retired to every later audit")
-
-    # --- patch reach: plan calls core/nodes names through the module object -----------
-    # No other test drives a patched name through plan/, so a `from ..core import
-    # _atomic_dump` there would leave the whole suite green. Each test patches the name on
-    # its DEFINING module and fails if plan/'s call never reaches the wrapper.
-
-    def test_the_journal_write_and_read_go_through_the_core_module_object(self):
-        self._story("E001-S01-001")
-        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        log_path = pm.reorg_log_path(self.sr)
-        dumped, loaded = [], []
-        real_dump, real_load = pm.core._atomic_dump, pm.core._load
-
-        def dump(y, data, path, *a, **kw):
-            dumped.append(path)
-            return real_dump(y, data, path, *a, **kw)
-
-        def load(path, *a, **kw):
-            loaded.append(path)
-            return real_load(path, *a, **kw)
-
-        with mock.patch.object(pm.core, "_atomic_dump", dump), \
-                mock.patch.object(pm.core, "_load", load):
-            pm.record_reorg(self.sr, rec)
-        self.assertIn(log_path, dumped, "record_reorg did not write the journal through "
-                      "core._atomic_dump -- plan/ holds a private copy of it")
-        self.assertIn(log_path, loaded, "the journal was not read through core._load -- "
-                      "plan/ holds a private copy of it")
-
-    def test_reparent_story_saves_through_the_nodes_module_object(self):
-        self._story("E001-S01-001")
-        saved = []
-        real = pm.nodes.save_node
-
-        def save(y, node, path, *a, **kw):
-            saved.append(path)
-            return real(y, node, path, *a, **kw)
-
-        with mock.patch.object(pm.nodes, "save_node", save):
-            new = pm.reparent_story(self.sr, self.ar, "E001-S01-001", "E003", "S02")
-        # The MOVED STORY's own save is plan/'s call; the epic and sprint saves in the same
-        # run are made by `nodes` itself and would reach the wrapper regardless.
-        self.assertIn(f"{new}.yaml", [os.path.basename(x) for x in saved],
-                      "reparent_story did not save the re-keyed story through "
-                      "nodes.save_node -- plan/ holds a private copy of it")
-
-    def test_reparent_story_rewrites_the_doc_through_the_core_module_object(self):
-        """`plan/__init__.py`'s call-style docstring names five names that must be reached
-        through their module object. Four were guarded; `core._atomic_text_write` was not.
-
-        Mutating it to `from ..core import _atomic_text_write` left the WHOLE suite green: the
-        only other patch of that name drives `sync-agent-instructions`, which never enters
-        `plan/`. So a private copy here was invisible, and the patch that looks like it covers
-        this file covers a different module entirely.
-
-        The assertion is on the MOVED DOCUMENT'S OWN PATH rather than on "some write
-        happened", because `_rewrite_doc_key` is the ONLY writer of `dest_doc`: the assertion
-        is therefore about this call site and cannot be satisfied by another write the same
-        reparent makes. Measured on this tree — `_atomic_text_write` has exactly two calling
-        modules, `instructions/__init__.py` (272, 285) and `plan/__init__.py:382`. `nodes/`
-        never calls it; it writes through `_atomic_dump`. So on a clean run `written` holds
-        exactly this one path.
-
-        That measurement is why an EARLIER version of this docstring was wrong, and the
-        correction is worth keeping: it said `nodes.ensure_node_path` writes through the same
-        patched global during a reparent. True of `save_node` in the Task 11 guards beside
-        this one, NOT true of this name — the justification was borrowed from a case that had
-        earned it. The assertion was correct either way and is strictly the stronger of the
-        two available, but in a repo whose named failure mode is a claim nobody checked, a
-        guard written to catch exactly that must not carry one.
-        """
-        self._story("E001-S01-001")
-        # A story DOCUMENT on disk, which this class's fixture does not otherwise create --
-        # and it is the whole precondition: `_rewrite_doc_key` returns before writing when
-        # there is no document, so without this the guard would pass over a path never taken.
-        self._w(os.path.join(self.ar, "epic-001", "sprint-01", "stories",
-                             "E001-S01-001.md"),
-                "---\nkey: 'E001-S01-001'\ntitle: 'T'\n---\n\n# T\n\nBody the author owns.\n")
-        written = []
-        real = pm.core._atomic_text_write
-
-        def text_write(path, text, *a, **kw):
-            written.append(path)
-            return real(path, text, *a, **kw)
-
-        with mock.patch.object(pm.core, "_atomic_text_write", text_write):
-            new = pm.reparent_story(self.sr, self.ar, "E001-S01-001", "E003", "S02")
-        dest_doc = os.path.join(self.ar, "epic-003", "sprint-02", "stories", f"{new}.md")
-        self.assertTrue(os.path.isfile(dest_doc), "the fixture never moved the document")
-        self.assertIn(dest_doc, written,
-                      "the re-keyed story DOCUMENT was not written through "
-                      "core._atomic_text_write -- plan/ holds a private copy of it. "
-                      f"Written: {written}")
-        # And it really was re-keyed, so the assertion above is about a write that mattered
-        # rather than one the regex declined to make.
-        with open(dest_doc, encoding="utf-8") as fh:
-            self.assertIn(f"key: '{new}'", fh.read())
-
-    def test_undo_resolves_the_epic_file_through_the_nodes_module_object(self):
-        self._epic("041", "01")
-        self._story("E041-S01-001")
-        pre = pm.plan_shape_hash(self.sr)
-        new = pm.reparent_story(self.sr, self.ar, "E041-S01-001", "E001", "S01")
-        pm.retire_epic(self.sr, "E041", "emptied by this reorg")
-        rid = pm.record_reorg(self.sr, {
-            "rationale": "E041 is empty once its one story moves.",
-            "pre_hash": pre,
-            "operations": [
-                {"op": "reparent-story", "story": "E041-S01-001", "new_key": new,
-                 "from_epic": "E041", "from_sprint": "S01",
-                 "to_epic": "E001", "to_sprint": "S01"},
-                {"op": "retire-epic", "epic": "E041", "reason": "emptied by this reorg",
-                 "from_status": "planned"},
-            ]})
-        asked = []
-        real = pm.nodes.epic_file
-
-        def epic_file(state_root, epic_key, *a, **kw):
-            asked.append(epic_key)
-            return real(state_root, epic_key, *a, **kw)
-
-        with mock.patch.object(pm.nodes, "epic_file", epic_file):
-            pm.undo_reorg(self.sr, self.ar, rid)
-        self.assertIn("E041", asked, "undo_reorg never resolved the epic through "
-                      "nodes.epic_file -- plan/ holds a private copy of it")
-
-    def test_a_sprint_the_reorg_created_is_left_standing_never_deleted(self):
-        # Deletion is the one thing this feature never does unasked. An empty sprint is
-        # inert; reporting it lets a human remove it deliberately.
-        self._story("E001-S01-001")
-        pre = pm.plan_shape_hash(self.sr)
-        os.makedirs(os.path.join(self.sr, "planned", "epic-003", "sprint-09"))
-        self._w(os.path.join(self.sr, "planned", "epic-003", "sprint-09", "sprint.yaml"),
-                "key: 'S09'\nepic: 'E003'\nstatus: backlog\n")
-        new = pm.reparent_story(self.sr, self.ar, "E001-S01-001", "E003", "S09")
-        rid = pm.record_reorg(self.sr, {
-            "rationale": "A new sprint for the extracted work.", "pre_hash": pre,
-            "operations": [
-                {"op": "create-sprint", "epic": "E003", "sprint": "S09"},
-                {"op": "reparent-story", "story": "E001-S01-001", "new_key": new,
-                 "from_epic": "E001", "from_sprint": "S01",
-                 "to_epic": "E003", "to_sprint": "S09"},
-            ]})
-        res = pm.undo_reorg(self.sr, self.ar, rid)
-        self.assertEqual(res["sprints_left_standing"], ["E003-S09"])
-        self.assertIsNotNone(pm.sprint_file(self.sr, "E003", "S09"))
-
-    def test_the_journal_is_not_gitignored(self):
-        # It is the traceback record a human reads months later; only the .lock sidecar
-        # is ignored.
-        self._story("E001-S01-001")
-        _n, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
-        pm.record_reorg(self.sr, rec)
-        with open(os.path.join(self.sr, ".gitignore"), encoding="utf-8") as fh:
-            ignore = fh.read()
-        self.assertNotIn("reorg-log.yaml\n", ignore)
-        self.assertIn("*.lock", ignore)
-
-
-class TestReorgJournalCli(unittest.TestCase):
-    """The surface the skill actually calls."""
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.sr = os.path.join(self.d, "state")
-        p = os.path.join(self.sr, "planned", "epic-001", "sprint-01")
-        os.makedirs(p)
-        for path, text in (
-            (os.path.join(self.sr, "planned", "epic-001", "epic.yaml"),
-             "key: 'E001'\nstatus: backlog\n"),
-            (os.path.join(p, "sprint.yaml"), "key: 'S01'\nepic: 'E001'\nstatus: backlog\n"),
-        ):
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(text)
-
-    def _run(self, argv):
-        out, err = io.StringIO(), io.StringIO()
-        code = 0
-        try:
-            with redirect_stdout(out), redirect_stderr(err):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code if isinstance(e.code, int) else 1
-        except pm.PMError as e:
-            code, _ = e.code, err.write(str(e))
-        return code, out.getvalue(), err.getvalue()
-
-    def test_hash_prints_a_digest_and_writes_nothing(self):
-        code, out, _err = self._run(["reorg-log", "--state-root", self.sr, "--hash"])
-        self.assertEqual(code, 0)
-        self.assertTrue(out.strip().startswith("sha256:"))
-        self.assertFalse(os.path.exists(pm.reorg_log_path(self.sr)))
-
-    def test_list_on_an_empty_project_says_so_rather_than_failing(self):
-        code, out, _err = self._run(["reorg-log", "--state-root", self.sr, "--list"])
-        self.assertEqual(code, 0)
-        self.assertIn("no reorgs recorded", out)
-
-    def test_record_reads_a_yaml_file_and_prints_the_id(self):
-        rec = os.path.join(self.d, "rec.yaml")
-        with open(rec, "w", encoding="utf-8") as fh:
-            fh.write("rationale: 'Shorter critical path.'\n"
-                     f"pre_hash: '{pm.plan_shape_hash(self.sr)}'\n"
-                     "operations:\n"
-                     "- op: create-sprint\n  epic: E001\n  sprint: S09\n")
-        code, out, _err = self._run(["reorg-log", "--state-root", self.sr, "--record", rec])
-        self.assertEqual(code, 0)
-        self.assertIn("R0001", out)
-
-    def test_a_missing_record_file_exits_3(self):
-        code, _o, err = self._run(["reorg-log", "--state-root", self.sr,
-                                  "--record", os.path.join(self.d, "absent.yaml")])
-        self.assertEqual(code, 3)
-        self.assertIn("absent.yaml", err)
-
-    def test_json_format_is_machine_readable(self):
-        code, out, _e = self._run(["reorg-log", "--state-root", self.sr,
-                                  "--list", "--format", "json"])
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out), {"entries": []})
-
-
-SECOND = timedelta(seconds=1)
 
 
 class TestTranscriptFallback(Base):

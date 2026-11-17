@@ -99,14 +99,26 @@ test("a @property read as a method fails", (t) => {
   assert.match(r.stderr, /runtime TypeError/);
 });
 
+// The second accessor site this test used to mutate, `_rewrite_references`, went with
+// `reparent-story` in 4.x. `IssueStore.highest_suffix` in issues/store.py reads the same two
+// properties, in a DIFFERENT module from `_normalize_keys` (issues/audit.py), so it keeps both
+// properties of the test: two sites, and reach across modules.
+const STORE_ACCESSOR = "for item in list(self.backlog) + list(self.resolved):";
+
 test("BOTH accessor call sites are reported, not just the first", (t) => {
   // A checker that sees one of two is one you will trust past the one it cannot see. The
-  // two sites are `_normalize_keys` (issues/audit.py since the `issues` extraction) and
-  // `_rewrite_references` (__main__.py until `plan/` is extracted) -- so this now also
-  // asserts the gate reaches ACROSS modules, which is what the fixture change above made
-  // possible. `REL` is no longer where either of them lives.
+  // two sites are `_normalize_keys` (issues/audit.py) and `highest_suffix` (issues/store.py),
+  // so this also asserts the gate reaches ACROSS modules.
+  const sources = pyFiles(PKG).map((f) => fs.readFileSync(f, "utf8"));
+  for (const anchor of [ACCESSOR_LOOP, STORE_ACCESSOR]) {
+    assert.equal(sources.filter((src) => src.includes(anchor)).length, 1,
+      `expected exactly one package file holding ${JSON.stringify(anchor)} -- re-anchor`);
+  }
+  assert.ok(!sources.some((src) => src.includes(ACCESSOR_LOOP) && src.includes(STORE_ACCESSOR)),
+    "both anchors now sit in one module; the cross-module half of this test needs a new site");
   const root = fixture(t, (s) =>
-    s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):"));
+    s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):")
+      .replaceAll(STORE_ACCESSOR, "for item in list(self.backlog()) + list(self.resolved):"));
   const r = run(root);
   assert.equal((r.stderr.match(/not callable/g) || []).length, 2, r.stderr);
 });

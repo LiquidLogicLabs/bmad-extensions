@@ -441,19 +441,9 @@ test("check 10: a spec-align.py subcommand missing from its own docstring is cau
   assert.match(r.stderr, /spec-align\.py: module docstring's Subcommands list is missing 1 subcommand\(s\).*frobnicate/s);
 });
 
-test("check 13: a pattern added to layout-cleanup alone is caught", async (t) => {
+test("check 13: a renamed dimension in the canonical ac-dimensions layout is caught", async (t) => {
   const root = fixture(t);
-  const rel = "skills/l3io-util/l3io-doctor/steps/clean-layout.md";
-  const text = fs.readFileSync(path.join(root, rel), "utf8");
-  write(root, rel, text.replace("`*tech-design*`", "`*tech-design*`, `*blueprint*`"));
-  const r = await run(root);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /architecture patterns differ.*\*blueprint\*/s);
-});
-
-test("check 13: a renamed dimension in the enrichment prompt is caught", async (t) => {
-  const root = fixture(t);
-  const rel = "skills/_shared/steps/plan/step-03-story-elaboration.md";
+  const rel = "skills/_shared/ac-dimensions.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
   write(root, rel, text.replace("### Testability approach", "### Test approach"));
   const r = await run(root);
@@ -461,11 +451,11 @@ test("check 13: a renamed dimension in the enrichment prompt is caught", async (
   assert.match(r.stderr, /dimensions differ/);
 });
 
-test("check 13 scope: a prompt that lost its layout block is caught", async (t) => {
+test("check 13 scope: an ac-dimensions reference that lost its layout block is caught", async (t) => {
   const root = fixture(t);
-  const rel = "skills/_shared/steps/plan/step-03-story-elaboration.md";
+  const rel = "skills/_shared/ac-dimensions.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
-  write(root, rel, text.replace(/^\s*## Technical acceptance criteria\s*$/m, ""));
+  write(root, rel, text.replace(/^\s*## Technical acceptance criteria\s*$/gm, ""));
   const r = await run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /no '## Technical acceptance criteria' layout block/);
@@ -1049,7 +1039,7 @@ test("check 16 scope attack: a heading naming a deprecated skill is still caught
 test("check 17: a PEP-723 helper invoked with python3 is caught", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm/l3io-execute/steps/bad-invocation.md",
-    "```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+    "```bash\npython3 {pm_status} audit-issues --state-root x\n```\n");
   const r = await run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /invokes a PEP-723 script with python3/);
@@ -1058,7 +1048,7 @@ test("check 17: a PEP-723 helper invoked with python3 is caught", async (t) => {
 test("check 17: uv run of the same helper passes", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm/l3io-execute/steps/good-invocation.md",
-    "```bash\nuv run {pm_status} set-status --state-root x\n```\n");
+    "```bash\nuv run {pm_status} audit-issues --state-root x\n```\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -1119,7 +1109,7 @@ test("check 17 scope attack: a violation under a different skill's assets/ is ca
 test("check 17 scope attack: a violation in a new file under docs/ is caught", async (t) => {
   const root = fixture(t);
   write(root, "docs/brand-new-guide.md",
-    "# New guide\n\n```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+    "# New guide\n\n```bash\npython3 {pm_status} audit-issues --state-root x\n```\n");
   const r = await run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /brand-new-guide\.md:\d+: invokes a PEP-723 script with python3/);
@@ -1139,7 +1129,7 @@ test("check 17 scope attack: a violation in README.md is caught", async (t) => {
 test("check 17: docs/superpowers/** is excluded, and a violation there does not fail", async (t) => {
   const root = fixture(t);
   write(root, "docs/superpowers/specs/2020-01-01-historical.md",
-    "# Historical\n\n```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+    "# Historical\n\n```bash\npython3 {pm_status} audit-issues --state-root x\n```\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -1884,7 +1874,7 @@ for (const ext of ["yml", "yaml"]) {
 test("check 17 M-7: a bullet-decorated directive is caught with the indirect wording", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm/l3io-execute/steps/m7-bullet.md",
-    "- python3 {pm_status} set-status --state-root x\n");
+    "- python3 {pm_status} audit-issues --state-root x\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
@@ -2239,23 +2229,23 @@ test("check 4/skills: an invocation naming a subcommand the CLI does not have is
 
 test("check 4/skills: an invocation passing a flag the CLI never registers is caught", async (t) => {
   const root = fixture(t);
-  plantInvocation(root, "uv run {pm_status} clear-lock --state-root {pm_state_root} --ledger {f}");
+  plantInvocation(root, "uv run {pm_status} audit-issues --state-root {pm_state_root} --ledger {f}");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /planted\.md:\d+: invokes 'clear-lock --ledger'/);
+  assert.match(r.stderr, /planted\.md:\d+: invokes 'audit-issues --ledger'/);
 });
 
 test("check 4/skills: a flag on a `\\`-continued line is still seen", async (t) => {
   const root = fixture(t);
   write(root, PLANT_FILE, [
     "# Planted", "", "```bash",
-    "uv run {pm_status} clear-lock --state-root {pm_state_root} \\",
+    "uv run {pm_status} audit-issues --state-root {pm_state_root} \\",
     "  --no-such-flag {epic_key}",
     "```", "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'clear-lock --no-such-flag'/);
+  assert.match(r.stderr, /invokes 'audit-issues --no-such-flag'/);
 });
 
 test("check 4/skills: an invocation inside a markdown table cell is seen", async (t) => {
@@ -2264,86 +2254,85 @@ test("check 4/skills: an invocation inside a markdown table cell is seen", async
     "# Planted", "",
     "| When | Run |",
     "|---|---|",
-    "| stale lock | `uv run {pm_status} clear-lock --state-root {r} --not-a-flag {e}` |",
+    "| audit | `uv run {pm_status} audit-issues --state-root {r} --not-a-flag {e}` |",
     "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'clear-lock --not-a-flag'/);
+  assert.match(r.stderr, /invokes 'audit-issues --not-a-flag'/);
 });
 
 test("check 4/skills: a correct invocation does not fire", async (t) => {
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} clear-lock --state-root {pm_state_root} --epic {epic_key}");
+    "uv run {pm_status} list-issues --state-root {pm_state_root} --epic {epic_key}");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
 // ---- required companion flags per --status value ---------------------------
-// Rule: `set-status --status blocked` requires `--reason "R"`. The runtime already
+// Rule: `import-node --status blocked` (a story) requires `--reason "R"`. The runtime already
 // enforces this (exit 2), but a step file that ships the wrong shape has already
 // failed by the time an operator runs it -- this check catches it at land time.
 
-test("check 4/skills: set-status --status blocked without --reason is caught", async (t) => {
+test("check 4/skills: import-node --status blocked without --reason is caught", async (t) => {
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 --status blocked");
+    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 --status blocked");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /planted\.md:\d+: invokes 'set-status --status blocked' without --reason/);
+    /planted\.md:\d+: invokes 'import-node --status blocked' without --reason/);
 });
 
-test("check 4/skills: set-status --status blocked WITH --reason passes", async (t) => {
+test("check 4/skills: import-node --status blocked WITH --reason passes", async (t) => {
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
     "--status blocked --reason \"waiting on decision X\"");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("check 4/skills: set-status --status blocked --reason=<placeholder> passes", async (t) => {
+test("check 4/skills: import-node --status blocked --reason=<placeholder> passes", async (t) => {
   // Step files use `{binding}`s for values the run supplies; the check must treat a
   // present-but-templated --reason as satisfying the requirement.
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
     "--status blocked --reason \"{block_reason}\"");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("check 4/skills: set-status --status blocked --reason='' (empty) is caught", async (t) => {
+test("check 4/skills: import-node --status blocked --reason='' (empty) is caught", async (t) => {
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
     "--status blocked --reason \"\"");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'set-status --status blocked' without --reason/);
+  assert.match(r.stderr, /invokes 'import-node --status blocked' without --reason/);
 });
 
-test("check 4/skills: set-status --status in-progress does not require --reason", async (t) => {
+test("check 4/skills: import-node --status in-progress does not require --reason", async (t) => {
   // The rule is scoped: it fires only on --status blocked. Other statuses transitioning
-  // through set-status are unaffected.
+  // imported through import-node are unaffected.
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
     "--status in-progress");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("check 4/skills: other subcommands are unaffected by the set-status rule", async (t) => {
-  // The map is scoped by subcommand too. verify --status is a filter, not the
-  // set-status --status, so the rule doesn't apply there. verify's --scope arg is what
-  // matters here; --status is not one of its flags at all, so this stays a passing
-  // baseline just for coverage of scope.
+test("check 4/skills: other subcommands are unaffected by the import-node rule", async (t) => {
+  // The map is scoped by subcommand too. list-issues --status is a filter over backlog
+  // items, not a node status, so `--status` on it must not demand a --reason even though
+  // the flag name matches the rule's.
   const root = fixture(t);
   plantInvocation(root,
-    "uv run {pm_status} verify --state-root {r} --scope story --story E001-S01-002");
+    "uv run {pm_status} list-issues --state-root {r} --status backlog");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -2687,7 +2676,7 @@ test("check 18: CONTRIBUTING.md's check count is read, and a wrong one fails", a
 });
 
 // A command soft-wrapped inside one `...` code span, which is how the second copy of the
-// duplicated clear-lock remedy is written in l3io-doctor/steps/stats.md. Without the
+// duplicated audit-issues remedy is written in l3io-doctor/steps/stats.md. Without the
 // open-span join the flags sit on the line after the subcommand and are never judged -- so
 // one copy of the duplication would be checked and the other not, which is the failure this
 // arm exists to prevent. Verified on the real file: planting --epic-key on its second source
@@ -2696,13 +2685,13 @@ test("check 4/skills: flags soft-wrapped onto the next line inside one code span
   const root = fixture(t);
   write(root, PLANT_FILE, [
     "# Planted", "",
-    "- If a lock is stale, recommend: `Epic {key} is locked. Run: uv run {pm_status} clear-lock",
+    "- If a lock is stale, recommend: `Epic {key} is locked. Run: uv run {pm_status} audit-issues",
     "  --state-root {r} --epic-key {key}`. Do not re-derive the lock state yourself.",
     "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'clear-lock --epic-key'/);
+  assert.match(r.stderr, /invokes 'audit-issues --epic-key'/);
 });
 
 // MAX_LINE_JOINS bounds the open-span join, and the observable difference is the reported
@@ -2719,12 +2708,12 @@ test("check 4/skills: a stray backtick does not swallow the lines below it", asy
     "filler one",                                                   // 4
     "filler two",                                                   // 5
     "filler three",                                                 // 6
-    "uv run {pm_status} clear-lock --state-root {r} --epic-key {k}", // 7
+    "uv run {pm_status} audit-issues --state-root {r} --epic-key {k}", // 7
     "",
   ].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /planted\.md:7: invokes 'clear-lock --epic-key'/);
+  assert.match(r.stderr, /planted\.md:7: invokes 'audit-issues --epic-key'/);
 });
 
 // Continuation DEPTH. A single shared join cap covered both continuation kinds and stopped at
@@ -2874,72 +2863,6 @@ test("the static per-subcommand option surface matches the real argparse, both w
   }
 });
 
-// M-2(2): the digest's CLI synopsis is a SECOND copy of the CLI surface, loaded standalone by
-// every dispatched subagent, and nothing verified it.
-const DIGEST_REL = "skills/_shared/steps/shared/step-00-digest.md";
-const DIGEST_ANCHOR_LINE = "clear-lock    --state-root S  --epic ID";
-
-function plantInDigest(root, rel, line) {
-  const p = path.join(root, rel);
-  const text = fs.readFileSync(p, "utf8");
-  assert.ok(text.includes(DIGEST_ANCHOR_LINE),
-    `${rel}: the synopsis entry this test plants beside is gone — re-anchor the test`);
-  fs.writeFileSync(p, text.replace(DIGEST_ANCHOR_LINE, `${DIGEST_ANCHOR_LINE}\n${line}`));
-}
-
-test("check 4 catches a fabricated subcommand in the subagent CLI synopsis", async (t) => {
-  const root = fixture(t);
-  plantInDigest(root, DIGEST_REL, "totally-made-up --state-root S");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr,
-    /step-00-digest\.md:\d+: the subagent CLI synopsis documents subcommand 'totally-made-up'/);
-});
-
-test("check 4 catches a real flag given to the wrong subcommand in the synopsis", async (t) => {
-  const root = fixture(t);
-  // --stall-minutes is real -- on `report`, never on `clear-lock`. A union membership test,
-  // which is what the invocation arm used to apply, passes this.
-  plantInDigest(root, DIGEST_REL, "clear-lock    --state-root S  --epic ID --stall-minutes N");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr,
-    /the subagent CLI synopsis gives 'clear-lock' the flag '--stall-minutes'/);
-});
-
-// Scope attack, not a rule attack: the arm must judge every digest copy it FINDS, including
-// one in a skill that has never carried a digest. A hand-kept list of the three synced copies
-// would pass every test above while checking nothing new here.
-test("scope attack: a digest copy in a skill that had none is checked on arrival", async (t) => {
-  const root = fixture(t);
-  const rel = "skills/l3io-util/l3io-doctor/steps/shared/step-00-digest.md";
-  write(root, rel, fs.readFileSync(path.join(root, DIGEST_REL), "utf8"));
-  plantInDigest(root, rel, "also-not-real --state-root S");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr,
-    /l3io-doctor\/steps\/shared\/step-00-digest\.md:\d+: the subagent CLI synopsis documents subcommand 'also-not-real'/);
-});
-
-// The other half of the scope question: an arm whose input set can become empty passes in
-// silence. Removing every digest must be a failure, not a green run over nothing.
-test("scope attack: removing every digest copy fails rather than passing vacuously", async (t) => {
-  const root = fixture(t);
-  const removed = [];
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(p);
-      else if (entry.name === "step-00-digest.md") { fs.rmSync(p); removed.push(p); }
-    }
-  };
-  walk(path.join(root, "skills"));
-  assert.ok(removed.length > 0, "no digest copies found to remove");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /no steps\/shared\/step-00-digest\.md found under skills\//);
-});
-
 // M-2(1): an invocation with no literal `uv run` in front of it escaped the arm entirely.
 test("check 4 catches a bare {pm_status} invocation with no uv run", async (t) => {
   const root = fixture(t);
@@ -2994,11 +2917,11 @@ test("prose naming {pm_status} outside code formatting is not an invocation, fla
 test("check 4 catches a real flag invoked on a subcommand that does not take it", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-util/l3io-doctor/steps/triage.md",
-    "\n| `zy` | `uv run {pm_status} set-status --state-root S --scope story` |\n", true);
+    "\n| `zy` | `uv run {pm_status} audit-issues --state-root S --scope story` |\n", true);
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /invokes 'set-status --scope', but pm-status\.py registers that option on other subcommands only/);
+    /invokes 'audit-issues --scope', but pm-status\.py registers that option on other subcommands only/);
 });
 
 // ---------------------------------------------------------------------------
@@ -3059,15 +2982,15 @@ test("check 24 catches a bare onward pointer in the reference shipped to l3io-do
 // wildcard row in CLAUDE.md's Shared Files table, so check 20 stays green.)
 test("scope attack: a pointer in a newly registered shared file is in scope at once", async (t) => {
   const root = fixture(t);
-  write(root, "skills/_shared/steps/plan/step-99-brand-new.md",
+  write(root, "skills/_shared/steps/shared/step-99-brand-new.md",
     "# New\n\nSee `steps/execute/step-04-dispatch.md` §2.\n");
   const syncRel = "scripts/sync-shared-scripts.mjs";
   const sync = read(root, syncRel);
-  const anchor = `const planStepFiles = [\n`;
-  assert.ok(sync.includes(anchor), "planStepFiles has moved — re-anchor this test");
+  const anchor = `const sharedStepFiles = [\n`;
+  assert.ok(sync.includes(anchor), "sharedStepFiles has moved — re-anchor this test");
   write(root, syncRel, sync.replace(anchor, anchor +
-    `  { src: path.join(sharedDir, "steps", "plan", "step-99-brand-new.md"), ` +
-    `rel: path.join("steps", "plan", "step-99-brand-new.md") },\n`));
+    `  { src: path.join(sharedDir, "steps", "shared", "step-99-brand-new.md"), ` +
+    `rel: path.join("steps", "shared", "step-99-brand-new.md") },\n`));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
@@ -3225,10 +3148,10 @@ const PROBE_MD = "skills/l3io-pm/l3io-execute/references/zz-probe.md";
 
 test("check 4: a short option on a pm-status.py invocation is caught", async (t) => {
   const root = fixture(t);
-  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} set-status -s done --state-root S --story K"));
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} list-issues -s backlog --state-root S"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'set-status -s', but pm-status\.py registers no such short option/);
+  assert.match(r.stderr, /invokes 'list-issues -s', but pm-status\.py registers no such short option/);
 });
 
 test("check 4: a flag value outside argparse's choices is caught", async (t) => {
@@ -3253,10 +3176,10 @@ test("check 4: a flag value from a choices=list(CONST) set is judged too", async
 
 test("check 4: a value-taking flag given no value is caught", async (t) => {
   const root = fixture(t);
-  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} set-status --state-root --story K --status done"));
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} audit-issues --state-root --format json"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'set-status --state-root' with no value/);
+  assert.match(r.stderr, /invokes 'audit-issues --state-root' with no value/);
 });
 
 test("check 4: a required positional left out is caught", async (t) => {
@@ -3319,16 +3242,17 @@ test("check 4: a flag value from a choices=(TUPLE) literal is judged too", async
     /invokes 'sync-agent-instructions --runtime martian', but pm-status\.py accepts only/);
 });
 
-// The second pm-status site, and a different file in the concatenated package source, so this
-// pins the spelling rather than one module's luck.
+// Check 27 reads the same tuple-literal choices. `sync-agent-instructions --runtime` is the
+// one pm-status tuple site left since `reorg-log` retired with the 3.x reorg mode.
 test("check 27: a doc enumerating a choices=(TUPLE) flag incompletely is caught", async (t) => {
   const root = fixture(t);
   const rel = "docs/l3io-pm-reference.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
-  write(root, rel, text + "\n\n`reorg-log --format {text}` is the journal view.\n");
+  write(root, rel, text +
+    "\n\n`sync-agent-instructions --runtime {claude,codex,copilot}` picks the harness.\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /enumerates `reorg-log`'s --format but omits `json`/);
+  assert.match(r.stderr, /enumerates `sync-agent-instructions`'s --runtime but omits `other`/);
 });
 
 // A usage synopsis is not valid shell; before the normalise-and-retry it was skipped whole,
@@ -3489,8 +3413,8 @@ test("check 25: prose after a bare command invocation is not a keyword claim", a
 // load a file that is not there is worse than a stale keyword.
 test("check 25: a step file pointing at a mode file the doctor does not carry is caught", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util/l3io-doctor/steps/sort-status.md",
-    read(root, "skills/l3io-util/l3io-doctor/steps/sort-status.md") +
+  write(root, "skills/l3io-util/l3io-doctor/steps/redrive.md",
+    read(root, "skills/l3io-util/l3io-doctor/steps/redrive.md") +
     "\nApply the fix with `steps/rename-epic-dirs.md` (Rename Epic Dirs Mode).\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -3502,8 +3426,8 @@ test("check 25: a step file pointing at a mode file the doctor does not carry is
 // written this way.
 test("check 25: a cross-skill qualified mode-file pointer is not a doctor pointer", async (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util/l3io-doctor/steps/sort-status.md",
-    read(root, "skills/l3io-util/l3io-doctor/steps/sort-status.md") +
+  write(root, "skills/l3io-util/l3io-doctor/steps/redrive.md",
+    read(root, "skills/l3io-util/l3io-doctor/steps/redrive.md") +
     "\nThe run's builds are dispatched in `l3io-execute/steps/execute/step-04-dispatch.md`.\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -4111,26 +4035,54 @@ test("check 34: a line forbidding hand edits is not a hand edit", async (t) => {
   assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
 });
 
-const READINESS_STEP = "skills/_shared/steps/plan/step-02-readiness-check.md";
+// Every shared-step halt is a site in one of auto-remediation.md's two tables. The
+// Remediable table is empty on this tree (every remaining remedy is the user's), so the tests
+// of the Remediable arm plant a row of their own: they move step-00-activate's "pm_status is
+// not installed" halt into Remediable with `bmad setup l3io-pm` as its remedy, which the step
+// file names outside its BLOCKED block, in §2's prose, within the 40-line window.
+const ACTIVATE_STEP = "skills/_shared/steps/shared/step-00-activate.md";
+const RESOLVE_STEP = "skills/_shared/steps/execute/step-02-resolve.md";
+const REMEDIATION_REF_PATH = "skills/_shared/auto-remediation.md";
+const readRef = (root) => fs.readFileSync(path.join(root, REMEDIATION_REF_PATH), "utf8");
+const PLANTED_SITE = "`step-00-activate: _bmad/l3io-pm/scripts/pm_status is not installed — run`";
+const PLANTED_REMEDY = "bmad setup l3io-pm";
+
+function plantRemediableRow(root, remedyCell = "`" + PLANTED_REMEDY + "`") {
+  const ref = readRef(root);
+  const haltRow = ref.split("\n").find((l) => l.startsWith(`| ${PLANTED_SITE} |`));
+  assert.ok(haltRow, "the step-00-activate pm_status halt row is gone — re-anchor these tests");
+  const header = "|---|---|---|---|---|\n";
+  assert.ok(ref.includes(header), "the Remediable table header moved — re-anchor these tests");
+  write(root, REMEDIATION_REF_PATH, ref.replace(`${haltRow}\n`, "").replace(header,
+    header + `| ${PLANTED_SITE} | pm_status absent | ${remedyCell} | _bmad/l3io-pm/ | \`auto\` |\n`));
+}
 
 test("check 36: a BLOCKED site in neither table fails", async (t) => {
   const root = fixture(t);
-  write(root, READINESS_STEP, "\nBLOCKED: a brand new unclassified condition.\n", true);
+  write(root, RESOLVE_STEP, "\nBLOCKED: a brand new unclassified condition.\n", true);
   const r = await run(root);
   assert.match(r.stderr, /\[check 36\][^\n]*unclassified condition/);
   assert.notEqual(r.status, 0);
 });
 
+test("check 36: a planted Remediable row whose step file runs the remedy passes", async (t) => {
+  const root = fixture(t);
+  plantRemediableRow(root);
+  const r = await run(root, ["-v"]);
+  assert.doesNotMatch(r.stderr, /\[check 36\]/);
+  assert.match(r.stdout, /remediation-coverage: \d+ halt\(s\), \d+ classified, 0 violation/);
+});
+
 test("check 36: a Remediable row whose step file omits the remedy fails", async (t) => {
   const root = fixture(t);
-  const before = fs.readFileSync(path.join(root, READINESS_STEP), "utf8");
-  // Every occurrence, not the first: the remedy is named in the step's report lines and its
-  // recurrence guard as well as its command, and one surviving mention would satisfy the
-  // check and leave this test passing over a mutation that changed nothing it looks at.
-  assert.ok(before.includes("/l3io-doctor bootstrap-state"));
-  write(root, READINESS_STEP, before.replaceAll("/l3io-doctor bootstrap-state", "echo nope"));
+  plantRemediableRow(root);
+  const before = fs.readFileSync(path.join(root, ACTIVATE_STEP), "utf8");
+  // Every occurrence, not the first: one surviving mention would satisfy the check and leave
+  // this test passing over a mutation that changed nothing it looks at.
+  assert.ok(before.includes(PLANTED_REMEDY));
+  write(root, ACTIVATE_STEP, before.replaceAll(PLANTED_REMEDY, "echo nope"));
   const r = await run(root);
-  assert.match(r.stderr, /\[check 36\][^\n]*bootstrap-state/);
+  assert.match(r.stderr, /\[check 36\][^\n]*bmad setup l3io-pm[^\n]*never runs it/);
   assert.notEqual(r.status, 0);
 });
 
@@ -4149,31 +4101,26 @@ test("check 36: the shipped tree passes, and examined something", async (t) => {
   // Load-bearing: a matcher that found nothing would also report no violations.
   const m = r.stdout.match(/remediation-coverage: (\d+) halt\(s\), (\d+) classified/);
   assert.ok(m, "check 36 reported no counts");
-  assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 19, `examined too little: ${m[0]}`);
+  assert.ok(Number(m[1]) >= 11 && Number(m[2]) >= 11, `examined too little: ${m[0]}`);
 });
-
-const REMEDIATION_REF_PATH = "skills/_shared/auto-remediation.md";
-const readRef = (root) => fs.readFileSync(path.join(root, REMEDIATION_REF_PATH), "utf8");
 
 test("check 36: a parenthetical-qualified remedy still matches its step file", async (t) => {
   const root = fixture(t);
-  write(root, REMEDIATION_REF_PATH,
-        readRef(root).replace("| `/l3io-doctor bootstrap-state` |",
-                              "| `/l3io-doctor bootstrap-state` (artifact-only case) |"));
+  plantRemediableRow(root, "`" + PLANTED_REMEDY + "` (first run only)");
   assert.doesNotMatch((await run(root)).stderr, /\[check 36\]/);
 });
 
 test("check 36: a remedy hard-wrapped across lines still matches", async (t) => {
   const root = fixture(t);
-  const before = fs.readFileSync(path.join(root, READINESS_STEP), "utf8");
-  write(root, READINESS_STEP, before.replaceAll("/l3io-doctor bootstrap-state", "/l3io-doctor\nbootstrap-state"));
+  plantRemediableRow(root);
+  const before = fs.readFileSync(path.join(root, ACTIVATE_STEP), "utf8");
+  write(root, ACTIVATE_STEP, before.replaceAll(PLANTED_REMEDY, "bmad setup\nl3io-pm"));
   assert.doesNotMatch((await run(root)).stderr, /\[check 36\]/);
 });
 
 test("check 36: a Remediable row with an empty Remedy cell fails", async (t) => {
   const root = fixture(t);
-  write(root, REMEDIATION_REF_PATH,
-        readRef(root).replace("| `/l3io-doctor bootstrap-state` |", "| **n/a** |"));
+  plantRemediableRow(root, "**n/a**");
   assert.match((await run(root)).stderr, /\[check 36\][^\n]*Remedy cell is empty/);
 });
 
@@ -4192,53 +4139,21 @@ test("check 36: a row saying ABSOLUTE must carry an absolute class", async (t) =
   assert.match((await run(root)).stderr, /\[check 36\][^\n]*says ABSOLUTE/);
 });
 
-test("gitignore halt classifies the ignoring source and writes nothing", async (t) => {
-  // The step reads the source path from `check-ignore -v`; this pins that git reports the
-  // local and global sources as paths that are not a work-tree .gitignore, which is what
-  // the step's classification relies on, and that the step states it and does not write.
-  const { execFileSync } = await import("node:child_process");
-  const os = await import("node:os");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-docs-gitignore-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const git = (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" });
-  git("init", "-q");
-  const global = path.join(dir, "global-ignore");
-  fs.writeFileSync(global, "gstate/\n");
-  git("config", "core.excludesFile", global);
-  fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), "estate/\n");
-  fs.writeFileSync(path.join(dir, ".gitignore"), "pstate/\n");
-  const source = (p) => git("check-ignore", "-v", p).split(":")[0];
-  assert.equal(source("estate/x"), path.join(".git", "info", "exclude"));
-  assert.equal(source("gstate/x"), global);
-  assert.equal(source("pstate/x"), ".gitignore");
-  const step = fs.readFileSync(
-    path.join(REPO, "skills/_shared/steps/shared/step-00-activate.md"), "utf8");
-  assert.match(step, /\*\*Classify the source\*\*/);
-  assert.match(step, /`\.git\/info\/exclude`, a global excludes file/);
-  assert.match(step, /cd \{project-root\} && test -L <source>/);
-  assert.match(step, /a path-component test, not a string prefix/);
-  // Placeholder, not a literal path: bmb's scan-path-standards.py flags `/home/...` and
-  // `~/...` as absolute-path/high, and these illustrative paths failed check:bmb.
-  assert.match(step, /<toplevel>-evil/);
-  assert.match(step, /non-empty\s+first/);
-  assert.match(step, /relative to the directory of the \.gitignore\s+that holds the rule/);
-  assert.match(step, /git cannot re-include from inside it/);
-  assert.match(step, /I could not locate\s+the ignoring rule/);
-  assert.doesNotMatch(step, /appending negations|gitignore_fixed/);
-});
-
 test("check 36: restoring the halt-and-name-it form of a converted site fails", async (t) => {
   // The pre-conversion text named its remedy inside the BLOCKED message and stopped. Strip the
   // remedy from every line outside a BLOCKED block and leave the halt naming it: the old form.
   const root = fixture(t);
-  const f = "skills/_shared/steps/shared/step-00-activate.md";
+  plantRemediableRow(root);
+  const f = ACTIVATE_STEP;
   const lines = fs.readFileSync(path.join(root, f), "utf8").split("\n");
   let on = false;
   const out = lines.map((l) => {
     if (l.startsWith("BLOCKED:")) on = true;
     else if (on && (/^\s*```/.test(l) || l.trim() === "")) on = false;
-    return on ? l : l.replaceAll("/l3io-doctor migrate-state", "the migration");
+    return on ? l : l.replaceAll(PLANTED_REMEDY, "the setup");
   });
+  assert.ok(out.some((l) => l.startsWith("BLOCKED:") && l.includes(PLANTED_REMEDY)),
+    "the halt no longer names its remedy — re-anchor this test");
   write(root, f, out.join("\n"));
   const r = await run(root);
   assert.match(r.stderr, /\[check 36\][^\n]*only inside BLOCKED: text/);

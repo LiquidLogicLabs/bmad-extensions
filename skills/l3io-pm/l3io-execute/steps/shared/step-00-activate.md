@@ -67,42 +67,23 @@ skill triggers module setup; `bmad setup l3io-pm` is the module's setup entry po
 
 Extract and bind from the resolved JSON:
 - `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)
-- `{implementation_artifacts}` — `modules.l3io-pm.implementation_artifacts`
-  (default `{output_folder}/implementation-artifacts`)
-- `{planning_artifacts}` — `modules.l3io-pm.planning_artifacts`
-  (default `{output_folder}/planning-artifacts`)
 - `{model}` — `modules.l3io-pm.default_model` (default `claude-opus-5`). The model id every
-  `cost` in this project is priced against. Pass it as `--model {model}` on `estimate-story`,
-  `estimate-rollup`, and every `set-actual` that carries token counts. **Not optional** —
+  `cost` in this project is priced against. Pass it as `--model {model}` on `estimate-entries`
+  and every pm-status call that prices tokens. **Not optional** —
   leaving it unbound prices every estimate at `claude-opus-5` regardless of what the project
   actually runs on, and the same token volume prices ~2× apart between a $3/M and a $10/M
   input tier. An unknown id is a hard error, exit 2, never a silent fallback.
-- `{model_story_simple}` — `modules.l3io-pm.model_story_simple` (default `{model}`). Model
-  used when dispatching a story dev agent for a `classification: simple` story. Used as the
-  `model:` binding in the dispatch context block and as `--model` on that story's `set-actual`.
-- `{model_story_standard}` — `modules.l3io-pm.model_story_standard` (default `{model}`). Same
-  for `classification: standard` stories.
-- `{model_story_complex}` — `modules.l3io-pm.model_story_complex` (default `{model}`). Same
-  for `classification: complex` stories.
-- `{model_review}` — `modules.l3io-pm.model_review` (default `{model}`). Model used when
-  dispatching `bmad-code-review` from the dev loop. Passed through dispatch context so the dev
-  loop agent can use it when spawning the reviewer.
-- `{model_prep}` — `modules.l3io-pm.model_prep` (default `{model}`). Model for sprint prep
-  agents.
-- `{model_closure}` — `modules.l3io-pm.model_closure` (default `{model}`). Model for sprint
-  and epic closure agents.
 - `{token_rates_json}` — `modules.l3io-pm.token_rates`, serialized to compact JSON; empty
   when the key is absent, which is the normal case (the shipped rate table applies). When it
   is **non-empty**, add `--token-rates '{token_rates_json}'` to `estimate-story`,
-  `estimate-rollup`, `set-actual`, **and `verify`**; when it is empty, omit the flag
+  `estimate-rollup`, `estimate-entries`, `set-actual`, **and `verify`**; when it is empty, omit the flag
   entirely. Passing it to the writers but not to `verify` makes `verify` recompute `cost`
   against the shipped rates and fail every node the override priced. See
   `references/config-resolution.md` §3.
-- Set `{pm_state_root}` = `{implementation_artifacts}/state` — except in `l3io-execute`,
-  which runs over v7's ticket tree and binds `{pm_state_root}` = `{output_folder}/l3io`, the
-  project-wide state root its hooks share (`references/status-files.md` §12)
-- Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
-- Set `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
+- `{lane_count}` — `modules.l3io-pm.lane_count` (absent: lanes off), and `{lane}` —
+  `modules.l3io-pm.lane`, from the user layer only (absent: no lane of one's own)
+- Set `{pm_state_root}` = `{output_folder}/l3io`, the project-wide state root every l3io hook
+  shares beside v7's ticket tree (`references/status-files.md` §12)
 
 ## 2. Locate pm-status.py
 
@@ -197,7 +178,7 @@ fi
 
 **Warn but do not block.** This skill can complete without the doctor for its own core path;
 the failure is deferred to whichever specific step tries to forward to it (`migrate-state`,
-`bootstrap-state`, `stats`). Surfacing the warning up front turns "skill not found"
+`stats`). Surfacing the warning up front turns "skill not found"
 into a diagnosable install anomaly instead of a downstream mystery.
 
 When `doctor=absent`, print exactly once at activation (do not repeat later):
@@ -211,7 +192,7 @@ When `doctor=absent`, print exactly once at activation (do not repeat later):
     `bmad setup`.
 ```
 
-Continue to section 3 either way.
+Continue to section 2.6 either way.
 
 ## 2.6. Offer the agent instruction block, once per harness
 
@@ -263,344 +244,19 @@ fi
   line is not recorded in the notice ledger, so it repeats until the file is fixed.
 - Any other exit — say nothing and continue; a documentation probe never fails the run.
 
-## 3. Detect state layout
-
-`l3io-execute` skips §3–§6 and §8 and continues at §7: it reads v7's ticket tree through
-`tickets.py`, and its state is the sidecars beside that tree, so there is no state layout of
-ours to detect, create, list or verify. §3–§6 and §8 serve `l3io-plan`.
-
-Count how many of these three layouts are present — do **not** stop at the first match:
-
-```bash
-SHARDED=$([ -d "{implementation_artifacts}/state" ] && echo 1 || echo 0)
-LEGACY_EPIC=$([ -d "{project-root}/_bmad/state" ] && echo 1 || echo 0)
-LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] && echo 1 || echo 0)
-echo "sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT"
-```
-
-**If more than one is 1** → an earlier migration died partway and left state in two places.
-Guessing which is authoritative would fork the project's state, and a wrong guess deletes work,
-so the only remedy here is one the evidence makes unambiguous
-(`references/auto-remediation.md` is the contract; this is its one **conditional** row).
-
-*When the evidence exists.* It exists for exactly one combination: `SHARDED` and `LEGACY_EPIC`
-are 1 and `LEGACY_FLAT` is 0. A per-epic legacy tree names its epics in its entry names, so its
-keys can be listed and compared. A flat `sprint-status.yaml` holds its epics inside one file
-this step does not parse, so when `LEGACY_FLAT` is 1 there is nothing to compare: halt with the
-**uncomparable** line below and remediate nothing.
-
-*What is compared.* **Epic keys only.** A legacy tree holding an epic the sharded tree lacks is
-the case that loses work, and it is what this comparison detects. Sprint or story divergence
-*inside an epic key both trees share* is a different problem that this remedy does not claim to
-solve: such a pair passes the comparison, so what it licenses is moving the legacy tree aside
-(reversibly, below), not a judgment that the two copies of that epic agree.
-
-```bash
-LEG="{project-root}/_bmad/state"
-LISTING_ERR=$(ls -A "$LEG" 2>&1 >/dev/null) && LISTING_ERR=
-LISTING=$(ls -A "$LEG" 2>/dev/null)
-EPIC_RE='^(E|epic-)[0-9]{3}(-status\.yaml)?$'
-LEGACY_KEYS=$(printf '%s\n' "$LISTING" | grep -E "$EPIC_RE" | sed -E 's/^(E|epic-)([0-9]{3}).*/E\2/' | sort)
-LEGACY_DUP=$(printf '%s\n' "$LEGACY_KEYS" | uniq -d)
-LEGACY_OTHER=$(printf '%s\n' "$LISTING" | grep -vE "$EPIC_RE" | sed '/^$/d')
-SHARDED_KEYS=$(ls -d {pm_state_root}/planned/epic-* {pm_state_root}/active/epic-* {pm_state_root}/archived/epic-* 2>/dev/null | sed -E 's|.*/epic-([0-9]+)$|E\1|' | sort -u)
-ONLY_LEGACY=$(comm -23 <(printf '%s\n' "$LEGACY_KEYS" | sort -u | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
-ONLY_SHARDED=$(comm -13 <(printf '%s\n' "$LEGACY_KEYS" | sort -u | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
-```
-
-*Reading the legacy tree.* If the listing failed (`LISTING_ERR` is non-empty), nothing is known
-about the tree: it does not qualify, and the halt below prints `LISTING_ERR`. An empty `LISTING`
-with `LISTING_ERR` empty is an empty tree; an empty `LISTING` with it set is not. An epic key is an entry named exactly `E###`, `epic-###` or
-`E###-status.yaml` — a boundary, not a prefix, so `epic-0010` (a different epic) and `E001.bak`
-(a second copy nobody compared) are not read as `E001`. Anything else lands in `LEGACY_OTHER`,
-and two entries resolving to one key (`LEGACY_DUP`) are two copies, so both halt.
-
-*The rule.* The legacy keys must all be present in the sharded tree — `ONLY_LEGACY`,
-`LEGACY_OTHER`, `LEGACY_DUP` and `LISTING_ERR` all empty. Sets that are equal qualify:
-a migration that copied every epic and died before its cleanup leaves exactly equal sets, which
-is the commonest interrupted migration. Moving the tree aside loses nothing because the move is a
-rename, not because the comparison proves completeness — it checks key presence only. A legacy entry that is not an epic key
-(`LEGACY_OTHER`) is content this comparison cannot account for, so it fails the rule and is named
-in the halt rather than ignored. Keys only in the sharded tree are expected after a migration
-and do not fail it.
-
-*The empty legacy tree is decided, not inherited.* An empty `_bmad/state/` (no entries at all,
-hidden ones included) is vacuously a subset, and this step treats that as qualifying: an empty
-leftover directory is the interrupted-migration case in its simplest form, there is nothing in it
-to lose, and refusing it would halt every run forever over a directory that holds nothing. It is
-backed up like any other, so the move is still reversible and still reported, with `none` where
-the `⚙` line lists the keys.
-
-**Qualifies** → remediate, once. Set `{layouts_reconciled}` = `true` **before** moving anything —
-and if it is already `true`, this is a recurrence: go straight to the **Succeeded but persists**
-halt below and run nothing. If `{project-root}/_bmad/state.superseded` already exists, do not
-overwrite or merge into it: halt as **Failed** naming it. Print:
-```
-⚙  multiple state layouts detected; the legacy tree's epic keys ({legacy_key_list}) are all
-   present in the sharded tree (contents not compared) — backing the legacy tree up.
-```
-Bind `{legacy_key_list}` = `$LEGACY_KEYS` joined on one line with commas, or the word `none`
-when it is empty. Move it aside with `mv {project-root}/_bmad/state {project-root}/_bmad/state.superseded` and
-re-run the three-layout probe once. The sharded tree is never written, and moving the directory
-back restores the original exactly. Three outcomes, and only the first continues:
-
-- **Cleared** — only `SHARDED` is 1. Print
-  `✓  moved _bmad/state to _bmad/state.superseded; to undo: mv _bmad/state.superseded _bmad/state. Continuing on the sharded layout.`
-  and continue to section 4.
-- **Succeeded but persists** — the move reported success and the probe still finds more than one
-  layout. Halt, naming what was tried:
-```
-BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and the layouts
-persist. I moved _bmad/state to _bmad/state.superseded and the probe still finds more than one. This needs a decision.
-```
-- **Failed** — the move errored, or the destination already exists. Halt, reporting the original
-  condition and the error. A cross-device `mv` copies and then deletes, so a failure can leave a
-  partial copy: do not claim the tree is untouched, and re-check both paths first.
-```
-BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and I could not
-back up the legacy tree: <its error>. Check _bmad/state and _bmad/state.superseded before
-re-running. This needs a decision.
-```
-
-**Does not qualify** (a legacy-only key, a legacy entry that is not an epic key, a duplicated key, or an unreadable listing) → halt, and print
-which keys differ, so the user is not left to find the difference. Remediate nothing:
-```
-BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and they diverge,
-so neither can be shown to be a copy of the other.
-  only in legacy ({project-root}/_bmad/state): {ONLY_LEGACY}
-  legacy entries that are not epic keys: {LEGACY_OTHER}
-  listing error: {LISTING_ERR}
-  legacy keys held by more than one entry: {LEGACY_DUP}
-  only in sharded ({pm_state_root}): {ONLY_SHARDED}
-Guessing which is authoritative would fork the project's state. Inspect both and remove
-the stale one, then re-run /l3io-doctor migrate-state.
-```
-
-**`LEGACY_FLAT` is 1** (uncomparable) → halt, remediating nothing:
-```
-BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT). An earlier migration
-did not finish, and a flat sprint-status.yaml cannot be compared with another layout here. Do not run any l3io-pm skill until this is resolved — inspect both
-locations and remove the stale one, then re-run /l3io-doctor migrate-state.
-```
-
-**If only sharded** → current layout. Continue to section 4.
-
-**If only the legacy per-epic layout or only the legacy flat layout** → remediate, once
-(`references/auto-remediation.md` is the contract). `migrate-state` runs against the copy
-`bmad setup` installed, and it preserves the
-original as `.legacy` — which is what makes this reversible. Set `{layout_migrated}` = `true`
-**before** running it — and if it is already `true`, this is a recurrence: go straight to the
-**Succeeded but persists** halt below and run nothing. Then print:
-```
-⚙  legacy state layout detected ({legacy_layout_name}) — running /l3io-doctor migrate-state
-```
-Bind `{legacy_layout_name}` from the probe: `per-epic = _bmad/state/` when `LEGACY_EPIC` is 1,
-`flat = sprint-status.yaml` when `LEGACY_FLAT` is 1. Run `/l3io-doctor migrate-state`, then re-run the three-layout probe above once. Three outcomes,
-and only the first continues:
-
-- **Cleared** — only `SHARDED` is 1. Print
-  `✓  migrated to the sharded layout; the original is kept as .legacy. Continuing activation.`
-  and continue to section 4.
-- **Succeeded but persists** — `migrate-state` reported success and the probe still finds a
-  legacy layout or more than one layout. Halt, naming what was tried:
-```
-BLOCKED: legacy state layout — migrate required. I ran `/l3io-doctor migrate-state` and the layout
-persists (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT). This needs a decision.
-```
-- **Failed** — `migrate-state` errored, including a write failure. Re-run the three-layout
-  probe once and halt, reporting the legacy layout, the migration's own error and the layouts
-  now present — a migration can fail after it has begun writing, so do not claim the original is
-  untouched:
-```
-BLOCKED: legacy state layout — migrate required. `/l3io-doctor migrate-state` failed: <its error>.
-Layouts now present: sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT. Check them before re-running.
-```
-
-**If all three are 0** → possible first run. Before creating anything, rule out an orphan
-caused by `implementation_artifacts` having been repointed:
-
-```bash
-git -C {project-root} ls-files -- '*/state/active/epic-*/epic.yaml' 'state/active/epic-*/epic.yaml' 2>/dev/null | head -5
-find {project-root} -maxdepth 5 -type d -name active -path '*/state/*' 2>/dev/null | head -5
-```
-
-The second pathspec (`state/active/epic-*/epic.yaml`, no leading `*/`) catches the case where
-`implementation_artifacts` equals `project-root`: git's fnmatch-pathname semantics require at
-least one literal path segment before `state/`, so the first pathspec alone would miss a
-root-level match.
-
-If either prints a path that is not under `{implementation_artifacts}/state`, the found tree is
-the real state and the configuration moved — so adopt it rather than start a blank project over
-it (`references/auto-remediation.md` is the contract). The two probes print different path
-forms — `git ls-files` prints paths relative to `{project-root}`, `find` prints them absolute —
-so resolve every printed path to an absolute real path (relative ones against `{project-root}`,
-symlinks followed) before comparing any two. Derive each candidate as the resolved directory
-above the printed `state/`, and de-duplicate the resolved values. If more than one distinct
-`{found}` remains, there is no single tree to adopt: halt with the line below, listing them.
-Otherwise `{found}` is that absolute path, and it is the value written to `config.toml` and
-compared against `{implementation_artifacts}` below; a relative value would depend on the working
-directory.
-
-Otherwise remediate, once. If `{state_repointed}` is already `true`, this is a recurrence — the
-repoint did not hold — so go straight to the persists halt and write nothing. Before writing,
-capture `{configured}` = the current `{implementation_artifacts}`, and read
-`{project-root}/_bmad/custom/config.user.toml`: it is the one layer merged after the file we
-write, so a `modules.l3io-pm.implementation_artifacts` there would win over the repoint. If it
-sets one, halt as **Succeeded but persists** now, naming that file, before writing anything.
-Otherwise set `{state_repointed}` = `true` and print:
-```
-⚙  state found at {found} but implementation_artifacts resolves to {configured} — repointing
-```
-Then repoint implementation_artifacts in {project-root}/_bmad/custom/config.toml — this
-package's own layer — under `[modules.l3io-pm]`, writing the previous value beside it as a
-comment (`# was: {configured}`) so the change is revertible by inspection. Create
-the file and section if absent; change no other key. Re-run the resolver from section 1 once.
-Three outcomes, and only the first continues:
-
-- **Cleared** — it now resolves to `{found}`. Re-bind `{implementation_artifacts}` and
-  `{pm_state_root}` (`{configured}` keeps the old value), print
-  `✓  implementation_artifacts = {found} (was {configured}). Continuing activation.`
-  and re-run the three-layout probe above once before continuing.
-- **Succeeded but persists** — the resolver still returns another value, or the overriding
-  layer above was found before the write. Halt, naming the layer. If the write had landed, say
-  so plainly: `custom/config.toml` now carries the repoint and a `# was:` comment, and the
-  override still wins. Do not edit a layer the user owns.
-- **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
-  original condition and the write error; the file is left as it was.
-
-All three halts use this line, where `{resolved_now}` is the value the most recent resolver run
-returned, or `{configured}` when the resolver was not re-run (it can differ from both `{found}`
-and `{configured}` when an overriding layer wins):
-```
-BLOCKED: state found at <printed-path> but implementation_artifacts resolves to
-{resolved_now}. Did implementation_artifacts change? Refusing to start a
-blank project over existing state. <what was tried and the result, or why no tree could be adopted>
-```
-
-If both print nothing → genuine first run. Continue to section 4.
-
-## 4. Create state directories
-
-```bash
-mkdir -p {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived
-mkdir -p {planning_artifacts}
-```
-
-Verify the state root is not gitignored — this is what keeps state in version control:
-
-```bash
-git -C {project-root} check-ignore -q {pm_state_root} && echo IGNORED || echo TRACKED
-```
-
-If `IGNORED`, halt. Locate the ignoring rule first, so the halt names the exact file and rule
-rather than guessing — the rule may be in any ignore source git reads:
-
-```bash
-git -C {project-root} check-ignore -v {pm_state_root}
-```
-
-The output is `source:line:pattern`; the file holding the rule is the path before the first
-colon. If it prints nothing while the probe said `IGNORED`, halt:
-```
-BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but I could not locate
-the ignoring rule (`check-ignore -v` printed nothing).
-```
-
-This is a halt, not a remediation, because no appended line can be shown to work. `{pm_state_root}`
-is an absolute path and a gitignore pattern is relative to the directory of the `.gitignore` that
-holds it, so an absolute negation matches nothing. Only relative negations work, and they must
-negate **every** parent directory the rule excludes. When the ignoring rule excludes a parent
-directory (`_bmad-output/`, say), git cannot re-include anything from inside it at all, and
-negating the parents changes what else in the project becomes tracked. That is a decision about
-the user's repository, so this step never writes to an ignore file.
-
-**Classify the source** so the halt can say whose rule it is. Take the source path (relative to
-`{project-root}` when git prints it so) and test it with these commands:
-
-```bash
-cd {project-root} && test -L <source> && echo SYMLINK
-cd {project-root} && realpath <source>
-cd {project-root} && realpath "$(git -C {project-root} rev-parse --show-toplevel)"
-```
-
-The source is a project rule only if all three hold: it is not a symlink (no `SYMLINK` printed);
-its file name is `.gitignore`; and its `realpath` lies under the `realpath` of the toplevel,
-comparing the two resolved values (never a resolved path against an unresolved one). "Under" is
-a path-component test, not a string prefix: the source's real path must be the toplevel's real
-path, then `/`, then at least one more component — in shell,
-`case "$source_real" in "$top_real"/?*) ;; *) not-project ;; esac` — and both values must be
-non-empty first (an empty `$top_real` makes the pattern `/?*`, which matches every absolute
-path), so a sibling such as `<toplevel>-evil/.gitignore` does not pass for `<toplevel>`.
-
-A project `.gitignore` halts with:
-```
-BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but <file> line <line>
-(`<pattern>`) ignores it. Negations must be written relative to the directory of the .gitignore
-that holds the rule, one for each excluded parent directory down to the state directory. If the
-pattern excludes a parent directory, git cannot re-include from inside it: change or narrow that
-rule itself. I did not edit it.
-```
-
-Anything else — `.git/info/exclude`, a global excludes file (`core.excludesFile`, typically
-`$XDG_CONFIG_HOME/git/ignore`), a path outside the repository, or a symlink (name the link and its
-target) — is a local, deliberate rule that reaches nobody else. Halt with:
-```
-BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but the rule is in
-<file>, which is local to this machine or a symlink. Remove that rule from it, or override it
-in the project .gitignore with negations relative to that file's directory.
-```
-
-## 5. List active epics
-
-```bash
-ls -d {pm_state_root}/active/epic-*/ 2>/dev/null || echo "(none)"
-```
-
-Bind `{active_epic_keys}` = the `E{nnn}` key for each directory found (`epic-001` → `E001`).
-An empty list is valid on first run.
-
-## 6. Verify schema of files this skill will touch (if any active epics exist)
-
-If `{active_epic_keys}` is non-empty AND this skill is `l3io-execute` or `l3io-plan`,
-run for each epic key in scope:
-
-```bash
-uv run {pm_status} verify --state-root {pm_state_root} --epic {epic_key} --scope epic
-```
-
-A FAIL result means the epic's files are corrupted. Halt with:
-```
-BLOCKED: schema verify failed for {epic_key} — investigate before continuing.
-```
-
-A PASS or "epic absent" result is fine.
-
-## 7. Bind session ID
+## 3. Bind session ID
 
 Generate and bind `{session_id}` — a stable unique identifier for this execution session
 (e.g., `l3io-pm-{iso_timestamp}-{random_suffix}`). This value must remain constant for the
-lifetime of this skill invocation and is used by set-lock / check-lock to identify the
-owning session. Generate it once here; never regenerate it in later steps.
+lifetime of this skill invocation and stamps every event this run appends. Generate it once
+here; never regenerate it in later steps.
 
 **Only an orchestrator generates one.** If your context block supplies `session_id`, that
 value is the run's — bind it and do not mint another. Two ids for one run cannot be
 reconciled afterwards: `events.jsonl` is append-only and the stamp is all there is.
 
-## 8. Load the state and metrics digest
+## 4. Output status line
 
 ```
-{skill-root}/steps/shared/step-00-digest.md
-```
-
-Load it now and keep it in context for the rest of this invocation. It carries the keys,
-subcommand signatures, exit codes, the estimates-and-actuals HARD RULE, the `{agent_contract}`
-binding, and a routing table to the reference section a given question needs.
-
-It is a separate file so that a dispatched subagent — which inherits everything sections 1–7
-established and must not redo it — can load the digest alone.
-
-## 9. Output status line
-
-```
-Step 00 complete — state: {pm_state_root}, active epics: {count_of_active_epic_keys}, pm-status: installed, runtime: {runtime}
+Step 00 complete — state: {pm_state_root}, pm-status: installed, runtime: {runtime}
 ```

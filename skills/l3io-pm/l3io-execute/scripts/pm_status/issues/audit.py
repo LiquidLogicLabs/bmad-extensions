@@ -99,7 +99,7 @@ def _story_index(state_root):
     live:    the same minus dead claims (`_dead_claim`) -- 1d and 1h read only live claims,
              so the 1g repair leaves a clean audit.
     moved:   old story key -> the stories that now carry it in `previous_keys`, which is how
-             a reference orphaned by reparent-story is told apart from one that never
+             a reference orphaned by a 3.x re-key is told apart from one that never
              resolved at all (1l).
     """
     stories, claims, live, moved = {}, {}, {}, {}
@@ -169,7 +169,7 @@ def _audit_findings(state_root, store) -> list:
         for fld, old, new, fname in stale[k]:
             if new is not None:
                 add("1l", k, f"{fld}: {old} in {fname} names no story; {new} records it in "
-                             f"previous_keys (it was re-keyed by reparent-story)",
+                             f"previous_keys (it was re-keyed)",
                     f"repair-issue --action repoint --key {k}", story=new)
             else:
                 add("1l", k, f"{fld}: {old} in {fname} names no story, and {len(moved[old])} "

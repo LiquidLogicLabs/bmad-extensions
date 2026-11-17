@@ -5,17 +5,17 @@
 # ///
 # pm-status-version: 3.7.1   (machine-readable marker; the doctor reads it off each installed copy — keep at top)
 """
-pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
-sharded state tree, and the reader behind its progress report.
+pm-status.py — deterministic, atomic, round-trip-safe writer of l3io's estimates, actuals
+and calibration beside v7's ticket tree, and the reader behind its progress report.
 
 Why this exists
 ---------------
-Status transitions used to be free-form YAML edits the model performed between
-phases. Under load or parallel execution those edits were skipped, malformed, or
-they reordered/stripped the file. This script makes every transition a single
-deterministic operation:
+State writes used to be free-form YAML edits the model performed between phases.
+Under load or parallel execution those edits were skipped, malformed, or they
+reordered/stripped the file. This script makes every write a single deterministic
+operation:
 
-  * node addressing follows references/status-files.md (epic -> sprints -> stories),
+  * addressing follows references/status-files.md (§12 for v7's tree),
   * writes are atomic (temp file + os.replace) so a crash never leaves a partial file,
   * ruamel round-trip load/dump preserves key order and comments so diffs stay clean,
   * `verify` is a hard read-back gate the orchestrator can branch on (exit code).
@@ -27,32 +27,19 @@ ModuleNotFoundError anywhere ruamel.yaml is not already installed globally.
 
 Subcommands
 -----------
-  set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
-                [--title T] [--reason "R"] [--resolution "R"]
-                [--flock] [--no-events] [--session-id ID]
-                (story transitions gated per-pair via VALID_STORY_TRANSITIONS; sprint and
-                epic keep enum-only validation. --status blocked REQUIRES --reason and is
-                permitted only from in-progress or review; the reason lands on the node
-                as blocked_reason and a paired block_open event is appended. A subsequent
-                transition off blocked clears blocked_reason and appends block_close with
-                the derived duration_hours. blocked -> done additionally REQUIRES
-                --resolution. A story set to done resolves every key in its resolves:
-                as fixed, ref the story, printing `resolved BL-...` per NEW resolution
-                and `ok BL-... already resolved (...)` per key resolved before; a failure
-                there warns, naming /l3io-doctor triage, and still exits 0 -- ADR-0003)
-  story-doc-init --state-root S  --artifacts-root R  --story KEY
-                (creates the story document skeleton from the state node when absent;
-                an existing document is left untouched, exit 0 "exists")
   import-node   --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--classification C] [--origin {inferred}] [--origin-note N]
                 [--reason R]   (REQUIRED when --story ... --status blocked; stored as
                                 blocked_reason and in the paired block_open event; rejected
                                 on any other kind or status)
                 [--no-events] [--session-id ID]
-                (creates a missing state node from a migration record; idempotent by
-                SKIP -- an existing node is left untouched and no event is appended;
-                exit 3 when a sprint or story's parent epic is absent)
-  set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
+                [--goal G] [--superseded-by K] [--depends-on KEY ...]
+                (creates a missing 3.x state node from a migration record, with the
+                record's goal, superseded_by and depends_on in the same write; idempotent
+                by SKIP -- an existing node is left untouched and no event is appended;
+                exit 3 when a sprint or story's parent epic is absent. Retires with the
+                migration in Phase 6)
+  set-actual    --state-root S   --node {story,epic}  (--story KEY | --epic ID)
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
                 (any --tokens-* requires --model M; under --runtime claude ALL FOUR are
@@ -77,13 +64,6 @@ Subcommands
                 cost is DERIVED from tokens x rates — --cost/--cost-low/--cost-high are
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
-  set-depends-on --state-root S  (--story KEY | --epic ID)
-                (--add KEY [--add KEY ...] | --remove KEY [--remove KEY ...] [--force])
-                (adds to or removes from depends_on, the one LIST-shaped field: epic keys on an epic
-                node, story keys on a story node -- status-files.md §11. set-field would
-                store a list as the string "['E001']", which a reader takes for a scalar.
-                Idempotent, order preserved, all-or-nothing: every key is validated
-                before anything is written. A sprint node has no depends_on: exit 2)
   import-actual --state-root S  --node story|sprint|epic  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 (an actual OBSERVED ELSEWHERE, for a migration. runtime=other, tokens=N/A and
@@ -91,11 +71,6 @@ Subcommands
                 --calibrate are absent from its surface, so a call that would claim Claude
                 provenance or poison the learned ratios is a usage error rather than a silent
                 one. Delegates to set-actual, which is unchanged)
-  set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
-                (refuses any field in DERIVED_NODE_FIELDS, any sub-path of one
-                (<name>.x), or any parent path of one (completion_evidence, which would
-                replace test_runs) -- completion_evidence.tests_passing (use
-                add-test-run), status (use set-status), resolves (use promote-issue))
   add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
                 (appends {command, exit_code} to completion_evidence.test_runs and
                 derives completion_evidence.tests_passing as all(exit_code == 0) over
@@ -116,30 +91,17 @@ Subcommands
                 [--require-tokens] [--runtime {claude,other}]
                 (--scope epic checks structural/back-reference integrity across the
                 epic's whole subtree; --scope story/sprint check completion of one node)
-  list-epics    --state-root S  [--format keys|json]
-                (read-only; empty/absent state -> empty output, exit 0; keys default
-                prints one E{nnn} per line, sorted; json prints [{key, bucket, status}, ...]
-                with bucket in active/planned/archived order)
-  list-stories  --state-root S  --epic E  [--sprint S]  [--format keys|json]
-                (read-only; absent epic exits 3; absent sprint -> empty output, exit 0;
-                filters out sprint.yaml/epic.yaml and any non-story .yaml files)
-  show          --state-root S  --epic ID  [--sprint ID]
-  report        --state-root S  [--plan P] [--format tree|json|md] [--out F]
-                [--all] [--watch SECS]
-                or, over a v7 initiative: --project-root P  --initiative-dir D
-                [--status-json F] [--format tree|json|md] [--out F] [--watch SECS]
+  report        --project-root P  --initiative-dir D  [--status-json F]
+                [--format tree|json|md] [--out F] [--watch SECS] [--stall-minutes M]
                 (tickets.py status -- from F, else v7's installed tickets.py -- plus each
                 epic's lane, estimates and ticket actuals from our sidecars; a build
                 bracket open in the .inflight spool past --stall-minutes is a stalled
-                build. --all, --status and --plan are 3.x only, exit 2)
+                build)
   dispatch      --state-root S  --event {open,close}  --agent NAME
                 [--epic ID] [--sprint ID] [--story KEY] [--session-id ID]
                 (appends a dispatch_open/dispatch_close event to events.jsonl;
                 feeds report's stall detection and marks the child/orchestration
                 spend boundary -- records timestamps only, never a token count)
-  set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
-  clear-lock    --state-root S  --epic ID
-  check-lock    --state-root S  --epic ID  --session-id SESS
   append-issue  (--state-root S | --file F)  [--key BL-E{nnn}-{nnn}]  --epic E  [--sprint S]  --title T
                 --source S  --severity {Low,Medium,High,Critical}  [--description D]
                 [--allow-duplicate]
@@ -178,20 +140,19 @@ Subcommands
                 --sprint S  --classification {simple,standard,complex}  [--title T]
                 [--model M] [--token-rates JSON] [--session-id ID] [--cause C]
                 (creates an estimated story whose `resolves:` lists the items, writes its
-                document, rolls up sprint and epic, then marks the items scheduled; a key
+                document, rolls up its epic, then marks the items scheduled; a key
                 given TWICE is refused (exit 2) rather than deduped, because --title is
                 required on len(keys) > 1 and collapsing a repeat would skip it --
                 schedule-issue still dedups, since nothing there reads the count; every
                 refusal is checked before the first write; a retry after an interrupted
                 run resumes the existing story -- only with the same --epic/--sprint (a
                 claimant elsewhere exits 2 naming them), and a dead claim (a story under
-                archived/ that is not done) is ignored; a foreign epic lock exits 5 when
-                check-lock would report it LOCKED, and whenever promote cannot evaluate
-                it (not a mapping, no session_id, a missing, unparseable or timezone-less
-                claimed_at, a non-integer ttl_minutes); the holder must equal
-                --session-id exactly to count as this session's own, as in set-lock and
-                check-lock, and a whitespace-only one is no session_id -- clear-lock removes an
-                abandoned one; a story node that does not parse, is not valid UTF-8 or
+                archived/ that is not done) is ignored; a foreign 3.x epic `_lock` exits 5
+                while live within its TTL, and whenever promote cannot evaluate it (not a
+                mapping, no session_id, a missing, unparseable or timezone-less claimed_at,
+                a non-integer ttl_minutes); the holder must equal --session-id exactly to
+                count as this session's own, and a whitespace-only one is no session_id --
+                delete the `_lock` block to drop an abandoned one; a story node that does not parse, is not valid UTF-8 or
                 is not a mapping, or a claimant whose key: is malformed, exits 2 naming
                 the file, before any write)
   schedule-issue --state-root S  --key K [--key K2 ...]  --story E{nnn}-S{nn}-{nnn}
@@ -243,36 +204,6 @@ Subcommands
                 unschedule writes an issue_unscheduled event; a story node that does
                 not parse, is not valid UTF-8 or is not a mapping exits 2 naming the
                 file, before any write)
-  dump-plan     --state-root S  [--pretty]
-                  (the planned tree plus read-only context, as JSON. The one read interface
-                   for consumers that need a plan's SHAPE: check 26 forbids any file under
-                   skills/ from assembling a state path, so the reorg analyzer asks for the
-                   tree rather than walking it. Active and archived appear as keys and
-                   dependencies only -- they are read-only input.)
-  retire-epic   --state-root S  --epic ID  --reason TEXT
-                  (move-epic --to archived plus retired_reason/retired_at; epic-level only,
-                   because planned/active/archived are folders of EPIC directories and a
-                   single retired story has nowhere to go. Never deletes.)
-  reparent-story  --state-root S  --artifacts-root A  --story K  --to-epic E  --to-sprint SP
-                  (moves a PLANNED story to another sprint, re-keying it; moves the state
-                   node and its document together, preserving any -slug, repoints inbound
-                   depends_on and both backlog story-key fields (`story` and `ref`, in both
-                   issue files), appends the old key to previous_keys, and
-                   raises the source sprint's high-water so the vacated key is never reissued)
-  reorg-log     --state-root S  [--hash] [--record FILE] [--list] [--show ID]
-                [--format {text,json}]
-                  (the reorg journal. --hash prints the planned tree's PLACEMENT digest and
-                   is captured BEFORE applying, as the record's pre_hash; --record appends
-                   one reorg's rationale and operations and prints its id. A record whose
-                   operations include a kind undo cannot invert is refused, so an entry never
-                   promises an undo that cannot run.)
-  reorg-undo    --state-root S  --artifacts-root A  --id R0001  [--check]
-                  (inverts a recorded reorg through the same reparent-story/move-epic
-                   primitives, in reverse order. REFUSES if the planned tree's placement
-                   digest no longer matches what was recorded: an undo replays placements
-                   derived from a plan that no longer exists. Restores PLACEMENT, not keys --
-                   the allocator's high-water never decreases, by design.)
-  move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   calibration   show  --state-root S  [--format {text,json}]
                 (inspects pm-calibration.yaml; a missing file is a normal
                 cold-start state, not an error)
@@ -283,12 +214,12 @@ Subcommands
                 metric; cost is priced from the banded tokens_k total rather
                 than banded/calibrated on its own; --model falls back to
                 DEFAULT_ESTIMATE_MODEL)
-  estimate-rollup --state-root S  --epic ID  [--sprint ID]
+  estimate-rollup --state-root S  --epic ID
                 [--model M] [--token-rates JSON]
-                (rolls a sprint's story estimates, or an epic's sprint
-                estimates, up to the parent as sum(children) + a calibrated
-                closure band + a calibrated orchestration band, always in
-                range form; omit --sprint for epic-level)
+                (rolls every story estimate under a 3.x epic up to the epic as
+                sum(stories) + a calibrated closure band + a calibrated
+                orchestration band, always in range form; no sprint level
+                between them, ADR-0016)
   rates         [--model M] [--token-rates JSON]
                 (prints the effective per-class token rate table -- shipped
                 defaults merged with any --token-rates/modules.l3io-pm
@@ -395,7 +326,8 @@ override. set-actual on a ticket records no calibration sample.
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
-3 = node not found, 4 = verification failure (missing/invalid field), 5 = epic locked.
+3 = node not found, 4 = verification failure (missing/invalid field), 5 = epic locked
+(promote-issue).
 Errors go to stderr; machine output (verify summaries) goes to stdout.
 """
 from __future__ import annotations
@@ -465,10 +397,10 @@ if not __package__ and __name__ == "__main__":
 # `metrics.estimates.compute_story_estimate` and `metrics.estimates.rollup_parent_estimate`
 # are called module-qualified from `issues/promote.py`; `metrics.actuals_usage.
 # dispatch_window` has no caller outside its own module; and `issues.store.
-# resolve_issue_core` is called module-qualified from `verbs/__init__.py` and from
-# `issues/audit.py`. None of the four is re-exported, here or by either `__init__.py`.
-# FIVE of the seven are imported for a LIVE caller: `build_parser` calls
-# `<module>.register(sub)` on each of instructions, issues, metrics, plan and verbs, so none
+# resolve_issue_core` is called module-qualified from `issues/audit.py`. None of the four is
+# re-exported, here or by either `__init__.py`.
+# FOUR of the six are imported for a LIVE caller: `build_parser` calls
+# `<module>.register(sub)` on each of instructions, issues, metrics and verbs, so none
 # of them carries a `noqa`. That is the honest state -- a `noqa`
 # over a module ruff can see used is a justification that reads as true and is not -- and it
 # means ruff now reports the one failure mode distributed registration introduces from this
@@ -504,7 +436,6 @@ from . import (
     issues,
     metrics,
     nodes,  # noqa: F401 -- re-export only
-    plan,
     sidecar,  # noqa: F401 -- re-export only
     verbs,
 )
@@ -555,8 +486,7 @@ from .issues.promote import (
 )
 
 # `resolve_issue_core` is deliberately absent from this list. It is a mock.patch target, so
-# it is reached as `issues.store.resolve_issue_core(...)` -- see `verbs/__init__.py`
-# (`_resolve_story_items`) and `issues/audit.py`. A re-export here would be a private copy
+# it is reached as `issues.store.resolve_issue_core(...)` -- see `issues/audit.py`. A re-export here would be a private copy
 # a patch on `pm.issues.store` could not reach, and the patch would silently guard nothing.
 # `IssueStore` is re-exported because the suite patches a CLASS ATTRIBUTE on it, which
 # mutates the one class object every binding names.
@@ -617,9 +547,6 @@ from .metrics.estimates import (
 # is a NameError rather than a patch that quietly reaches nobody.
 from .metrics.events import (
     _total_blocked_hours,  # noqa: F401 -- re-export only
-    build_events_index,  # noqa: F401 -- re-export only
-    compute_flags,  # noqa: F401 -- re-export only
-    dwell_hours,  # noqa: F401 -- re-export only
     open_dispatches,  # noqa: F401 -- re-export only
 )
 from .metrics.rates import (
@@ -629,55 +556,21 @@ from .metrics.rates import (
     TOKEN_RATES,  # noqa: F401 -- re-export only
     cost_from_tokens,  # noqa: F401 -- re-export only
 )
-from .metrics.report import (
-    build_progress_model,  # noqa: F401 -- re-export only
-    list_all_epics,  # noqa: F401 -- re-export only
-    load_plan,  # noqa: F401 -- re-export only
-    render_tree,  # noqa: F401 -- re-export only
-)
-from .metrics.spend import (
-    SPEND_BUCKETS,  # noqa: F401 -- re-export only
-    _spend_total,  # noqa: F401 -- re-export only
-    rollup_epic,  # noqa: F401 -- re-export only
-    rollup_sprint,  # noqa: F401 -- re-export only
-)
 
 # The node layer's exports, by name. `save_node` and `epic_file` are deliberately absent
 # -- the suite patches them, so they are reached as `nodes.<name>` (see above).
 from .nodes import (
-    DERIVED_NODE_FIELDS,  # noqa: F401 -- re-export only
     check_backrefs,  # noqa: F401 -- re-export only
     ensure_node_path,  # noqa: F401 -- re-export only
     find_epic_dir,  # noqa: F401 -- re-export only
-    init_story_doc,  # noqa: F401 -- re-export only
     list_story_files,  # noqa: F401 -- re-export only
     load_node,  # noqa: F401 -- re-export only
     sprint_file,  # noqa: F401 -- re-export only
     story_doc_path,  # noqa: F401 -- re-export only
     story_file,  # noqa: F401 -- re-export only
 )
-
-# The plan operations, by name: only the CLI handlers `build_parser` wires. Nothing here is
-# a mock.patch target; `plan/__init__.py` reaches the patched names through their module
-# objects.
-from .plan import (
-    _load_reorg_log,  # noqa: F401 -- re-export only
-    move_epic,  # noqa: F401 -- re-export only
-    plan_shape_hash,  # noqa: F401 -- re-export only
-    record_reorg,  # noqa: F401 -- re-export only
-    reorg_log_path,  # noqa: F401 -- re-export only
-    reparent_story,  # noqa: F401 -- re-export only
-    retire_epic,  # noqa: F401 -- re-export only
-    undo_reorg,  # noqa: F401 -- re-export only
-)
 from .sidecar import closure as sidecar_closure
 from .sidecar import verbs as sidecar_verbs
-
-# The status verbs, by name. Nothing here is a mock.patch target: the patched names the
-# verbs touch are reached from `verbs/__init__.py` through their module objects.
-from .verbs import (
-    cmd_set_status,  # noqa: F401 -- re-export only
-)
 
 
 # CLI
@@ -690,7 +583,7 @@ from .verbs import (
 #
 # THE ORDER IS THE SURFACE. argparse lists subcommands in registration order, so this tuple
 # decides what `pm-status.py --help` prints. It is the order of each module's FIRST verb in
-# the pre-split function — verbs led, then metrics, issues, plan, instructions — so
+# the pre-split function — verbs led, then metrics, issues, instructions — so
 # the listing stays as close to the shipped one as a per-module grouping can be. Every
 # individual subcommand's `--help` is byte-identical to the pre-split capture in
 # `.superpowers/sdd/2026-10-23-pm-status-package-split/cli-surface-before.txt`; what the
@@ -702,7 +595,7 @@ from .verbs import (
 # may grow an empty `register` to look symmetrical — an empty hook is a place for a
 # verb to be registered by accident.
 #
-# TestSubcommandRegistration is the standing guard: it pins all 45 names, and attributes a
+# TestSubcommandRegistration is the standing guard: it pins every name, and attributes a
 # shortfall to the module whose call went missing.
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
@@ -713,7 +606,6 @@ def build_parser() -> argparse.ArgumentParser:
     verbs.register(sub)
     metrics.register(sub)
     issues.register(sub)
-    plan.register(sub)
     instructions.register(sub)
     sidecar_verbs.register(sub)
     bracket.register(sub)

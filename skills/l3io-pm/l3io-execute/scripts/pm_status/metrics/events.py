@@ -4,8 +4,8 @@
 (`append_event`, `events_path`, `_event_keys`) is a primitive that lives in
 `core`: everything that changes a node's status appends, including the node
 layer and the status verbs, so the writer sits below them all. The readers are
-a different thing entirely -- they derive dwell time, dispatch windows, stuck
-flags and blocked hours from a log that already exists -- and they belong up
+a different thing entirely -- they derive dispatch windows and blocked hours from a
+log that already exists -- and they belong up
 here with the rest of the measurement layer. Do not pull the writer back.
 
 Nothing in this module patches or is patched; every import is by name.
@@ -20,7 +20,6 @@ from datetime import UTC, datetime
 
 from ..core import (
     _hashable_field,
-    _indexable_key,
     _now_iso,
     _parse_iso,
     append_event,
@@ -28,51 +27,6 @@ from ..core import (
     canonical_sprint_key,
     events_path,
 )
-
-# Fixed thresholds, in hours. Deliberately not configurable in this iteration: the
-# calibration data needed to tune them is what this report will generate.
-STUCK_THRESHOLDS = {
-    ("story", "in-progress"): 4.0,
-    ("story", "review"): 4.0,
-    ("sprint", "in-progress"): 24.0,
-    ("epic", "in-progress"): 72.0,
-}
-
-
-def build_events_index(state_root: str) -> dict:
-    """key -> the most recent *status* event for that key.
-
-    Returns {} when the log is absent, which is the normal case for every project
-    predating it — callers then fall back to `updated_at`.
-    """
-    idx: dict = {}
-    p = events_path(state_root)
-    if not os.path.isfile(p):
-        return idx
-    try:
-        with open(p, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except ValueError:
-                    continue  # a torn or hand-mangled line must not kill the report
-                if not isinstance(ev, dict):
-                    continue
-                if ev.get("event") != "status" or not ev.get("key"):
-                    continue
-                k = _indexable_key(ev["key"])      # a non-empty list is truthy AND unhashable
-                if k is None:
-                    continue
-                prev = idx.get(k)
-                if prev is None or str(ev.get("ts", "")) >= str(prev.get("ts", "")):
-                    idx[k] = ev
-    except OSError as e:
-        sys.stderr.write(f"pm-status.py: warning — could not read event log: {e}\n")
-    return idx
-
 
 DEFAULT_STALL_MINUTES = 15
 
@@ -225,40 +179,6 @@ def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list
     return sorted(out, key=lambda r: r["opened_at"])
 
 
-def dwell_hours(node, events_index: dict, now=None):
-    """Hours the node has been in its CURRENT status.
-
-    Returns (hours, exact). `exact` is True only when the event log recorded the
-    transition into this very status. The `updated_at` fallback is approximate
-    because any field write refreshes it, not only a status change.
-    """
-    if node is None:
-        return None, False
-    now = now or datetime.now(UTC)
-    status = str(node.get("status", ""))
-    key = str(node.get("key", ""))
-    ev = (events_index or {}).get(key)
-    if ev is not None and str(ev.get("to", "")) == status:
-        started = _parse_iso(ev.get("ts"))
-        if started is not None:
-            return max(0.0, (now - started).total_seconds() / 3600.0), True
-    started = _parse_iso(node.get("updated_at"))
-    if started is None:
-        return None, False
-    return max(0.0, (now - started).total_seconds() / 3600.0), False
-
-
-def compute_flags(level: str, key: str, status: str, dwell, exact: bool) -> list:
-    """Stuck flags for one node. Terminal and waiting statuses are never flagged."""
-    if dwell is None:
-        return []
-    threshold = STUCK_THRESHOLDS.get((level, str(status)))
-    if threshold is None or dwell < threshold:
-        return []
-    return [{"kind": "stuck", "level": level, "key": key, "status": str(status),
-             "dwell_hours": round(dwell, 2), "threshold": threshold, "exact": exact}]
-
-
 def _total_blocked_hours(state_root: str, story_key: str) -> float:
     """Sum `duration_hours` across every closed block for this story SINCE its
     most recent `dispatch_open`.
@@ -331,35 +251,3 @@ def _total_blocked_hours(state_root: str, story_key: str) -> float:
     return round(total, 3)
 
 
-def _block_duration_since_last_open(state_root: str, story_key: str):
-    """Hours since the most recent block_open event for `story_key`.
-
-    Returns None when no block_open is found on the story (a caller-side bug the WARN
-    downstream can surface without crashing). Reads the events log from the end.
-    """
-    p = events_path(state_root)
-    if not os.path.exists(p):
-        return None
-    try:
-        with open(p, encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError:
-        return None
-    for line in reversed(lines):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if rec.get("event") == "block_open" and rec.get("story") == story_key:
-            opened = _parse_iso(rec.get("ts"))
-            if opened is None:
-                return None
-            now = _parse_iso(_now_iso())
-            if now is None:
-                return None
-            delta = (now - opened).total_seconds() / 3600.0
-            return round(delta, 3)
-    return None

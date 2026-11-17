@@ -1,6 +1,6 @@
-# ADR-0003: The story `done` hook warns and never fails `set-status`
+# ADR-0003: The story `done` hook warns and never fails `set-status` (verb removed in 4.0.0)
 
-- **Status:** Accepted (with the issue-lifecycle spec, 2026-09-10)
+- **Status:** Accepted (with the issue-lifecycle spec, 2026-09-10); has no caller on 4.x — see the amendment
 - **Date:** 2026-09-10
 - **Deciders:** Package maintainer; reviewed by `l3io-arch-review` Mode B
 - **Principle(s) in tension:** Core §3 fail loudly vs. never reporting a durable transition as failed
@@ -29,3 +29,10 @@ Option A. The hook calls non-exiting core functions, catches every exception inc
 - Negative / trade-offs accepted: a missed resolution stays invisible until detected.
 - Mitigation: `audit-issues` finding 1c detects it, health-check Check 13 flags it, and doctor
   `triage` repairs it through `resolve-issue`.
+
+## Amendment (2026-11-17, Task 4.8)
+
+`set-status` is removed in 4.0.0 with the rest of the 3.x placement model: on BMad v7, ticket
+status is v7's, written by Sofia and `bmad-build-auto`, and no l3io verb writes it (ADR-0015). The
+hook this ADR governs therefore has no caller on 4.x. The decision stands for 3.x. The backlog
+itself moves to v7's `backlog/` folder in Task 4.9, where closing an item is Sofia's.

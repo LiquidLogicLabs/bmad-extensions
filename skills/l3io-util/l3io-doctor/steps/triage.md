@@ -8,7 +8,7 @@ apply: nothing is written without a yes, and nothing uncertain is closed.
 
 ### Step T1 — Load config
 
-Load config (same as layout cleanup), then bind:
+Load config (as under On Activation in `SKILL.md`), then bind:
 
 - `{model_review}` — `modules.l3io-pm.model_review` (default `{model}`)
 - `{triage_session}` — `triage-{UTC timestamp, e.g. 20260910T153000Z}`; pass it as
@@ -20,7 +20,7 @@ exist, print `No state tree — nothing to triage.` and exit. Do **not** gate on
 state root exists (`pm-status.py cmd_audit_issues` takes no lock and reads no issue file in
 that branch), and findings **1b** (a `resolves:` key naming neither issue file) and **1h** (two
 live stories claiming one key) are reported from story nodes alone. Those are exactly the
-findings Health Check 13 flags `triage` for, so exiting here would have refused the case the
+findings Health Check 8 flags `triage` for, so exiting here would have refused the case the
 detector raised. `issues-resolved.yaml` can also exist without `issues.yaml`, which makes
 findings `1a` and `1j` reachable too.
 
@@ -52,7 +52,7 @@ empty `findings` list on exit 4 is not "clean":
 | `1e`, an alias key (value at most 1000) or a stale canonical `next` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` |
 | `1e` whose `repair` starts `report only` — a `next` value, alias or canonical, above the BL key space (1000) | report only — print the finding's `repair` text as the manual fix, naming the key and the value; `reseed` refuses this case (exit 2). An alias above 1000 reports two such findings (the alias, and the value), both with this hand-fix `repair` |
 | `1j` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action reopen` |
-| `1l` whose `repair` names `repoint` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action repoint` — the item's `story`/`ref` still names a key `reparent-story` moved; this points it at the story that now carries it (the finding's `story` field), restoring a scheduling that `unschedule` would have discarded |
+| `1l` whose `repair` names `repoint` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action repoint` — the item's `story`/`ref` still names the old key of a re-keyed story; this points it at the story that now carries it (the finding's `story` field), restoring a scheduling that `unschedule` would have discarded |
 | `1f` whose detail says **legacy status** (a pre-3.0 resting state such as `deferred`) | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action normalize-status` — maps the legacy status to its current equivalent |
 | **many** `1f` legacy-status findings (a schema upgrade, not a sick backlog) | `uv run {pm_status} repair-issue --state-root {pm_state_root} --action normalize-status --all-legacy` — one confirmed pass, one lock, no `--key`. **Epic-aware**: an item behind an open epic becomes `backlog`, one behind a CLOSED epic is resolved as `deferred` with a note (a resolution is the only place a decision can live), and one whose epic has no state node is skipped and reported rather than guessed. Relay the three-way tally it prints. Offer this instead of the per-item command whenever more than a handful are legacy: a real upgrade produced 452, and per-item that is 452 subprocesses inside a per-item confirmation loop. The same gate applies to each item, so an unrecognised status is left alone rather than swept along |
 | `1b` naming an unknown key, `1f` with any other status, `1h`, `1i`, `1k`, `1l` whose `repair` starts `report only` | report only — print the finding's `repair` text as the manual fix. An unrecognised status has no safe mapping, so `normalize-status` refuses it (exit 2). A report-only `1l` means two or more stories record the same old key, so which one the reference means is not derivable; `repoint` refuses it (exit 2) |
@@ -127,7 +127,7 @@ Ask: `Confirm, reject, or skip {key}? (c/r/s)`.
 
   Exit 2 on a revert conflict means it aborted the revert and left the item open: print its
   message. Nothing else changed.
-- **Skip** → leave the item open. Health Check 18 reports it once a later commit builds on it.
+- **Skip** → leave the item open. Health Check 13 reports it once a later commit builds on it.
 
 ### Step T4 — Agent review (optional; costs tokens)
 

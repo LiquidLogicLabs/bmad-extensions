@@ -46,7 +46,6 @@ from ..nodes import (
     list_sprint_dirs,
     list_story_files,
     load_node,
-    sprint_file,
 )
 from .events import (
     _total_blocked_hours,
@@ -71,7 +70,9 @@ DECAY = 0.8              # exponential decay, applied oldest-first
 COLD_START_SCOPE_RATIO = 1.0
 COLD_START_FIX_FACTOR = 1.25
 CLASSIFICATIONS = ("simple", "standard", "complex")
-CLOSURE_LEVELS = ("sprint", "epic")
+# The epic is the only closure level (ADR-0016). A file written before 4.x may still carry
+# `closure.sprint` and `orchestration.sprint`; they load, are kept, and are never read.
+CLOSURE_LEVELS = ("epic",)
 
 
 def new_calibration(granularity: str = "story"):
@@ -362,7 +363,7 @@ def active_orchestration_fraction(cal, level: str, metric: str):
     ratio-based component could never bootstrap from its first sample.
 
     Instead the sample IS the band: orchestration_actual / sum(children
-    actual), directly observable from the first closed sprint or epic. A
+    actual), directly observable from the first closed epic. A
     future maintainer tempted to "fix" this into a ratio for consistency with
     closure would remove the one thing that lets it start learning at all.
 
@@ -514,8 +515,8 @@ def _bump_cohort(entry, cohort: str, man_hours):
 
 CALIBRATION_MARKER = "calibration_sampled_at"
 # The orchestration sample is a SEPARATE fact from the actual/closure sample,
-# and a sprint or epic node can carry both — one marker cannot gate both
-# without one silently suppressing the other (a closed sprint's closure
+# and an epic node can carry both — one marker cannot gate both
+# without one silently suppressing the other (a closed epic's closure
 # sample would forever block its later orchestration sample, or vice versa).
 # So orchestration gets its own marker, using the exact same guard mechanism
 # below (a `marker` parameter), rather than a second copy of the mechanism.
@@ -641,14 +642,13 @@ CLOSURE_RANGE_KEYS = {
 WALL_CLOCK_METRICS = ("elapsed_hours",)
 
 
-def _closure_nodes(state_root: str, level: str, epic_key: str, sprint_key=None):
-    """(parent path, child paths) for a closure sample at `level`."""
-    if level == "sprint":
-        return (sprint_file(state_root, epic_key, sprint_key),
-                list_story_files(state_root, epic_key, sprint_key))
+def _closure_nodes(state_root: str, level: str, epic_key: str):
+    """(parent path, child paths) for an epic's closure sample: the epic node and every
+    story under it. A 3.x tree still files stories in sprint folders, but there is no sprint
+    level between them (ADR-0016)."""
     return (nodes.epic_file(state_root, epic_key),
-            [sprint_file(state_root, epic_key, _sprint_key_from_dir(d))
-             for d in list_sprint_dirs(state_root, epic_key)])
+            [sf for d in list_sprint_dirs(state_root, epic_key)
+             for sf in list_story_files(state_root, epic_key, _sprint_key_from_dir(d))])
 
 
 def _skip_summary(skipped: dict) -> str:
@@ -695,7 +695,7 @@ def closure_ratio(level: str, metric: str, residual: float, pest, children) -> t
     return residual * applied / expected, ""
 
 
-def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None):
+def derive_closure_sample(state_root: str, level: str, epic_key: str):
     """Closure overhead = parent actual - sum(children actuals). Returns (sample, reason).
 
     THE RATIO'S DENOMINATOR MUST BE THE QUANTITY THE RATIO IS APPLIED TO.
@@ -746,7 +746,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     (adversarial analysis, retrospective, QA generation — real, measurable
     work) was attributed to nothing. Recording that as a legitimate 0.0
     sample is worse than recording nothing: 0.0 is not None, so after three
-    such sprints `active_closure_ratio` returns 0.0, `cmd_estimate_rollup`
+    such epics `active_closure_ratio` returns 0.0, `cmd_estimate_rollup`
     accepts it, and the closure band contributes nothing to any future
     estimate — permanently, with no marker saying why. The step files now
     instruct the parent actual as "sum of children PLUS this level's own
@@ -763,7 +763,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     residual measured against its own band would have nothing left to divide
     against and nothing calibrating it downstream would ever read the sample.
     """
-    ppath, child_paths = _closure_nodes(state_root, level, epic_key, sprint_key)
+    ppath, child_paths = _closure_nodes(state_root, level, epic_key)
     if ppath is None:
         return None, f"{level} node not found"
     _, pnode = load_node(ppath)
@@ -861,20 +861,20 @@ def append_closure_ratios(state_root: str, level: str, ratios: dict) -> None:
         save_calibration(y, cal, state_root)
 
 
-def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None) -> str:
-    """Derive a sprint/epic's closure sample and append it to the shared file.
+def record_closure_sample(state_root: str, level: str, epic_key: str) -> str:
+    """Derive an epic's closure sample and append it to the shared file.
 
     A write path, unlike load_calibration: migrates a stale schema version
     before appending, so a v1 file is never mistaken for v2 and corrupted by
     samples landing in a structure that doesn't exist there yet.
     """
-    ppath, _ = _closure_nodes(state_root, level, epic_key, sprint_key)
+    ppath, _ = _closure_nodes(state_root, level, epic_key)
     y_node, pnode = load_node(ppath) if ppath else (None, None)
     prior = _already_sampled(pnode)
     if prior:
         return f"sample already recorded at {prior} — skipped (replay)"
 
-    sample, reason = derive_closure_sample(state_root, level, epic_key, sprint_key)
+    sample, reason = derive_closure_sample(state_root, level, epic_key)
     if sample is None:
         return f"no closure sample: {reason}"
     if not sample["ratios"]:
@@ -888,9 +888,8 @@ def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     return note
 
 
-def record_orchestration_sample(state_root: str, level: str, epic_key: str,
-                                 sprint_key=None) -> str:
-    """Append one closed sprint/epic's orchestration-vs-children fraction.
+def record_orchestration_sample(state_root: str, level: str, epic_key: str) -> str:
+    """Append one closed epic's orchestration-vs-children fraction.
 
     THE FRACTION, NOT A RATIO. Every other component here (scope, closure)
     learns a ratio — actual over an ESTIMATE, correcting a number that
@@ -902,7 +901,7 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
     is no estimate to divide by, and a ratio-based component could never
     bootstrap — it would need the very thing it doesn't have. Instead the
     sample IS the band: orchestration_actual / sum(children actual), directly
-    observable from the first closed sprint or epic. Do not "fix" this into a
+    observable from the first closed epic. Do not "fix" this into a
     ratio for consistency with closure — that would remove the one thing
     that lets it start learning at all.
 
@@ -924,13 +923,11 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
     corrected number, a replayed closure step) must not append a second
     sample and skew the learned fraction with nothing on disk to explain it.
     Gated on its own ORCHESTRATION_MARKER rather than the closure/story
-    CALIBRATION_MARKER, because a sprint or epic node carries both an
-    actual/closure sample and an orchestration sample — one marker would let
-    whichever writes first silently suppress the other. `_closure_nodes`
-    resolves the same parent path for both sprint and epic level, so this
-    one guard covers both without a level-specific branch.
+    CALIBRATION_MARKER, because an epic node carries both an actual/closure
+    sample and an orchestration sample — one marker would let whichever
+    writes first silently suppress the other.
     """
-    ppath, cpaths = _closure_nodes(state_root, level, epic_key, sprint_key)
+    ppath, cpaths = _closure_nodes(state_root, level, epic_key)
     if ppath is None:
         return ""
     y_node, pnode = load_node(ppath)
@@ -1045,7 +1042,7 @@ def redrive_story_samples(state_root: str) -> dict:
     of samples derived under a bug can simply be derived again, correctly, instead of
     being thrown away and waited for.
 
-    Which is what this is for. `set-field` stored `fix_iterations` as text, and the
+    Which is what this is for. A 3.x field write stored `fix_iterations` as text, and the
     provenance test depended on that text parsing as an int: a story that needed no rework
     was read as `backout`, its scope ratio divided by the 1.25 fix factor it never
     incurred, and the `clean` cohort never filled -- so the `fix` component could not
@@ -1278,8 +1275,8 @@ ORCH_MID = (ORCH_SPREAD[0] + ORCH_SPREAD[1]) / 2.0
 
 
 def _child_estimate_value(node, metric):
-    """A child's value for `metric`: single-value form first (a story), else
-    the midpoint of its range form (a sprint). None if neither is present.
+    """A child's value for `metric`: single-value form first (a story or an
+    entry), else the midpoint of a range form. None if neither is present.
 
     Reuses CLOSURE_RANGE_KEYS (metric -> parent low/high key names) rather
     than a second near-duplicate mapping, and `_estimate_metric` (not a local

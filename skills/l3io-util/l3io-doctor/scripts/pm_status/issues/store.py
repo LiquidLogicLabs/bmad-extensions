@@ -535,7 +535,7 @@ def resolve_issue_core(store, key, resolution, ref=None, note=None,
     _issue_event(store.state_root, "issue_resolved", entry, session, cause,
                  resolution=resolution, ref=ref)
     tail = ""
-    if str(item.get("status")) == "scheduled" and cause != "set-status":
+    if str(item.get("status")) == "scheduled":
         tail = f"; story {item.get('story')} still lists it in resolves"
     return f"{k} ({resolution}{', ref ' + ref if ref else ''}){tail}"
 

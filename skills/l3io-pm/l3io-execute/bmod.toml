@@ -22,7 +22,6 @@ scripts = [
   "scripts/pm_status/metrics/report.py",
   "scripts/pm_status/metrics/spend.py",
   "scripts/pm_status/nodes/__init__.py",
-  "scripts/pm_status/plan/__init__.py",
   "scripts/pm_status/sidecar/__init__.py",
   "scripts/pm_status/sidecar/closure.py",
   "scripts/pm_status/sidecar/commit.py",

@@ -1,6 +1,6 @@
 ## Update AI Rules Mode
 
-Invoked with `update-ai-rules` argument, or automatically from `steps/split-status.md` (Split Status Mode) Step S9. Scans for AI system instruction files in the project and updates any references to a **legacy** state layout — the flat `sprint-status*.yaml` files or the legacy per-epic `_bmad/state/` tree — so they describe the **current sharded state tree** under `{pm_state_root}`. For instruction files that already exist: updates existing references. For the currently running AI system's file that does not yet exist: creates it with a state layout section. Never creates instruction files for other AI systems. Safe to run repeatedly — already-updated files are skipped.
+Invoked with `update-ai-rules` argument. Scans for AI system instruction files in the project and updates any references to a **legacy** state layout — the flat `sprint-status*.yaml` files or the legacy per-epic `_bmad/state/` tree — so they describe the **current sharded state tree** under `{pm_state_root}`. For instruction files that already exist: updates existing references. For the currently running AI system's file that does not yet exist: creates it with a state layout section. Never creates instruction files for other AI systems. Safe to run repeatedly — already-updated files are skipped.
 
 **This mode writes into the consuming repo's own instruction files, and those files then
 steer every future agent in that repo.** It must therefore only ever emit the current

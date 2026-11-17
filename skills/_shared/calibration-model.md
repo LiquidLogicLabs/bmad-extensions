@@ -7,7 +7,7 @@
 > specification of machine behavior, kept out of `metrics-contract.md` so that the contract a
 > capture agent *does* read stays the size of what it needs.
 >
-> Canonical order remains: `pm-status.py` > this file > the activation digest.
+> Canonical order: `pm-status.py` > this file.
 > `metrics-contract.md` §8 is the summary; this is the model behind it.
 
 ## Calibration
@@ -19,7 +19,7 @@
 | `{pm_calibration_file}` | `{pm_state_root}/pm-calibration.yaml` = `{implementation_artifacts}/state/pm-calibration.yaml` |
 
 The file is **committed**. Learned ratios are team knowledge and expensive to rebuild —
-several closed sprints of real work each. It sits beside `issues.yaml` in the state root and
+several closed epics of real work each. It sits beside `issues.yaml` in the state root and
 moves nowhere when epics move between `planned/`, `active/`, and `archived/`.
 
 ### Four separable components
@@ -31,9 +31,9 @@ below.
 | Component | Learns | Sampled at |
 |---|---|---|
 | `scope` | story sizing ratio, per classification | inside `set-actual --node story` |
-| `closure` | closure overhead ratio, separately for sprint and epic level | inside `set-actual --node sprint\|epic` |
+| `closure` | closure overhead ratio, at epic level | inside `epic-close` (v7) or `set-actual --node epic` (3.x) |
 | `fix` | fix cost, per classification (`clean` vs `reworked` cohorts) | inside `set-actual --node story` |
-| `orchestration` | orchestration overhead as a **fraction** of children's actuals, separately for sprint and epic level | inside `set-actual --block orchestration --node sprint\|epic` |
+| `orchestration` | orchestration overhead as a **fraction** of children's actuals, at epic level | inside `set-actual --block orchestration --node epic` |
 
 `CALIBRATED_METRIC_FIELDS` is `METRIC_FIELDS` minus `cost` — `("elapsed_hours", "man_hours",
 "hitl_hours", "tokens_k")`. `cost` never calibrates on any component, at any level: it is
@@ -41,7 +41,7 @@ derived from `tokens_k × rates`, so letting it also accumulate an independently
 correction would give a derived value its own drift, undoing exactly what deriving it was for.
 
 Splitting the four components matters because they fail differently: `scope` drifts with
-codebase familiarity, `closure` is a near-fixed per-sprint tax that a single blended ratio
+codebase familiarity, `closure` is a near-fixed per-epic tax that a single blended ratio
 hides entirely, `fix` tracks review strictness, and `orchestration` tracks how much
 supervision/coordination overhead a run actually needs. A component below its activation
 threshold uses its cold-start prior — ratio `1.0` for `scope`/`closure`, `F` = `1.25` for
@@ -55,7 +55,7 @@ contaminated by an operational defect (roughly thirty blocking waits that each o
 prompt cache and re-created a ~93k-token prefix), and sizing a cold-start prior on that data
 would have committed the bug to every future estimate. So the sample **is** the band:
 `orchestration_actual / Σ children's actual`, for a given metric, directly observable from the
-first closed sprint or epic that carries an `orchestration` block. This is why
+first closed epic that carries an `orchestration` block. This is why
 `active_orchestration_fraction` returns `None` (not a cold-start value) below `MIN_SAMPLES` —
 there is nothing to fall back to.
 
@@ -246,8 +246,8 @@ copy would add nothing but disagreement.
 
 `set-actual` stamps `calibration_sampled_at` on the node once it has emitted that node's
 `actual`-block sample, and a separate `orchestration_sampled_at` once it has emitted the
-`orchestration`-block sample — **two markers on one node**, deliberately independent: a
-sprint or epic node carries both an `actual` and an `orchestration` block, and one marker
+`orchestration`-block sample — **two markers on one node**, deliberately independent: an
+epic node carries both an `actual` and an `orchestration` block, and one marker
 would let whichever write happens first silently suppress the other. A second `set-actual`
 on the same block records nothing and says so in its stdout suffix (`sample already recorded
 at … — skipped (replay)`). `--no-calibrate` still exists for backfills, but correctness no
@@ -282,11 +282,10 @@ count) is deliberate, not a bug.
 `granularity` lives **in the calibration file itself** (`new_calibration`'s `granularity`
 key), not bound from a step file or `customize.toml` — nothing currently varies it, so every
 project effectively runs `"story"` granularity: `set-actual --node story` records one scope
-sample and (when derivable) one fix-cohort update per closed story; `set-actual --node
-sprint|epic` records one closure sample per closed sprint/epic, unconditionally, and
-`set-actual --block orchestration --node sprint|epic` records one orchestration sample per
-closed sprint/epic that carries an `orchestration` block. There is no `"sprint"`-granularity
-aggregation path in the shipped code — a project cannot presently opt into coarser story
+sample and (when derivable) one fix-cohort update per closed story; `set-actual --node epic`
+(or, on v7, `epic-close`) records one closure sample per closed epic, and `set-actual --block
+orchestration --node epic` records one orchestration sample per closed epic that carries an
+`orchestration` block. There is no coarser aggregation path in the shipped code — a project cannot presently opt into coarser story
 sampling by changing this key. `calibration show` prints whatever value is stored for
 information only; it does not change any sampling behavior.
 
@@ -300,12 +299,10 @@ scope:
   simple:   { man_hours: {samples: [1.02, 1.14, 0.98]}, hitl_hours: {...}, elapsed_hours: {...}, tokens_k: {...} }
   standard: { ... }
   complex:  { ... }
-closure:
-  sprint:   { man_hours: {samples: [1.18, 1.05, 1.22, 0.97]}, ... }
-  epic:     { ... }
-orchestration:                                  # per level x per calibrated metric; FRACTION samples
-  sprint:   { man_hours: {samples: [0.08, 0.11, 0.09]}, hitl_hours: {...}, elapsed_hours: {...}, tokens_k: {...} }
-  epic:     { ... }
+closure:                                        # epic level only (ADR-0016); a 3.x file's `sprint` keys load and are never read
+  epic:     { man_hours: {samples: [1.18, 1.05, 1.22, 0.97]}, ... }
+orchestration:                                  # per calibrated metric; FRACTION samples
+  epic:     { man_hours: {samples: [0.08, 0.11, 0.09]}, hitl_hours: {...}, elapsed_hours: {...}, tokens_k: {...} }
 fix:
   simple:   { clean: {mean_man_hours: 3.1, samples: 4}, reworked: {mean_man_hours: 4.2, samples: 3} }
   standard: { ... }
@@ -423,12 +420,12 @@ Only the sampling write paths migrate, and only at the moment they are about to 
   orchestration, nothing) otherwise.
 - **`set-actual`** derives and appends a sample automatically after every successful actuals
   write (`record_story_sample` for `--node story`; `record_closure_sample` for `--node
-  sprint|epic` on the `actual` block; `record_orchestration_sample` for the `orchestration`
+  epic` on the `actual` block; `record_orchestration_sample` for the `orchestration`
   block), unless `--no-calibrate` is passed. A derivation failure is caught, warned on
   stderr, and never fails the actuals write — the actual is the primary record; the
   calibration sample is derived, secondary data. The `set-actual` stdout line reports what
   was recorded (e.g. `scope+4 metrics, provenance=exact, class=complex`, or `orchestration
-  sprint +3 metrics`) or why nothing was (e.g. `no sample (missing estimate or actual)`).
+  epic +3 metrics`) or why nothing was (e.g. `no sample (missing estimate or actual)`).
   **Skip reasons go to stdout**, inside that `[...]` suffix — only an unexpected exception
   warns on stderr.
 - **`calibration show`** is read-only. A missing file reports cold-start for every component

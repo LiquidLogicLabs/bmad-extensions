@@ -7,7 +7,7 @@ script, never hand-edit a manifest, never move `pm-status`'s version backwards â
 root `CLAUDE.md`. This file carries the mechanics behind them.
 
 Each checker's own header comment is the authoritative description of what it asserts;
-`scripts/check-docs.mjs` numbers its thirty-six checks there.
+`scripts/check-docs.mjs` numbers its thirty-four checks there.
 
 **Every tool finds skills through `scripts/lib/skill-dirs.mjs`, never a `skills/*/` glob.** The
 repository is laid out one folder per module (ADR-0021): `skills/<module>/<skill>/`, with
@@ -136,7 +136,7 @@ the class purely in terms of queue depth, which is the frame this case escapes.
 `scripts/check-types.mjs` runs mypy over every `.py` under `skills/_shared/pm_status/` and fails on two
 classes only. Its header carries the full argument; three things to know before touching it:
 
-- **It is not clean-file enforcement and should not become it.** 68 findings stand ungated
+- **It is not clean-file enforcement and should not become it.** 47 findings stand ungated
   today; `npm run check:types -v` prints the current tally, which moves with every extraction.
   A gate that works today beats a total one that is always one refactor away.
 - **"Fail on any `[operator]` finding" is the obvious narrow cut and it does not work** â€” the

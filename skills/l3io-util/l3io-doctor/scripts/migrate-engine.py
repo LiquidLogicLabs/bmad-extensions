@@ -220,24 +220,21 @@ def _node_argv(rec: dict) -> list:
 
 
 def write(plan: dict, state_root: Path, pm_status: str):
-    """Write every planned record with `pm-status.py import-node`, then dispatch any
-    record `extras` through typed set-* verbs.
+    """Write every planned record with `pm-status.py import-node`, then its estimate and
+    actual.
 
     Every node goes through the one writer verb -- never a direct file write -- so each
     lands under the same epic write lock, event log and status validation as any other
     state write. Returns (written_count, errors); a SKIP is not counted as written, which
     is what makes a retried migration idempotent.
 
-    After import-node lands the node, any fields the reader captured in the record's
-    `extras` are dispatched:
-      - scalar fields (goal, superseded_by) via `set-field`, so they land on disk.
-      - structured fields (depends_on, estimate, actual) now have typed writers:
-      -   depends_on -> set-depends-on, estimate -> set-estimate, actual -> set-actual
-      -   (--runtime other --tokens-na --no-calibrate). An UNRECOGNISED extra still WARNs naming
-        the record and the value -- pm-status.py does not yet expose the typed
-        set-* verbs those need, so silent loss becomes visible loss until the
-        follow-up lands. See docs/superpowers/plans/... for the write-side backfill.
-    A failed set-field is reported alongside import-node errors; the caller decides.
+    The record's `extras` travel two ways:
+      - goal, superseded_by and depends_on ride import-node itself (`--goal`,
+        `--superseded-by`, `--depends-on`), so they land with the node in one write.
+      - estimate -> set-estimate, actual -> import-actual (runtime other, tokens N/A, no
+        calibration), after import-node lands the node.
+    An UNRECOGNISED extra WARNs naming the record and the value, so silent loss becomes
+    visible loss. A failed write is reported alongside import-node errors; the caller decides.
     """
     import subprocess
 
@@ -252,6 +249,7 @@ def write(plan: dict, state_root: Path, pm_status: str):
         if rec.get("origin"):
             argv += ["--origin", rec["origin"],
                      "--origin-note", rec.get("origin_note", "")]
+        argv += _node_extras_argv(rec)
 
         proc = subprocess.run(argv, capture_output=True, check=False, text=True)
         if proc.returncode != 0:
@@ -267,40 +265,32 @@ def write(plan: dict, state_root: Path, pm_status: str):
     return written, errors
 
 
-def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
-    """Consume rec['extras'] with set-field for scalars and WARN for structured fields.
+def _node_extras_argv(rec: dict) -> list:
+    """import-node flags for the extras that land with the node: the scalar fields, and
+    depends_on as one `--depends-on` per key (a list, never a stringified one)."""
+    argv = []
+    extras = rec.get("extras") or {}
+    for field in sr.SCALAR_EXTRAS_FOR_IMPORT_NODE:
+        if field in extras:
+            argv += [f"--{field.replace('_', '-')}", str(extras[field])]
+    if "depends_on" in extras:
+        value = extras["depends_on"]
+        for item in value if isinstance(value, (list, tuple)) else [value]:
+            argv += ["--depends-on", str(item)]
+    return argv
 
-    Returns any errors from set-field calls; the WARN branch never errors -- it prints
-    to stderr and moves on, because the goal is visibility, not gating."""
+
+def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
+    """Write rec['extras'] that import-node does not carry: estimate and actual. WARN for
+    anything unrecognised. Returns the errors of the writes; the WARN branch never errors
+    -- it prints to stderr and moves on, because the goal is visibility, not gating."""
     import subprocess
 
     errors = []
     extras = rec.get("extras") or {}
     for field, value in extras.items():
-        if field in sr.SCALAR_EXTRAS_TO_SET_FIELD:
-            argv = ["uv", "run", pm_status, "set-field",
-                    "--state-root", str(state_root),
-                    "--field", field, "--value", str(value)]
-            argv += _node_argv(rec)
-            proc = subprocess.run(argv, capture_output=True, check=False, text=True)
-            if proc.returncode != 0:
-                errors.append(
-                    f"{rec['kind']} {rec['key']}: set-field {field}= failed -- "
-                    f"{proc.stderr.strip()}")
-        elif field == "depends_on":
-            # List-shaped, so it needs the list-shaped verb: routing it through set-field
-            # would store "['E001']" as a scalar, which a later reader takes for one.
-            items = value if isinstance(value, (list, tuple)) else [value]
-            argv = ["uv", "run", pm_status, "set-depends-on",
-                    "--state-root", str(state_root)]
-            argv += _node_argv(rec)
-            for item in items:
-                argv += ["--add", str(item)]
-            proc = subprocess.run(argv, capture_output=True, check=False, text=True)
-            if proc.returncode != 0:
-                errors.append(
-                    f"{rec['kind']} {rec['key']}: set-depends-on failed -- "
-                    f"{proc.stderr.strip()}")
+        if field in sr.SCALAR_EXTRAS_FOR_IMPORT_NODE or field == "depends_on":
+            continue
         elif field == "estimate":
             # The mapping's keys ARE set-estimate's flag names with underscores: man_hours ->
             # --man-hours, tokens_k_min -> --tokens-k-min. Point values and ranges both have a

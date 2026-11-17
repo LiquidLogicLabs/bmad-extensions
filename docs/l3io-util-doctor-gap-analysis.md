@@ -4,6 +4,11 @@
 > contract. It records what the doctor detects, what it can fix, and what is invisible to it, each
 > with file:line evidence at the time of measurement. Fixing any gap below makes the corresponding
 > row stale — the live contracts remain `CLAUDE.md` and the skill's own `references/`.
+>
+> **Historical on 4.x.** It measures the doctor over the 3.x state tree. 4.0.0 removed that tree's
+> writers: the modes `bootstrap-state`, `split-status`, `sort-status`, `reconcile-status`,
+> `migrate-schema` and `clean-layout`/`layout-cleanup` were removed, and so were the `pm-status.py` verbs `move-epic` and `set-field`
+> that rows below name as repairs. Read it as the record of a 3.x assessment, not as current gaps.
 
 
 Repo: `<repo root>`, `main`, HEAD `47effcd`, clean.

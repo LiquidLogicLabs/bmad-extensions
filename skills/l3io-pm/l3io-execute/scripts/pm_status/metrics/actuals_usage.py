@@ -121,12 +121,12 @@ def cmd_set_actual(args) -> int:
     kind = args.node
     block = getattr(args, "block", "actual")
     if block == "orchestration" and kind == "story":
-        _die_usage("--block orchestration is only valid on a sprint or epic — a story's "
-                   "orchestration belongs to its parent sprint")
+        _die_usage("--block orchestration is only valid on an epic — a story's "
+                   "orchestration belongs to its epic")
     if args.cost is not None:   # a usage error on any node: refused before the epic lock
         _die_usage("--cost is not accepted: cost is derived from tokens x rates. "
                    "Fix the token counts or modules.l3io-pm.token_rates instead.")
-    # Both the node save and, for a sprint or epic, the calibration sample's replay marker
+    # Both the node save and, for an epic, the calibration sample's replay marker
     # (_mark_sampled) write the node, so an epic's whole cycle runs under its lock. Lock
     # order: epic_node_lock, then calibration_lock inside the record_* helpers.
     with _epic_write_lock(args, kind):
@@ -281,15 +281,11 @@ def _set_actual(args, kind, block) -> int:
         # not silent.
         try:
             if block == "orchestration":
-                # kind is "sprint" or "epic" here — a story was already rejected above.
-                calib_note = record_orchestration_sample(
-                    args.state_root, kind, args.epic, args.sprint if kind == "sprint" else None)
+                # kind is "epic" here — a story was already rejected above.
+                calib_note = record_orchestration_sample(args.state_root, kind, args.epic)
             elif kind == "story":
                 # path + y so the sample can stamp its replay marker on the node
                 calib_note = record_story_sample(args.state_root, node, path, y)
-            elif kind == "sprint":
-                calib_note = record_closure_sample(args.state_root, "sprint",
-                                                   args.epic, args.sprint)
             elif kind == "epic":
                 calib_note = record_closure_sample(args.state_root, "epic", args.epic)
         except Exception as e:                      # noqa: BLE001 - deliberate isolation
