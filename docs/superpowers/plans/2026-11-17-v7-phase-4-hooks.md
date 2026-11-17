@@ -499,20 +499,29 @@ It writes **no** status. The retrospective writes none either (`retro-document.m
 
 ### Task 4.9: Dissolve `issues.yaml` into v7's `backlog/`; finish §4.5 (item 8, last part)
 
+**Done 2026-11-17** (`feat(l3io-pm)!: issues live in v7's backlog; pm_status narrowed to spec §4.5`). `test_pm_status_surface_is_4_5`, `test_audit_tree_findings_1a_to_1l` and `test_audit_tree_writes_nothing` written first and seen failing (30 registered vs 22; `audit-tree.py` absent). The CLI is now 22 verbs: `import-node`, `verify`, `set-estimate`, `add-test-run`, `notice`, `set-actual`, `import-actual`, `report`, `dispatch`, `usage`, `calibration`, `estimate-story`, `estimate-rollup`, `rates`, `adr-reserve`, `sync-agent-instructions`, `sidecar-reconcile`, `estimate-entries`, `set-lane`, `build-open`, `build-close`, `epic-close`. `issues/` is deleted (`store.py`, `promote.py`, `audit.py`, 20 test classes); `adr-reserve` lives in `pm_status/adr/`. Dead 3.x helpers swept: `_check_lock_verdict`, `init_story_doc`, `story_doc_path`, `deps_list`, the story-key allocator (`_next_story_key`, with `issues/promote.py`), `issues_lock`, `VALID_STORY_TRANSITIONS`, `_lock_age_minutes`. check:types: 44 ungated (was 47), both gated classes 0. R4, R13 and R14 pass (`test_tracker_store_never_calls_mark`, `test_bmad_build_alone_records_actuals`, `test_execute_has_no_review_phase`; `smoke:install` renders both build skills with the hooks and the planted-tracker plan starts with `sync`). **R3 is pending-manual**: `docs/superpowers/notes/2026-11-17-phase-4-r3-procedure.md` is the procedure.
+
+- Ruling: `estimate-story` and `estimate-rollup` stay in the pinned surface on their 3.x address (spec §4.5); no v7 address is added now — Phase 6 decides their fate when the 3.x address retires.
+- Ruling: of findings 1a–1l, 1b, 1c, 1d, 1f, 1h, 1i, 1k and 1l are re-expressed over v7's tree; 1a (two issue files), 1e (a stored allocator — v7 derives `next_id`), 1g (archive placement — v7 has none) and 1j (a resolution disagreeing with its story — a v7 ticket's state is its plan's) have no v7 meaning, and the test names each with its reason. `audit-tree.py` also carries the marker evidence `audit-backlog.py` gave triage (that script and its suite are deleted), over the `code-marker (<file>:<line>)` reference `harvest-debt` writes into its candidates.
+- Ruling: `spec-align.py`'s `sync-plan`, `propose`, `commit`, `reject` and `check-stale` are deleted with their tests — each filed or resolved items in the ledger, and their callers left with Task 4.7. Phase 5 re-homes the spec sync. Health Check 13 (which ran `check-stale`) is retired; the number is not reused. ADR-0002 and ADR-0004 gain amendments.
+- Ruling: health Checks 2, 6, 7 and 16's 3.x half are the **migration path**, gated on a pre-v7 layout and retiring with `migrate-state` in Phase 6; Check 16 gains a v7 half (`{l3io_state_root}` ignored by git). Check 8 runs `audit-tree.py`. No routing row changes: every doctor mode survives.
+- Ruling: `check-types.test.mjs` plants a two-module `CommentedSeq` probe into the copied package, because the annotated `IssueStore` accessors its mutations anchored on are gone.
+- Ruling: `update-ai-rules` writes the v7 layout and now flags the 3.x sharded tree and `issues.yaml` as legacy references. README's Quick Start is the v7 install (`npx skills add` per module folder, `bmad setup`, `/l3io-doctor wire`), as `smoke:install` runs it.
+
 **Files:**
 - Delete the `pm_status` verbs `append-issue`, `update-issue` (if not already gone), `promote-issue`, `schedule-issue`, `resolve-issue`, `repair-issue`, `list-issues` and `audit-issues`, the `issues/store.py`/`promote.py`/`audit.py` modules, and their tests. `issues/adr.py` (`adr-reserve`) moves to `adr/`.
 - Create: `skills/l3io-util/l3io-doctor/scripts/audit-tree.py`. It runs findings 1a–1l, re-expressed over v7's tree: `backlog/` leaves, `type = "bug"`, `tickets.toml` entries and our sidecars, plus orphaned sidecars from Task 4.1. It writes nothing. Its fixes are proposals for Sofia (REFINE, BOARD `move`).
 - Modify: the doctor's `triage` (audit over the v7 tree; closing is Sofia's) and `harvest-debt`. `harvest-debt` emits candidate `bug-<slug>` entries for Sofia's TICKETS/REFINE in `backlog/`; we write no leaf. The `stats` backlog section changes to match. `CLAUDE.md`'s issues paragraphs (`issues.yaml`, `issues-resolved.yaml`, ADR-0002) become a short "4.x: v7 backlog" note.
 - Test: `tests/l3io-doctor/test-audit-tree.py` (new); `skills/_shared/tests/test-pm-status.py` loses the issues classes.
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `test_audit_tree_findings_1a_to_1l`, one fixture per finding that still has a meaning on v7, plus a table in the test naming each finding that has none and why;
   - `test_audit_tree_writes_nothing`;
   - **`test_pm_status_surface_is_4_5`**: the final subcommand set equals exactly the §4.5 keep set (`estimate-story`, `estimate-rollup`, `calibration`, `set-estimate`, `set-actual`, `add-test-run`, `dispatch`, `report`, `adr-reserve`), plus `usage`, `rates`, `verify`, `notice` and `sync-agent-instructions`, plus `sidecar-reconcile`, `build-open`, `build-close`, `estimate-entries`, `set-lane` and `epic-close`, plus `import-node`/`import-actual` until Phase 6.
-- [ ] **Step 2:** Delete callers, then verbs. Run `check:docs` (check 4 and check 36) after each.
-- [ ] **Step 3: Phase exit on the fixture** (Exit below).
-- [ ] **Step 4:** Sync, regenerate manifests, then run the gate run and `smoke:install`.
-- [ ] **Step 5: Commit.** `feat(l3io-pm)!: issues live in v7's backlog; pm_status narrowed to spec §4.5`.
+- [x] **Step 2:** Delete callers, then verbs. Run `check:docs` (check 4 and check 36) after each.
+- [x] **Step 3: Phase exit on the fixture** (Exit below).
+- [x] **Step 4:** Sync, regenerate manifests, then run the gate run and `smoke:install`.
+- [x] **Step 5: Commit.** `feat(l3io-pm)!: issues live in v7's backlog; pm_status narrowed to spec §4.5`.
 
 **Exit (Phase 4):** R3, R4, R13 and R14 on the fixture.
 - **R13:** `test_bmad_build_alone_records_actuals` passes, and `smoke:install` renders both build skills with our hooks.

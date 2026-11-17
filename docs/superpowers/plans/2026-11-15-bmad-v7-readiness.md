@@ -288,6 +288,11 @@ Spec §8.1 holds 4.0.0's detailed planning until GA stops the surface moving. §
 
 ## Phase 4 — Hooks into v7's planning and build (`feat/bmad-v7-layer`) — needs ADRs a, c, d, e, h
 
+> **Done 2026-11-17 except R3** — tasks 4.1–4.9 of
+> `docs/superpowers/plans/2026-11-17-v7-phase-4-hooks.md`. R4, R13 and R14 pass on the fixture
+> (`smoke:install`) and in the suites; R3 needs a live agent session and is **pending-manual**,
+> with the procedure in `docs/superpowers/notes/2026-11-17-phase-4-r3-procedure.md`.
+
 Everything here attaches to a v7 skill. Each item names its host and extension point (spec §14.1).
 
 1. **Data placement** (§3.3): estimates and wave and lane data in `l3io.toml` beside each container's `tickets.toml`; actuals in a per-ticket sidecar; project-wide data under `{output_folder}/l3io/`. We never write `tickets.toml` (ADR c).
