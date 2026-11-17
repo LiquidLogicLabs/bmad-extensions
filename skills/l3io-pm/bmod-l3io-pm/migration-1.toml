@@ -1,0 +1,64 @@
+# l3io-pm's first migration, l3io 3.x (BMad 6.x) to 4.x (BMad v7). `bmad migrate` runs a
+# module's `migration-<n>.toml` files in `<n>` order (ADR-0019).
+
+[migration]
+module = "l3io-pm"
+from = "3"
+to = "4"
+title = "Carry l3io's estimates, actuals, calibration, events and ADR register into its v7 sidecars"
+summary = "After method's own migration has turned the v6 folders into a v7 initiative, moves what l3io 3.x recorded about that work -- estimates and classes, actuals and completion evidence, lanes, the calibration file, the event log, the ADR register and the reorg log -- into the sidecars and project-wide folder l3io 4.x reads, verifies every datum, and only then sets the 3.x source aside."
+
+# Read-only signals. Both must hold: l3io 3.x data, and v7's initiative layout already there.
+detect = """
+- l3io 3.x data is present: a `state/` folder under the implementation folder (`modules.l3io-pm.implementation_artifacts`, else `{output_folder}/implementation-artifacts`) holding `active/`, `planned/` or `archived/` `epic-<nnn>/epic.yaml`; or a `sprint-status.yaml` whose top level is an `epics:` list (not BMad's `development_status:` mapping), in the implementation folder or in an `initiative-*/archive-v6/` folder; or `sprint-status-backlog.yaml` / `sprint-status-archived.yaml` there; or `_bmad/state/epic-*.yaml`.
+- AND v7's initiative layout already exists: an `initiative-*/` folder under `core.output_folder` holding `tickets/tickets.toml`, and no `migration-v6-v7/migration-v6-v7.md` there whose `status` is other than `done`.
+It applies only after method's migration-1 has run. `bmad migrate` lists migrations by module name, so this one is listed before method's; while the initiative layout is absent it does not apply, and method's runs first. When method's has just run in this session, offer this one next. To confirm, run `uv run {project-root}/_bmad/l3io-util/scripts/migrate-engine.py --project-root {project-root} --detect`: it reads only, prints what it found, and exits 0 when this migration applies.
+"""
+
+target = """
+<output_folder>/
+  initiative-<slug>/tickets/
+    l3io.toml                              # [epic.<slug>] lane, per epic that had one
+    epic-<slug>/tickets/
+      l3io.toml                            # [entry.<id>] class, estimate, migrated_from, previous_keys;
+                                           # [epic] estimate, actual, orchestration; [sprint.<Snn>] history
+      <stem>-plan.l3io.toml                # beside each plan: actual, fix_iterations, completion_evidence
+  l3io/                                    # project-wide, the main checkout's
+    pm-calibration.yaml  events.jsonl  adr-register.yaml  reorg-log.yaml
+<implementation folder>/state.legacy/      # the 3.x tree, renamed aside after verification (never deleted)
+v7's own files -- tickets.toml, leaves, plans, container files -- are not touched.
+"""
+
+precautions = """
+- Method's migration owns the work-item tree and every status; this one writes only l3io's sidecars and `{output_folder}/l3io/`. It never writes `tickets.toml`, a leaf, a plan or a container file.
+- Nothing is written before the plan is shown and approved, and nothing is guessed: a 3.x key that maps to no ticket or to more than one, a sidecar value already set since the move to v7, or a project-wide file that already differs, stops the run before any write.
+- The 3.x source stays exactly where it is until every datum is verified in its new home, and is then renamed aside, never deleted.
+- A leftover BMad 6.12 shim (`bmad-create-story`, `bmad-dev-story`, `bmad-review-adversarial-general`) is reported, never removed: v7 does not retire it, and removing it is the user's commit.
+"""
+
+guide = """
+## Sequence
+
+1. **Engine.** The engine is l3io-util's: `{engine}` = `uv run {project-root}/_bmad/l3io-util/scripts/migrate-engine.py --project-root {project-root}`. When that file is absent, say `bmad setup l3io-util` installs it and stop.
+2. **Source folder.** The implementation folder is `modules.l3io-pm.implementation_artifacts`, else `modules.bmm.implementation_artifacts`, else `{output_folder}/implementation-artifacts`; when `bmad setup` already removed those keys, read them from `_bmad/` in the newest `.v6-v7-migration-backup-*/` folder. Pass it as `--artifacts <folder>` whenever it is not the default.
+3. **Detect.** Run `{engine} --detect`. Exit 1: show its `reason` and stop -- most often method's migration has not run yet.
+4. **Plan.** Run `{engine} --plan` and show the plan whole: what is read, every sidecar and project-wide file it writes, the notes, any leftover shims and any refusals.
+5. **Resolve refusals.** Each refusal names what it needs, and the run cannot continue until there are none. A 3.x key that matches no ticket or several: ask the user which v7 ticket or epic it is, write their answers to a JSON map file (`{"E001-S01-003": "epic-<slug>/<id>", "E001": "epic-<slug>"}`) outside the store, and plan again with `--map <file>`. A story with actuals and no plan: the refusal prints v7's own `tickets.py mark` command; on a `repo` store run it with the user's approval, then plan again; on a tracker store, report it. A sidecar value or project-wide file that already differs: show both, and stop until the user reconciles it by hand.
+6. **Approve.** Wait for the user to approve the plan.
+7. **Apply.** Run `{engine} --apply` (with the same `--artifacts` and `--map`). It gates, writes, and reads every target back against the plan; any failure prints `source untouched` and exits 1 -- report it and stop.
+8. **Set the source aside.** Only after a verified apply, and when the user agrees, run `{engine} --apply --dispose`: it re-verifies, then renames each 3.x source to `<name>.legacy`. `/l3io-doctor clean-legacy` removes those later, on request.
+9. **Commit.** In a git repository, commit the sidecars, `{output_folder}/l3io/` and the renamed source as one commit, `chore(l3io): migrate 3.x state to 4.x`. Never push.
+10. Run every `checklist` item and record its result. Fix and recheck a failure, or report it; never skip one.
+11. **Report.** Name every file written, the notes, and each leftover shim with how to remove it. Next: `/l3io-doctor wire`, so Sofia's and the builds' hooks record estimates and actuals from now on.
+"""
+
+checklist = [
+  "`--detect` reported v7's initiative layout present and method's migration done before anything was written.",
+  "The pm-calibration.yaml calibration file, adr-register.yaml (the ADR register) and reorg-log.yaml under `{output_folder}/l3io/` are byte-identical to their 3.x source.",
+  "Every line of the 3.x events.jsonl event log is in `{output_folder}/l3io/events.jsonl`, in its original order.",
+  "Every 3.x story estimate and class is in its v7 entry's `[entry.<id>]` in the epic's `tickets/l3io.toml`, with `migrated_from` naming the 3.x key; every 3.x epic estimate, actual and orchestration block is in that file's `[epic]`.",
+  "Every 3.x story actual, fix_iterations and completion evidence is in the `<stem>-plan.l3io.toml` beside its v7 plan, and every lane in the initiative's `tickets/l3io.toml`.",
+  "`--apply` printed `verified against the plan`, and no `tickets.toml`, leaf, plan or container file changed (git diff names only `l3io.toml`, `*.l3io.toml` and `{output_folder}/l3io/` files, plus the renamed source).",
+  "The 3.x source was set aside only after that verification, renamed to `.legacy`, never deleted.",
+  "Every leftover BMad 6.12 shim the plan listed is named in the report for the user to remove; none was deleted by the migration.",
+]

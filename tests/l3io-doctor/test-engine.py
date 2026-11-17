@@ -1,25 +1,38 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["ruamel.yaml>=0.18"]
+# dependencies = ["ruamel.yaml>=0.18", "tomlkit>=0.13"]
 # ///
-"""Tests for migrate-engine.py — run with: uv run test-engine.py"""
+"""Tests for migrate-engine.py, l3io 3.x -> 4.x on BMad v7 -- run with: uv run test-engine.py
+
+Each test builds a project the way `bmad migrate` leaves it after method's own migration-1:
+a v7 initiative under `_bmad-output/` (tickets.toml, epic folders, plans for stories past
+backlog) beside the untouched l3io source, then runs the engine over it. The initiative
+follows the layout `tickets.py` reads at the pinned upstream (`tickets_dir`, `load_folder`,
+`join_plans`: tickets.py:280-400 at e435a22).
+"""
 import importlib.util
 import io
+import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
+import tomllib
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
 FIXTURES = Path(HERE) / "fixtures"
+SCRIPTS = os.path.join(REPO, "skills", "l3io-util", "l3io-doctor", "scripts")
+MIGRATION = os.path.join(REPO, "skills", "l3io-pm", "bmod-l3io-pm", "migration-1.toml")
 
 
 def _load(name, filename):
-    spec = importlib.util.spec_from_file_location(
-        name, os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-util", "l3io-doctor", "scripts", filename))
+    spec = importlib.util.spec_from_file_location(name, os.path.join(SCRIPTS, filename))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -27,481 +40,438 @@ def _load(name, filename):
 
 eng = _load("migrate_engine", "migrate-engine.py")
 
+FAKE_RESOLVE_CONFIG = """\
+import json, sys
+key = sys.argv[sys.argv.index("--key") + 1] if "--key" in sys.argv else ""
+values = {"core.output_folder": "{project-root}/_bmad-output"}
+print(json.dumps({key: values[key]} if key in values else {}))
+"""
 
-def _copy(name):
-    """Copy a fixture into a temp dir. Returns (project_path, tempdir_to_remove)."""
-    d = Path(tempfile.mkdtemp())
-    shutil.copytree(FIXTURES / name, d / "proj")
-    return d / "proj", d
+# Where each fixture lands in a project: the artifact folder, or the project root.
+ART = "_bmad-output/implementation-artifacts"
+FIXTURE_DEST = {"sharded": ART, "l3io-flat": ART, "split": ART, "bmad-flat": ART,
+                "per-epic": ".", "v6-shim": "."}
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def plan_md(entry_id, status):
+    return f"---\ntitle: 'x'\ntype: 'feature'\nticket: '{entry_id}'\nstatus: '{status}'\n---\n\n# x\n"
+
+
+def fetch(rel: str) -> Path:
+    """A v7 file at the pin, through scripts/fetch-bmad-tool.mjs (SHA-256 verified)."""
+    pin = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         'import { PIN } from "./scripts/fetch-bmad-tool.mjs"; console.log(PIN)'],
+        cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
+    p = subprocess.run(["node", "scripts/fetch-bmad-tool.mjs", pin, rel],
+                       cwd=REPO, capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError(f"fetch-bmad-tool {rel}: {p.stderr.strip()}")
+    return Path(p.stdout.strip())
+
+
+class Project(unittest.TestCase):
+    """A project root holding a fixture's source and, unless `v7=False`, the initiative
+    method's migration-1 would have written for it."""
+
+    ENTRIES = [(1, "Password login", "done"), (2, "Session cookies", "in-review"),
+               (3, "Google provider", None)]
+
+    def make(self, fixture, v7=True, entries=None, plans=True):
+        self.root = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        write(os.path.join(self.root, "_bmad", "scripts", "resolve_config.py"),
+              FAKE_RESOLVE_CONFIG)
+        dest = os.path.join(self.root, FIXTURE_DEST[fixture])
+        os.makedirs(dest, exist_ok=True)
+        shutil.copytree(FIXTURES / fixture, dest, dirs_exist_ok=True)
+        self.art = os.path.join(self.root, ART)
+        self.out = os.path.join(self.root, "_bmad-output")
+        self.state_root = os.path.join(self.out, "l3io")
+        if v7:
+            self.initiative(entries or self.ENTRIES, plans)
+        return self
+
+    def initiative(self, entries, plans=True):
+        ini = os.path.join(self.out, "initiative-shop")
+        self.ini = ini
+        write(os.path.join(ini, "initiative-shop.md"), "---\ntype: initiative\n---\n# Shop\n")
+        write(os.path.join(ini, "tickets", "tickets.toml"),
+              '[[epic]]\nid = 1\nslug = "epic-authentication"\ntitle = "Authentication"\n\n'
+              '[[epic]]\nid = 2\nslug = "epic-reporting"\ntitle = "Reporting"\n')
+        self.epic = os.path.join(ini, "tickets", "epic-authentication")
+        write(os.path.join(self.epic, "epic-authentication.md"),
+              "---\ntype: epic\ntitle: Authentication\n---\n# Authentication\n")
+        toml = "".join(f'[[entry]]\nid = {i}\ntype = "story"\ntitle = "{t}"\n'
+                       f'description = "{t} works"\nverify = "a test"\n\n'
+                       for i, t, _ in entries)
+        write(os.path.join(self.epic, "tickets", "tickets.toml"), toml)
+        if plans:
+            for i, t, status in entries:
+                if status:
+                    slug = t.lower().replace(" ", "-")
+                    write(os.path.join(self.epic, "tickets", f"story-{slug}-plan.md"),
+                          plan_md(i, status))
+        write(os.path.join(ini, "tickets", "epic-reporting", "epic-reporting.md"),
+              "---\ntype: epic\ntitle: Reporting\n---\n# Reporting\n")
+
+    def run_engine(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            try:
+                code = eng.main(["--project-root", self.root, *argv])
+            except SystemExit as e:
+                code = e.code if isinstance(e.code, int) else 1
+        return code, out.getvalue(), err.getvalue()
+
+    def sidecar(self, *parts):
+        with open(os.path.join(*parts), "rb") as fh:
+            return tomllib.load(fh)
+
+    def entry_sidecar(self):
+        return self.sidecar(self.epic, "tickets", "l3io.toml")
+
+    def source_files(self):
+        return sorted(str(p.relative_to(self.root)) for p in Path(self.root).rglob("*")
+                      if p.is_file() and "_bmad-output/l3io" not in str(p)
+                      and "initiative-shop" not in str(p))
 
 
 class TestFixtureCorpus(unittest.TestCase):
-    def test_every_fixture_directory_has_a_reader(self):
-        """Deleting a fixture must fail the suite, not silently shrink the corpus."""
-        on_disk = {p.name for p in FIXTURES.iterdir()
-                   if p.is_dir() and not p.name.startswith(".")}
-        self.assertEqual(on_disk, set(eng.READERS), "fixture set != reader set")
-
-    def test_the_corpus_has_all_five_layouts(self):
-        self.assertEqual(len(eng.READERS), 5)
+    def test_every_source_layout_has_a_fixture(self):
+        """One fixture per source layout the engine reads, plus the BMad-schema flat file
+        (not ours: method's) and the leftover-shim project. A deleted fixture fails here."""
+        on_disk = {p.name for p in FIXTURES.iterdir() if p.is_dir()}
+        self.assertEqual(on_disk, set(eng.LAYOUTS) | {"bmad-flat", "v6-shim"})
 
 
-class TestDetect(unittest.TestCase):
-    def _detect(self, fixture):
-        p, d = _copy(fixture)
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        return eng.detect(p, p)
+class TestMigrationFile(unittest.TestCase):
+    """`bmad migrate` lists a file only when its [migration] table carries every field
+    (knowledge.py MIGRATION_FIELDS and `checklist`, :66-68, :446-455 at e435a22)."""
 
-    def test_l3io_flat(self):
-        self.assertEqual(self._detect("l3io-flat"), "l3io-flat")
+    def setUp(self):
+        with open(MIGRATION, "rb") as fh:
+            self.m = tomllib.load(fh)["migration"]
 
-    def test_bmad_flat(self):
-        self.assertEqual(self._detect("bmad-flat"), "bmad-flat")
+    def test_required_fields(self):
+        for k in ("module", "from", "to", "title", "summary", "detect", "guide"):
+            self.assertTrue(str(self.m.get(k, "")).strip(), k)
+        self.assertTrue(self.m["checklist"])
+        self.assertEqual((self.m["module"], self.m["from"], self.m["to"]), ("l3io-pm", "3", "4"))
 
-    def test_split(self):
-        self.assertEqual(self._detect("split"), "split")
+    def test_guide_invokes_the_engine(self):
+        self.assertIn("_bmad/l3io-util/scripts/migrate-engine.py", self.m["guide"])
+        for step in ("--detect", "--plan", "--apply"):
+            self.assertIn(step, self.m["guide"])
 
-    def test_per_epic(self):
-        self.assertEqual(self._detect("per-epic"), "per-epic")
-
-    def test_artifacts(self):
-        self.assertEqual(self._detect("artifacts"), "artifacts")
-
-    def test_nothing_present(self):
-        d = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        self.assertEqual(eng.detect(d, d), "none")
-
-    def test_split_wins_over_flat_because_both_carry_sprint_status(self):
-        p, d = _copy("split")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        self.assertTrue((p / "sprint-status.yaml").is_file())
-        self.assertEqual(eng.detect(p, p), "split")
+    def test_checklist_verifies_every_moved_datum(self):
+        text = " ".join(self.m["checklist"])
+        for datum in ("calibration", "events", "ADR register", "estimate", "actual",
+                      "source", "shim"):
+            self.assertIn(datum, text)
 
 
-class TestGatherAndPlan(unittest.TestCase):
-    def test_l3io_flat_plan_counts(self):
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
-        self.assertEqual(plan["counts"], {"epic": 2, "sprint": 2, "story": 3})
-        self.assertEqual(plan["problems"], [])
+class TestWaitsForMethod(Project):
+    def test_l3io_migration_waits_for_method(self):
+        """Review Focus 3. knowledge.py lists migrations sorted by (module, number)
+        (:128), so `l3io-pm`'s is offered BEFORE `method`'s; only detect can order them.
+        Without v7's initiative layout, detect does not match and --apply writes nothing."""
+        self.make("sharded", v7=False)
+        before = self.source_files()
+        code, out, _ = self.run_engine("--detect")
+        self.assertEqual(code, 1, out)
+        found = json.loads(out)
+        self.assertFalse(found["applies"])
+        self.assertIn("method", found["reason"])
+        self.assertEqual(found["layouts"], ["sharded"])
+        code, _, err = self.run_engine("--apply")
+        self.assertNotEqual(code, 0)
+        self.assertIn("method", err)
+        self.assertFalse(os.path.exists(self.state_root))
+        self.assertEqual(self.source_files(), before)
+        # Method's migration then runs: the initiative appears, and ours applies.
+        self.initiative(self.ENTRIES)
+        code, out, _ = self.run_engine("--detect")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(json.loads(out)["applies"])
 
-    def test_bmad_flat_plan_counts(self):
-        p, d = _copy("bmad-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        plan = eng.build_plan(eng.gather("bmad-flat", p, p))
-        self.assertEqual(plan["counts"], {"epic": 2, "sprint": 0, "story": 3})
+    def test_method_migration_still_in_draft_holds_ours(self):
+        self.make("sharded")
+        write(os.path.join(self.out, "migration-v6-v7", "migration-v6-v7.md"),
+              "---\ntype: migration\nstatus: draft\n---\n")
+        code, out, _ = self.run_engine("--detect")
+        self.assertEqual(code, 1)
+        self.assertIn("draft", json.loads(out)["reason"])
 
-    def test_a_plan_orders_parents_before_children(self):
-        """import-node exits 3 on a sprint whose epic is absent, so order matters."""
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        kinds = [r["kind"]
-                 for r in eng.build_plan(eng.gather("l3io-flat", p, p))["records"]]
-        self.assertEqual(kinds, sorted(kinds, key=["epic", "sprint", "story"].index))
+    def test_bmad_migrate_lists_ours_before_methods(self):
+        """Measured with v7's own lister at the pin (knowledge.py, fetched and SHA-256
+        verified): both files are valid migrations, and `migrations` is sorted by module
+        name, so `l3io-pm` precedes `method`. That ordering is why detect must wait."""
+        tools = {rel: fetch(rel) for rel in (
+            "skills/core-tools/bmad/scripts/knowledge.py",
+            "skills/core-tools/bmad/scripts/list_templates.py",
+            "skills/method/bmod-method/migration-1.toml")}
+        skills = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, skills, True)
+        shutil.copytree(os.path.dirname(MIGRATION), skills / "bmod-l3io-pm")
+        (skills / "bmod-method").mkdir()
+        (skills / "bmod-method" / "bmod.toml").write_text(
+            '[bmod]\ncode = "method"\nversion = "6.13.0"\n', encoding="utf-8")
+        shutil.copyfile(tools["skills/method/bmod-method/migration-1.toml"],
+                        skills / "bmod-method" / "migration-1.toml")
+        bin_dir = skills.parent / (skills.name + "-bin")
+        bin_dir.mkdir()
+        self.addCleanup(shutil.rmtree, bin_dir, True)
+        for rel, path in tools.items():
+            if rel.endswith(".py"):
+                shutil.copyfile(path, bin_dir / Path(rel).name)
+        p = subprocess.run([sys.executable, str(bin_dir / "knowledge.py"), "--root", str(skills)],
+                           capture_output=True, text=True, check=True)
+        found = json.loads(p.stdout)
+        listed = [(m["module"], m["from"], m["to"]) for m in found["migrations"]]
+        self.assertEqual(listed, [("l3io-pm", "3", "4"), ("method", "6", "7")])
+        self.assertEqual([x for x in found["problems"] if x.get("kind") == "migration"], [])
 
-    def test_invalid_records_are_reported_as_problems(self):
-        plan = eng.build_plan([
-            {"kind": "epic", "key": "", "status": "backlog", "title": "", "source": "x"}])
-        self.assertTrue(plan["problems"])
+    def test_detect_prose_requires_the_initiative_layout(self):
+        with open(MIGRATION, "rb") as fh:
+            detect = tomllib.load(fh)["migration"]["detect"]
+        for signal in ("initiative-", "tickets/tickets.toml", "migration-v6-v7"):
+            self.assertIn(signal, detect)
 
-    def test_an_unknown_layout_gathers_nothing(self):
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        self.assertEqual(eng.gather("no-such-layout", p, p), [])
-
-    def test_source_is_empty_is_false_when_the_file_has_content(self):
-        p, d = _copy("bmad-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        self.assertFalse(eng.source_is_empty("l3io-flat", p, p))
-
-    def test_source_is_empty_is_true_for_an_empty_file(self):
-        d = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        (d / "sprint-status.yaml").write_text("", encoding="utf-8")
-        self.assertTrue(eng.source_is_empty("l3io-flat", d, d))
-
-    def test_render_plan_names_the_layout_and_the_counts(self):
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        text = eng.render_plan("l3io-flat", eng.build_plan(eng.gather("l3io-flat", p, p)))
-        self.assertIn("l3io-flat", text)
-        self.assertIn("epics", text)
-
-
-REPO = os.path.dirname(os.path.dirname(HERE))
-PM_STATUS = os.path.join(REPO, "skills", "_shared", "pm_status", "__main__.py")
-
-
-class TestGate(unittest.TestCase):
-    def test_non_empty_source_with_empty_plan_BLOCKS(self):
-        """THE live defect, as a test. A BMad-schema file read by the l3io reader
-        yields zero records over a non-empty source: the run must refuse."""
-        p, d = _copy("bmad-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        plan = eng.build_plan(eng.gather("l3io-flat", p, p))   # wrong reader on purpose
-        self.assertEqual(plan["counts"], {"epic": 0, "sprint": 0, "story": 0})
-        msg = eng.gate("l3io-flat", plan, p, p)
-        self.assertIsNotNone(msg)
-        self.assertIn("BLOCKED", msg)
-
-    def test_empty_source_with_empty_plan_is_allowed(self):
-        d = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        (d / "sprint-status.yaml").write_text("", encoding="utf-8")
-        self.assertIsNone(eng.gate("l3io-flat", eng.build_plan([]), d, d))
-
-    def test_a_good_plan_passes(self):
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
-        self.assertIsNone(eng.gate("l3io-flat", plan, p, p))
-
-    def test_validation_problems_block(self):
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        plan = eng.build_plan([
-            {"kind": "epic", "key": "", "status": "backlog", "title": "", "source": "x"}])
-        self.assertIn("BLOCKED", eng.gate("l3io-flat", plan, p, p))
+    def test_a_bmad_schema_flat_file_is_not_ours(self):
+        self.make("bmad-flat")
+        code, out, _ = self.run_engine("--detect")
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["layouts"], [])
 
 
-class TestWriteVerifyDispose(unittest.TestCase):
-    def _run(self, fixture, layout):
-        p, d = _copy(fixture)
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
-        plan = eng.build_plan(eng.gather(layout, p, p))
-        written, errors = eng.write(plan, state, PM_STATUS)
-        return p, d, state, plan, written, errors
+class TestShardedMigration(Project):
+    def test_migration_preserves_calibration_events_adr_register(self):
+        self.make("sharded")
+        src = os.path.join(self.art, "state")
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        for name in ("pm-calibration.yaml", "adr-register.yaml", "reorg-log.yaml",
+                     "events.jsonl"):
+            with open(os.path.join(src, name), "rb") as a, \
+                 open(os.path.join(self.state_root, name), "rb") as b:
+                self.assertEqual(a.read(), b.read(), name)
 
-    def test_write_creates_every_node(self):
-        _, _, state, plan, written, errors = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(errors, [])
-        self.assertEqual(written, len(plan["records"]))
-        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
-        self.assertTrue((state / "planned" / "epic-002" / "epic.yaml").exists())
-        self.assertTrue(
-            (state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml").exists())
+    def test_events_union_with_a_log_v7_already_started(self):
+        self.make("sharded")
+        v7_line = '{"ts": "2026-11-17T00:00:00Z", "event": "dispatch_open"}\n'
+        write(os.path.join(self.state_root, "events.jsonl"), v7_line)
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        with open(os.path.join(self.state_root, "events.jsonl")) as fh:
+            lines = fh.read().splitlines()
+        with open(os.path.join(self.art, "state", "events.jsonl")) as fh:
+            source = fh.read().splitlines()
+        self.assertEqual(lines[:len(source)], source)
+        self.assertEqual(lines[-1], v7_line.strip())
 
-    def test_verify_against_plan_passes_after_a_good_write(self):
-        _, _, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(eng.verify_against_plan(plan, state), [])
+    def test_a_differing_calibration_file_refuses(self):
+        self.make("sharded")
+        write(os.path.join(self.state_root, "pm-calibration.yaml"), "version: 2\n")
+        code, _, err = self.run_engine("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("pm-calibration.yaml", err)
+        with open(os.path.join(self.state_root, "pm-calibration.yaml")) as fh:
+            self.assertEqual(fh.read(), "version: 2\n")
 
-    def test_verify_catches_a_node_corrupted_on_disk(self):
-        """Proves verification compares against the PLAN, not against itself."""
-        _, _, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
-        (state / "active" / "epic-001" / "epic.yaml").write_text(
-            "key: 'E001'\nstatus: backlog\n", encoding="utf-8")
-        problems = eng.verify_against_plan(plan, state)
-        self.assertTrue(any("E001" in p for p in problems), problems)
+    def test_estimates_actuals_and_evidence_land_in_the_sidecars(self):
+        self.make("sharded")
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        side = self.entry_sidecar()
+        e1 = side["entry"]["1"]
+        self.assertEqual(e1["class"], "standard")
+        self.assertEqual(e1["migrated_from"], "E001-S01-001")
+        self.assertEqual(e1["estimate"]["man_hours"], 4)
+        self.assertEqual(e1["estimate"]["tokens_k"]["total"], 200)
+        self.assertEqual(e1["estimate"]["cost"], 0.8)
+        self.assertTrue(e1["fingerprint"].startswith("sha256:"))
+        self.assertEqual(side["entry"]["2"]["previous_keys"], ["E007-S02-004"])
+        self.assertEqual(side["entry"]["3"]["class"], "complex")
+        self.assertEqual(side["epic"]["estimate"]["man_hours_high"], 16)
+        self.assertEqual(side["epic"]["actual"]["tokens_k"]["cache_read"], 360)
+        self.assertEqual(side["epic"]["orchestration"]["hitl_hours"], 0.1)
+        self.assertEqual(side["sprint"]["S01"]["actual"]["man_hours"], 8)
+        ticket = self.sidecar(self.epic, "tickets", "story-password-login-plan.l3io.toml")
+        self.assertEqual(ticket["actual"]["man_hours"], 5)
+        self.assertEqual(ticket["actual"]["runtime"], "claude")
+        self.assertEqual(ticket["fix_iterations"], 1)
+        self.assertEqual(len(ticket["completion_evidence"]["test_runs"]), 2)
+        self.assertTrue(ticket["completion_evidence"]["tests_passing"])
+        self.assertEqual(ticket["calibration_sampled_at"], "2026-08-16T21:00:00Z")
+        lanes = self.sidecar(self.ini, "tickets", "l3io.toml")
+        self.assertEqual(lanes["epic"]["epic-authentication"]["lane"], 2)
 
-    def test_verify_catches_a_missing_node(self):
-        _, _, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
-        (state / "planned" / "epic-002" / "epic.yaml").unlink()
-        self.assertTrue(any("E002" in p for p in eng.verify_against_plan(plan, state)))
-
-    def test_inferred_nodes_keep_their_origin_through_the_write(self):
-        p, d, state, plan, _, errors = self._run("artifacts", "artifacts")
-        self.assertEqual(errors, [])
-        from ruamel.yaml import YAML
-        node = YAML(typ="safe").load(
-            (state / "active" / "epic-001" / "sprint-01" / "sprint.yaml")
-            .read_text(encoding="utf-8"))
-        self.assertEqual(node["origin"], "inferred")
-
-    def test_dispose_renames_and_never_deletes(self):
-        p, d, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
-        moved = eng.dispose("l3io-flat", p, p)
-        self.assertEqual(moved, [str(p / "sprint-status.yaml")])
-        self.assertFalse((p / "sprint-status.yaml").exists())
-        self.assertTrue((p / "sprint-status.yaml.legacy").exists())
-
-    def test_dispose_retires_nothing_for_the_artifacts_layout(self):
-        p, d, state, plan, _, _ = self._run("artifacts", "artifacts")
-        self.assertEqual(eng.dispose("artifacts", p, p), [])
-        self.assertTrue(
-            (p / "epic-001" / "sprint-01" / "stories" / "E001-S01-001.md").exists())
-
-    def test_the_source_survives_a_blocked_run(self):
-        p, d = _copy("bmad-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        before = (p / "sprint-status.yaml").read_text(encoding="utf-8")
-        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
-        self.assertIsNotNone(eng.gate("l3io-flat", plan, p, p))
-        self.assertEqual((p / "sprint-status.yaml").read_text(encoding="utf-8"), before)
-        self.assertFalse((p / "sprint-status.yaml.legacy").exists())
-
-    def test_partial_write_failure_leaves_valid_records_on_disk_and_source_untouched(self):
-        """A mid-plan write failure must not roll back valid records already written, and
-        it must never trigger disposal of the source.
-
-        The vacuous-truth trap the peer surfaced: a one-record fixture proves
-        "records before the failing one survive" trivially (there are zero of them).
-        This fixture has THREE records -- two valid + one poisoned with an invalid status
-        that import-node rejects -- so the survivor set is a real property, not an empty one.
-        """
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        source_before = (p / "sprint-status.yaml").read_text(encoding="utf-8")
-        state = Path(d) / "state"
-
-        # Craft a plan with a valid epic, an invalid epic, and another valid epic.
-        # import-node returns exit 2 for an invalid status; the loop must keep going.
-        poisoned_plan = eng.build_plan([
-            {"kind": "epic", "key": "E001", "status": "in-progress", "title": "first"},
-            {"kind": "epic", "key": "E002", "status": "not-a-real-status", "title": "bad"},
-            {"kind": "epic", "key": "E003", "status": "done", "title": "third"},
-        ])
-        written, errors = eng.write(poisoned_plan, state, PM_STATUS)
-
-        # The valid records land; the poisoned one is reported.
-        self.assertEqual(written, 2, f"expected 2 successful writes, got {written}")
-        self.assertEqual(len(errors), 1, f"expected 1 error, got {errors}")
-        self.assertIn("E002", errors[0])
-        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists(),
-                        "valid record BEFORE the failure must survive")
-        self.assertTrue((state / "archived" / "epic-003" / "epic.yaml").exists(),
-                        "valid record AFTER the failure must survive -- write does not "
-                        "abort the loop on the first error")
-        self.assertFalse((state / "planned" / "epic-002" / "epic.yaml").exists(),
-                         "the poisoned record must NOT have landed on disk")
-
-        # The source is untouched -- caller sees errors and never invokes dispose.
-        self.assertEqual((p / "sprint-status.yaml").read_text(encoding="utf-8"),
-                         source_before,
-                         "source file must be byte-identical after a failed write")
-        self.assertFalse((p / "sprint-status.yaml.legacy").exists(),
-                         "dispose must never have run")
-
-        # verify_against_plan sees the missing node -- proves the caller's gate works.
-        problems = eng.verify_against_plan(poisoned_plan, state)
-        self.assertTrue(any("E002" in prob for prob in problems),
-                        f"verify must catch the missing E002, got: {problems}")
+    def test_no_v7_file_is_written(self):
+        """ADR-0015: tickets.toml, leaves, plans and container files are v7's."""
+        self.make("sharded")
+        v7 = {p: p.read_bytes() for p in Path(self.ini).rglob("*")
+              if p.is_file() and not p.name.endswith("l3io.toml")}
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        after = {p: p.read_bytes() for p in Path(self.ini).rglob("*")
+                 if p.is_file() and not p.name.endswith("l3io.toml")}
+        self.assertEqual(v7, after)
 
     def test_apply_is_idempotent(self):
-        p, d, state, plan, written1, _ = self._run("l3io-flat", "l3io-flat")
-        written2, errors2 = eng.write(plan, state, PM_STATUS)
-        self.assertEqual(errors2, [])
-        self.assertEqual(written2, 0, "a second apply must write nothing")
+        self.make("sharded")
+        self.assertEqual(self.run_engine("--apply")[0], 0)
+        first = self.entry_sidecar()
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(first, self.entry_sidecar())
 
-    def test_scalar_extras_land_on_disk_via_import_node(self):
-        """The l3io-flat fixture carries `goal` on E001 and `superseded_by` on
-        E001-S01-002. Both are scalar strings import-node takes as flags. Both must land
-        through the migration."""
-        from ruamel.yaml import YAML
-
-        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
-        # Filter out any WARN-only lines that might come through errors -- WARN
-        # is stderr, not the errors list. A failed write WOULD be here; none expected.
-        self.assertEqual(errors, [], f"the writes must not error: {errors}")
-
-        _, epic = None, YAML(typ="safe").load(
-            (state / "active" / "epic-001" / "epic.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(epic.get("goal"),
-                         "All users can sign in with password + one federated provider.",
-                         "epic.goal must round-trip through the migration")
-
-        story = YAML(typ="safe").load(
-            (state / "active" / "epic-001" / "sprint-01" / "E001-S01-002.yaml")
-            .read_text(encoding="utf-8"))
-        self.assertEqual(story.get("superseded_by"), "E001-S01-999",
-                         "story.superseded_by must round-trip through the migration")
-
-    def test_classification_is_passed_to_import_node(self):
-        """import-node's typed --classification flag was accepted but the engine
-        never sent it, so every story landed with classification=unknown even
-        when the source had feature/etc. Pin the fix."""
-        from ruamel.yaml import YAML
-
-        _, _, state, _, _, _ = self._run("l3io-flat", "l3io-flat")
-        story = YAML(typ="safe").load(
-            (state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml")
-            .read_text(encoding="utf-8"))
-        self.assertEqual(story.get("classification"), "feature")
-
-    def test_no_structured_extra_is_WARNed_any_more(self):
-        """Was test_structured_extras_emit_visible_WARN_rather_than_silent_loss. All three
-        structured fields now have typed writers, so a WARN for any of them would mean a
-        regression to dropping it. The unrecognised-extra WARN path is separate and still
-        tested below."""
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
-        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
-
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            eng.write(plan, state, PM_STATUS)
-        warns = [l for l in buf.getvalue().splitlines() if l.startswith("WARN")]
-
-        for field in ("depends_on", "estimate", "actual"):
-            self.assertFalse([w for w in warns if f" skipping {field}=" in w],
-                             f"{field} has a typed writer; a WARN means it was dropped")
-        self.assertEqual(eng.sr.STRUCTURED_EXTRAS_TO_WARN, (),
-                         "nothing should be left in the WARN-only set")
-
-    def test_an_unrecognised_extra_still_WARNs(self):
-        """The WARN path itself must survive: a field the reader captured but the engine
-        cannot route is still visible loss, not silent loss."""
-        rec = {"kind": "epic", "key": "E001", "extras": {"no_such_field": "v"}}
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
-        eng.write(eng.build_plan(eng.gather("l3io-flat", p, p)), state, PM_STATUS)
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            eng._apply_extras(rec, state, PM_STATUS)
-        self.assertIn("unrecognised extra", buf.getvalue())
-        self.assertIn("no_such_field", buf.getvalue())
-
-    def test_actual_lands_via_import_actual_with_the_N_A_sentinel(self):
-        """The fixture carries `actual: {man_hours: 6}` on E001-S02-001. It must land, with
-        tokens as the N/A sentinel rather than a fabricated four-class split, and without
-        appending a calibration sample."""
-        from ruamel.yaml import YAML
-
-        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(errors, [], f"import-actual must not error: {errors}")
-        p = state / "active" / "epic-001" / "sprint-02" / "E001-S02-001.yaml"
-        node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
-        self.assertIn("actual", node, "the actual must be carried into state")
-        self.assertEqual(str(node["actual"].get("man_hours")), "6")
-        self.assertEqual(str(node["actual"].get("tokens_k")), "N/A",
-                         "legacy tokens must be the sentinel, never 0 -- calibration would "
-                         "consume 0 as a real measurement")
-        cal = state / "pm-calibration.yaml"
-        self.assertFalse(cal.exists(),
-                         "a bulk import must not append calibration samples")
-
-    def test_depends_on_lands_via_import_node(self):
-        """Converted from a WARN assertion. The l3io-flat fixture carries
-        `depends_on: ['E001-S01-002']` on story E001-S01-001; it must now be ON DISK as a
-        LIST, not WARNed and not flattened to the string "['E001-S01-002']"."""
-        from ruamel.yaml import YAML
-
-        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(errors, [], f"import-node must not error: {errors}")
-        p = state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml"
-        node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
-        self.assertIn("depends_on", node, "depends_on must be carried into state")
-        self.assertIsInstance(node["depends_on"], list,
-                              "it must land as a LIST -- a stringified list is worse than "
-                              "nothing, because a later reader takes it for a scalar")
-        self.assertEqual(node["depends_on"], ["E001-S01-002"])
-
-    def test_estimate_lands_via_set_estimate(self):
-        """Converted from a WARN assertion. The fixture carries a POINT estimate
-        (`man_hours: 5`, `tokens_k: 40`) on E001-S02-001. set-estimate has point flags as well
-        as range flags, so the mapping keys translate mechanically -- man_hours -> --man-hours
-        -- with no per-metric table to drift."""
-        from ruamel.yaml import YAML
-
-        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(errors, [], f"set-estimate must not error: {errors}")
-        p = state / "active" / "epic-001" / "sprint-02" / "E001-S02-001.yaml"
-        node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
-        self.assertIn("estimate", node, "the estimate must be carried into state")
-        est = node["estimate"]
-        self.assertTrue(
-            any("man_hours" in str(k) for k in est),
-            f"man_hours must survive the translation; got {sorted(est)}")
-
-    def test_a_legacy_cost_in_an_estimate_is_dropped_with_a_note(self):
-        """cost is derived from tokens at capture and frozen; set-estimate rejects --cost*
-        outright. A legacy cost must be dropped visibly, not passed and not silently lost."""
-        rec = {"kind": "epic", "key": "E001",
-               "extras": {"estimate": {"man_hours": 5, "cost_low": "1.00"}}}
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
-        eng.write(eng.build_plan(eng.gather("l3io-flat", p, p)), state, PM_STATUS)
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            errs = eng._apply_extras(rec, state, PM_STATUS)
-        self.assertEqual(errs, [], f"a dropped cost must not be an error: {errs}")
-        self.assertIn("cost_low", buf.getvalue())
-        self.assertIn("derived", buf.getvalue())
-
-    def test_cli_apply_end_to_end(self):
+    def test_an_estimate_v7_already_holds_is_never_overwritten(self):
+        self.make("sharded")
+        write(os.path.join(self.epic, "tickets", "l3io.toml"),
+              '[entry.1]\nclass = "simple"\n\n[entry.1.estimate]\nman_hours = 1\n')
+        code, _, err = self.run_engine("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("entry.1", err)
+        self.assertEqual(self.entry_sidecar()["entry"]["1"]["estimate"], {"man_hours": 1})
 
 
-        p, d = _copy("l3io-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
-        code = eng.main([
-            "--artifacts", str(p), "--project-root", str(p), "--apply",
-            "--state-root", str(state), "--pm-status", PM_STATUS, "--dispose"])
-        self.assertEqual(code, 0)
-        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
-        self.assertTrue((p / "sprint-status.yaml.legacy").exists())
+class TestMappingGate(Project):
+    def test_an_ambiguous_title_refuses_with_a_report(self):
+        entries = [(1, "Password login", "done"), (2, "Password login", None),
+                   (3, "Session cookies", "in-review"), (4, "Google provider", None)]
+        self.make("sharded", entries=entries)
+        code, _, err = self.run_engine("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("E001-S01-001", err)
+        self.assertIn("more than one", err)
+        self.assertFalse(os.path.exists(self.state_root))
 
-    def test_additive_bootstrap_on_partial_sharded_state(self):
-        """A project with sharded state for SOME stories, plus artifact .md files
-        for others, must bootstrap only the missing ones and leave existing state
-        untouched. Passing --state-root to gather() scopes the plan to the orphan
-        set; verify passes because nothing planned collides with the pre-existing
-        nodes. This is the additive-bootstrap use case, end-to-end."""
-        from ruamel.yaml import YAML
+    def test_a_map_file_resolves_the_ambiguity(self):
+        entries = [(1, "Password login", "done"), (2, "Password login", None),
+                   (3, "Session cookies", "in-review"), (4, "Google provider", None)]
+        self.make("sharded", entries=entries)
+        mp = os.path.join(self.root, "map.json")
+        write(mp, json.dumps({"E001-S01-001": "epic-authentication/1"}))
+        code, out, err = self.run_engine("--apply", "--map", mp)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.entry_sidecar()["entry"]["1"]["migrated_from"], "E001-S01-001")
 
-        p, d = _copy("artifacts")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
+    def test_v6_key_maps_before_titles(self):
+        self.make("sharded", entries=[(1, "Renamed login", "done"),
+                                      (2, "Session cookies", "in-review"),
+                                      (3, "Google provider", None)])
+        toml = os.path.join(self.epic, "tickets", "tickets.toml")
+        with open(toml) as fh:
+            text = fh.read()
+        write(toml, text.replace('title = "Renamed login"\n',
+                                 'title = "Renamed login"\nv6_key = "E001-S01-001"\n', 1))
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.entry_sidecar()["entry"]["1"]["migrated_from"], "E001-S01-001")
 
-        # Pre-populate state for E001-S01-001 with a status that DIFFERS from what
-        # the artifact frontmatter says. Without additive scoping, verify would
-        # trip on this drift; with it, the reader skips this story entirely and
-        # the pre-existing node is left exactly as-is.
-        existing_sprint = state / "active" / "epic-001" / "sprint-01"
-        existing_sprint.mkdir(parents=True)
-        (state / "active" / "epic-001" / "epic.yaml").write_text(
-            "key: 'E001'\nstatus: in-progress\ntitle: 'Existing epic'\n",
-            encoding="utf-8")
-        (existing_sprint / "sprint.yaml").write_text(
-            "key: 'S01'\nepic: 'E001'\nstatus: in-progress\ntitle: 'Existing sprint'\n",
-            encoding="utf-8")
-        (existing_sprint / "E001-S01-001.yaml").write_text(
-            "key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\n"
-            "status: backlog\ntitle: 'Pre-existing, do not touch'\n",
-            encoding="utf-8")
+    def test_actuals_with_no_plan_refuse_and_name_v7s_writer(self):
+        """A plan is v7's (ADR-0015): the gate names `tickets.py mark`, never writes one."""
+        self.make("sharded", plans=False)
+        code, _, err = self.run_engine("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("tickets.py", err)
+        self.assertIn("mark", err)
+        self.assertIn("1 done", err)
+        self.assertFalse(list(Path(self.epic, "tickets").glob("*-plan.md")))
 
-        # Plan with state_root -- scoped to orphans only.
-        plan = eng.build_plan(eng.gather("artifacts", p, p, state))
-        planned_keys = {r["key"] for r in plan["records"]}
-        self.assertNotIn("E001-S01-001", planned_keys,
-                         "the tracked story must be skipped by the plan")
-        self.assertNotIn("E001", planned_keys,
-                         "the tracked epic must not be re-inferred")
-        self.assertNotIn("E001-S01", planned_keys,
-                         "the tracked sprint must not be re-inferred")
-        self.assertIn("E001-S01-002", planned_keys,
-                      "the orphan story must be in the plan")
 
-        # Apply: writes the orphans, existing state is untouched.
-        written, errors = eng.write(plan, state, PM_STATUS)
-        self.assertEqual(errors, [])
-        self.assertGreater(written, 0, "at least one orphan was expected")
+class TestSourceKept(Project):
+    def test_source_kept_until_verify(self):
+        self.make("sharded")
+        before = self.source_files()
+        real = eng.verify
+        eng.verify = lambda plan, ctx: ["entry.1: estimate on disk differs"]
+        try:
+            code, _, err = self.run_engine("--apply", "--dispose")
+        finally:
+            eng.verify = real
+        self.assertEqual(code, 1)
+        self.assertIn("source untouched", err)
+        self.assertEqual(self.source_files(), before)
+        # Verified without --dispose: still kept.
+        self.assertEqual(self.run_engine("--apply")[0], 0)
+        self.assertEqual(self.source_files(), before)
+        # Verified with --dispose: renamed aside, never deleted.
+        code, out, err = self.run_engine("--apply", "--dispose")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(os.path.exists(os.path.join(self.art, "state")))
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.art, "state.legacy", "active", "epic-001", "epic.yaml")))
+        code, out, _ = self.run_engine("--detect")
+        self.assertEqual(json.loads(out)["layouts"], [])
 
-        # The pre-existing node is byte-preserved -- the migration did not touch it.
-        existing = YAML(typ="safe").load(
-            (existing_sprint / "E001-S01-001.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(existing["title"], "Pre-existing, do not touch")
-        self.assertEqual(existing["status"], "backlog",
-                         "existing state must NOT be overwritten with the frontmatter's status")
 
-        # Verify passes because it compares the plan (orphans only) not the full tree.
-        self.assertEqual(eng.verify_against_plan(plan, state), [])
+class TestEachSourceLayout(Project):
+    def test_sharded(self):
+        self.make("sharded")
+        code, out, err = self.run_engine("--plan", "--format", "json")
+        self.assertEqual(code, 0, out + err)
+        plan = json.loads(out)
+        self.assertEqual(plan["layouts"], ["sharded"])
+        self.assertEqual(plan["refusals"], [])
 
-    def test_cli_apply_on_a_bmad_project_migrates_it_rather_than_blocking(self):
-        """detect() picks the right reader, so the BMad project is CONVERTED."""
-        p, d = _copy("bmad-flat")
-        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
-        state = Path(d) / "state"
-        code = eng.main([
-            "--artifacts", str(p), "--project-root", str(p), "--apply",
-            "--state-root", str(state), "--pm-status", PM_STATUS])
-        self.assertEqual(code, 0)
-        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
+    def test_l3io_flat(self):
+        self.make("l3io-flat", entries=[(1, "Password login", "done"),
+                                        (2, "Session cookies", "in-review"),
+                                        (3, "Google provider", "ready-for-dev")])
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        side = self.entry_sidecar()
+        self.assertEqual(side["entry"]["3"]["estimate"], {"man_hours": 5, "tokens_k": 40})
+        self.assertNotIn("class", side["entry"]["3"])
+        ticket = self.sidecar(self.epic, "tickets", "story-google-provider-plan.l3io.toml")
+        self.assertEqual(ticket["actual"], {"man_hours": 6})
+        self.assertIn("classification 'feature'", out)
+
+    def test_split(self):
+        self.make("split")
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.entry_sidecar()["entry"]["1"]["estimate"],
+                         {"man_hours": 3, "tokens_k": 50})
+
+    def test_per_epic(self):
+        self.make("per-epic")
+        code, out, err = self.run_engine("--apply", "--dispose")
+        self.assertEqual(code, 0, out + err)
+        ticket = self.sidecar(self.epic, "tickets", "story-password-login-plan.l3io.toml")
+        self.assertEqual(ticket["actual"], {"elapsed_hours": 1.5, "man_hours": 5})
+        self.assertTrue(os.path.isdir(os.path.join(self.root, "_bmad", "state.legacy")))
+
+    def test_flat_file_method_archived(self):
+        """Method's migration moves sprint-status.yaml to `archive-v6/` unchanged
+        (migration-1.toml:151); the engine reads it there."""
+        self.make("l3io-flat", entries=[(1, "Password login", "done"),
+                                        (2, "Session cookies", "in-review"),
+                                        (3, "Google provider", "ready-for-dev")])
+        os.makedirs(os.path.join(self.ini, "archive-v6"))
+        shutil.move(os.path.join(self.art, "sprint-status.yaml"),
+                    os.path.join(self.ini, "archive-v6", "sprint-status.yaml"))
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.entry_sidecar()["entry"]["3"]["estimate"]["man_hours"], 5)
+
+    def test_leftover_v6_shim_is_reported_and_left_alone(self):
+        """Review Focus 2: v7 does not retire bmad-create-story, so setup never offers to
+        remove it (spec §13.5). The plan names it; the migration never deletes it."""
+        self.make("v6-shim")
+        shim = os.path.join(self.root, ".claude", "skills", "bmad-create-story", "SKILL.md")
+        code, out, err = self.run_engine("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("bmad-create-story", out)
+        self.assertTrue(os.path.isfile(shim))
 
 
 if __name__ == "__main__":

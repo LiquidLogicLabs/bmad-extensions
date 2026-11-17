@@ -72,6 +72,6 @@
     { "name": "bmad-deps", "status": "not-a-skill",
       "reason": "this package's own runtime verifier script, scripts/bmad-deps.py — not a BMad skill. Declared so check 16, which walks every bmad-* token under skills/, does not trip on steps/check-deps.md naming the script it runs" },
     { "name": "bmad-flat", "status": "not-a-skill",
-      "reason": "fixture directory for read-bmad-flat.py tests, not a BMad skill. Named for the layout it exercises (flat sprint-status.yaml)" }
+      "reason": "fixture directory for the migration engine suite (tests/l3io-doctor/fixtures/bmad-flat/), not a BMad skill: a flat sprint-status.yaml in BMad's own schema, which the engine leaves to method's migration" }
   ]
 }

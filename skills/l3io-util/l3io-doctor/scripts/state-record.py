@@ -7,11 +7,11 @@ state-record.py -- the normalised record every doctor reader emits.
 
 Why this exists
 ----------------
-Six migration procedures each parsed their own source shape AND wrote state directly,
-in prose, so none of them was reachable by a test. Splitting them into readers that
-emit ONE record shape makes the parsing testable and leaves exactly one writer
-(`pm-status.py import-node`). This module is that shape, plus the two rules that
-must hold once rather than per reader: validation, and the dedupe rule.
+Migration procedures once each parsed their own source shape AND wrote state directly, in
+prose, so none of them was reachable by a test. Readers that emit ONE record shape make the
+parsing testable and leave exactly one writer, migrate-engine.py, which carries each record
+into l3io's v7 sidecars. This module is that shape, plus the two rules that must hold once
+rather than per reader: validation, and the dedupe rule.
 
 The dedupe rule has its own history. An epic shell and its full epic used to merge
 into two records with one key, landing in two status folders -- on BOTH source paths,
@@ -27,15 +27,15 @@ KINDS = ("epic", "sprint", "story")
 
 VALID_STATUS = {
     "epic": {"backlog", "in-progress", "done"},
-    "sprint": {"backlog", "in-progress", "done"},
-    "story": {"backlog", "ready-for-dev", "in-progress", "review", "done"},
+    "sprint": {"backlog", "in-progress", "review", "done"},
+    "story": {"backlog", "ready-for-dev", "in-progress", "review", "done", "blocked"},
 }
 
 # Ordered worst -> best. dedupe() keeps the record carrying the most information, and a
 # status further along this list is later in the lifecycle -- the one a shell record
 # could not have invented.
 _STATUS_RANK = {
-    "backlog": 0, "ready-for-dev": 1, "in-progress": 2, "review": 3, "done": 4,
+    "backlog": 0, "ready-for-dev": 1, "in-progress": 2, "blocked": 2, "review": 3, "done": 4,
 }
 
 
@@ -44,17 +44,11 @@ def make_record(kind, key, status, title, source, origin=None, origin_note=None,
     """Build a record. `origin` is omitted entirely unless given -- absent means
     'read directly from the source', which is why no schema version bump is needed.
 
-    `classification` is a top-level field because import-node has a typed flag
-    for it; the engine passes --classification when it is set. Only meaningful
+    `classification` is top-level: it becomes a v7 entry's `class`. Only meaningful
     for stories.
 
-    `extras` carries any fields the reader recognises from the source that are
-    NOT among import-node's typed record fields (goal, depends_on, superseded_by,
-    estimate, actual). The engine's write() step passes goal, superseded_by and
-    depends_on to import-node as flags, and writes estimate and actual after it;
-    anything it cannot route is logged to stderr as a visible skip rather than
-    dropped silently. Absent or empty means the source carried nothing beyond
-    the typed record (the common case for freshly-adopted BMad projects)."""
+    `extras` carries the fields in KNOWN_EXTRAS the source holds. Absent or empty means
+    the source carried nothing beyond the typed record."""
     rec = {
         "kind": kind,
         "key": key,
@@ -72,19 +66,14 @@ def make_record(kind, key, status, title, source, origin=None, origin_note=None,
     return rec
 
 
-# Fields the reader may surface in `extras`, and how the engine writes each:
-#
-#   SCALAR_EXTRAS_FOR_IMPORT_NODE -- a string value import-node takes as a flag.
-#   LIST_EXTRAS_TO_TYPED_WRITER   -- depends_on (an import-node flag per key), estimate
-#                                    (set-estimate) and actual (import-actual).
-#   STRUCTURED_EXTRAS_TO_WARN     -- a field no writer takes: the engine emits WARN naming
-#                                    the field, the record key and the value -- visible
-#                                    data loss rather than silent. Empty today.
-SCALAR_EXTRAS_FOR_IMPORT_NODE = ("goal", "superseded_by")
-STRUCTURED_EXTRAS_TO_WARN = ()
-LIST_EXTRAS_TO_TYPED_WRITER = ("depends_on", "estimate", "actual")
-KNOWN_EXTRAS = (SCALAR_EXTRAS_FOR_IMPORT_NODE + LIST_EXTRAS_TO_TYPED_WRITER
-                + STRUCTURED_EXTRAS_TO_WARN)
+# Fields a reader surfaces in `extras`. migrate-engine.py carries L3IO_EXTRAS into l3io's v7
+# sidecars and reports V7_EXTRAS as v7's: method's own migration writes a ticket's `after`,
+# goal and supersession from `epics.md`, so they are listed in the plan, never written by us.
+L3IO_EXTRAS = ("estimate", "actual", "orchestration", "completion_evidence", "lane",
+               "previous_keys", "calibration_sampled_at", "orchestration_sampled_at",
+               "blocked_reason")
+V7_EXTRAS = ("goal", "superseded_by", "depends_on")
+KNOWN_EXTRAS = L3IO_EXTRAS + V7_EXTRAS
 
 
 def collect_extras(node: dict) -> dict:

@@ -1,0 +1,25 @@
+key: 'S01'
+epic: 'E001'
+next: 3
+title: 'Login flow'
+status: done
+estimate:
+  man_hours_low: 6
+  man_hours_high: 9
+  hitl_hours_low: 0.5
+  hitl_hours_high: 1
+  elapsed_hours_low: 1
+  elapsed_hours_high: 2
+  tokens_k_min: 300
+  tokens_k_max: 450
+  cost_low: 1.2
+  cost_high: 1.9
+  model: claude-opus-5
+  confidence: high
+actual:
+  elapsed_hours: 1.6
+  man_hours: 8
+  hitl_hours: 0.7
+  tokens_k: {total: 380, input: 60, output: 20, cache_write: 100, cache_read: 200}
+  cost: 1.5
+  model: claude-opus-5

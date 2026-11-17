@@ -1,0 +1,15 @@
+key: 'E001-S02-001'
+epic: 'E001'
+sprint: 'S02'
+title: 'Google provider'
+status: backlog
+classification: complex
+depends_on: ['E001-S01-001']
+estimate:
+  man_hours: 8
+  hitl_hours: 1
+  elapsed_hours: 2
+  tokens_k: {total: 400, input: 60, output: 20, cache_write: 120, cache_read: 200}
+  cost: 1.6
+  model: claude-opus-5
+  confidence: low

@@ -8,8 +8,8 @@ read-l3io-flat.py -- read this package's LEGACY flat sprint-status.yaml into rec
 
 The legacy layout is one `epics:` LIST with sprints nested inside each epic and stories
 nested inside each sprint. Do not confuse it with BMad's own sprint-status.yaml, which is
-a `development_status:` MAPPING at the same default path -- read-bmad-flat.py handles that
-one, and detect-layout.py --classify decides which is present.
+a `development_status:` MAPPING at the same default path -- that one is BMad's own, left to
+method's migration, and migrate-engine.py tells the two apart by schema.
 
 Reader contract: pure. No writes, no locking, no interaction, and NO refusal on an empty
 result. A file this reader cannot make sense of yields zero records, which is a fact for

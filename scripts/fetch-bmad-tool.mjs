@@ -50,6 +50,9 @@ export const KNOWN_TOOLS = {
     "skills/core-tools/bmad-review/customize.toml": "36666ad3517e89177bdafbca7c50b3acf9e6e6d720885e3309e605e7c7b9a21b",
     "skills/method/bmad-code-review/customize.toml": "f8b2b8c65f643008935c63d819e025468635a4ad89650bd699d4b0fb657f8a3c",
     "skills/method/bmad-architecture/customize.toml": "8fef03e796a10921f8bf755080c6e377ce9df1b8a63a0e53a7510181eb2d0fcb",
+    // method's own v6 -> v7 migration, which l3io-pm's migration-1 must follow: the engine
+    // suite lists both through knowledge.py to show the order `bmad migrate` offers them in.
+    "skills/method/bmod-method/migration-1.toml": "58bdc0bbd2d982b580eca623094d8d7c773cf119683a2de0eca8acc6e47a6f50",
   },
 };
 

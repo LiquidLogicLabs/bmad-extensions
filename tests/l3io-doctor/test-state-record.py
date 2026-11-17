@@ -119,6 +119,10 @@ class TestExtras(unittest.TestCase):
             "key": "E001", "status": "done", "title": "T",  # typed surface
             "goal": "ship", "depends_on": ["a"], "superseded_by": "E001-S01-999",
             "estimate": {"man_hours": 5}, "actual": {"man_hours": 6},
+            "orchestration": {"elapsed_hours": 0.2}, "completion_evidence": {"fix_iterations": 1},
+            "lane": 2, "previous_keys": ["E007-S02-004"], "blocked_reason": "waiting",
+            "calibration_sampled_at": "2026-08-16T21:00:00Z",
+            "orchestration_sampled_at": "2026-08-16T22:00:00Z",
         }
         extras = sr.collect_extras(node)
         self.assertEqual(set(extras), set(sr.KNOWN_EXTRAS))

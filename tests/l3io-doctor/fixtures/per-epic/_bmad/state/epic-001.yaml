@@ -9,3 +9,8 @@ sprints:
       - key: 'E001-S01-001'
         title: Password login
         status: done
+        estimate:
+          man_hours: 4
+        actual:
+          man_hours: 5
+          elapsed_hours: 1.5

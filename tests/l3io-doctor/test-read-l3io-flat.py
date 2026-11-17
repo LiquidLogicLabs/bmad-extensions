@@ -94,15 +94,15 @@ class TestReadL3ioFlat(unittest.TestCase):
         self.assertEqual(rd.read(p), [])
 
     def test_epic_goal_is_captured_as_an_extra(self):
-        """Fields import-node does not accept typed must ride through in `extras` so
-        the engine can hand them to import-node (or WARN)."""
+        """Fields beyond the typed record ride through in `extras`, so the engine can
+        carry l3io's and report v7's."""
         by_key = {r["key"]: r for r in self.recs}
         self.assertEqual(
             by_key["E001"].get("extras", {}).get("goal"),
             "All users can sign in with password + one federated provider.")
 
     def test_story_classification_is_a_top_level_field_not_an_extra(self):
-        """import-node has a typed --classification flag, so the reader promotes
+        """A classification becomes a v7 entry's class, so the reader promotes
         classification to a top-level record field rather than burying it in extras."""
         by_key = {r["key"]: r for r in self.recs}
         s = by_key["E001-S01-001"]

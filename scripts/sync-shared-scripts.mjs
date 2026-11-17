@@ -370,6 +370,10 @@ function pmStatusDeclarers() {
 const DECLARED_EXTRAS = {
   "l3io-execute": ["scripts/facts/ac-dimensions.md", "scripts/facts/spec-sync.md", "scripts/spec-align.py"],
   "l3io-plan": ["scripts/plan-graph.py"],
+  // The 3.x -> 4.x migration engine and its readers: l3io-pm's migration-1.toml, run by
+  // `bmad migrate`, invokes it at _bmad/l3io-util/scripts/, beside this module's pm_status.
+  "l3io-doctor": ["scripts/migrate-engine.py", "scripts/read-l3io-flat.py", "scripts/read-per-epic.py",
+                  "scripts/read-sharded.py", "scripts/read-split.py", "scripts/state-record.py"],
   "l3io-arch-review": ["scripts/lenses/", "scripts/reviewers/", "scripts/standards/"],
   "l3io-sec-redteam": ["scripts/lenses/"],
 };

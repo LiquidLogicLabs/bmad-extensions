@@ -13,6 +13,7 @@ Requires uv on PATH: the Python helpers run via `uv run`."""
 
 [skill]
 scripts = [
+  "scripts/migrate-engine.py",
   "scripts/pm_status/__init__.py",
   "scripts/pm_status/__main__.py",
   "scripts/pm_status/adr/__init__.py",
@@ -36,4 +37,9 @@ scripts = [
   "scripts/pm_status/sidecar/reconcile.py",
   "scripts/pm_status/sidecar/verbs.py",
   "scripts/pm_status/verbs/__init__.py",
+  "scripts/read-l3io-flat.py",
+  "scripts/read-per-epic.py",
+  "scripts/read-sharded.py",
+  "scripts/read-split.py",
+  "scripts/state-record.py",
 ]
