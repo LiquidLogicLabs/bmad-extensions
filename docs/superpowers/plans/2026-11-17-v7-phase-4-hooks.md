@@ -309,6 +309,20 @@ Rules the hooks live under:
 
 ### Task 4.5: Waves and lanes on Sofia's board, and `report` over v7's tree (item 5)
 
+**Done 2026-11-17** (`9633afaf`, `b4c20c8c`). The 4.4 carry-over first: the Ticket check holds an entry with no leaf file to a suggestion, never a fix (`9633afaf`, `test_entry_with_no_leaf_file_is_advisory`). Then `plan-graph.py waves`/`lanes` over recorded `tickets.py status` fixtures (`tests/l3io-plan/fixtures/`, re-recordable by `record-v7-status.sh`); `pm_status` verb `set-lane` in `sidecar/lanes.py`; `report --project-root --initiative-dir [--status-json]` in `metrics/report.py`, reading the `.inflight/` spool (the 4.2 carry-over, test first: `test_report_stall_reads_the_open_build_bracket`); `nodes.resolve_config_key` generalised from the output-folder read, and `nodes.v7_tickets_py`; l3io-plan declares `scripts/plan-graph.py` through `DECLARED_EXTRAS`; three entries in `assets/wire-in.toml`; `l3io-plan waves` (`steps/waves/step-waves.md`) and `lanes` retargeted. Tests: 14 in `test-plan-graph.py` (the four named), 6 in `test-pm-status-sidecar.py`, `tests/l3io-pm/test-board-hooks.py` (6, from the shipped hook values, `git status --porcelain` empty after each), the extras-only case in `sync-shared-scripts.test.mjs`. `smoke:install` asserts `plan-graph.py` installed, Sofia's `board.md` ending with our hook, both menu items, `waves`/`lanes`/`report` on the live initiative, and `tickets.py status` byte-identical. CLI is 47 subcommands.
+
+- Ruling: an entry with no leaf file is advisory at validate (suggest, never fix) — why: Sofia builds such an entry as it is, and her own Ticket check already demands full criteria where her rule needs them (bugs, `refine = true`) — cost if wrong: an unpulled entry can reach `bmad-build-auto` without our six dimensions, as v7 intends.
+- Ruling: `gates` holds only epics waited on for **closure**: a ticket's `after` naming an epic, and anything in an epic file's own `after` (`gated_by`, checked against done keys only); an `[[epic]] after` declaration or an entry-to-entry `after` orders the waves but gates nothing — why: tickets.py meets a ticket-level `after` once the ticket is in review (`classify`, `:581-606`), and a declaration releases nothing on its own (`unpinned_after` reports it unpinned) — cost if wrong: Task 4.7 pauses at fewer epics than an author who relies on declarations alone expects; a declared-only dependency still orders the waves.
+- Ruling: on a parent initiative every prerequisite of a later wave is a gate, and the members are listed under the same `epics` key — why: `parent_view`'s `waiting_on` is every `after` not yet done — cost if wrong: a consumer reading `epics` as epic slugs at parent scope must check `scope`.
+- Ruling: a `done` epic leaves the waves and its edges are met; a `dropped` one leaves them too, but an edge into it stays in the dependent's `after`, marked `dropped` — why: tickets.py never meets a dropped prerequisite, and Sofia's BOARD repoints it — cost if wrong: none; it is a display mark.
+- Ruling: an entry-level `after` into another epic with no declaration still orders the waves, with `needs` empty and `via` naming the entries — why: otherwise search runs beside the cart it needs; tickets.py reports the same edge as `undeclared_after` — cost if wrong: none.
+- Ruling: `set-lane` refuses while `lane_count` is unset or 1, not only outside `1..lane_count` — why: a lane written then would make a single-developer project stop being inert — cost if wrong: a team must run `bmad setup l3io-pm` before assigning a first lane.
+- Ruling: `set-lane` commits what it wrote (`chore(l3io): lane <slug>`), though it is not a hook — why: it runs in the lanes mode between Sofia's commits and the next `bmad-build-auto`, exactly as `estimate-entries` does from the estimate mode — cost if wrong: one commit per lane assignment.
+- Ruling: the board hook pipes Sofia's own `tickets.py status` command into `plan-graph.py` (a `<status command>` slot) instead of naming `_bmad/method/scripts/tickets.py` — why: every `_bmad/` path in a hook value must be one of ours (`test_checks_text_names_only_declared_paths`), and Sofia already knows the command; the l3io-plan step files name the installed path, which they may — cost if wrong: an agent that cannot find `tickets.py` renders no waves; the board itself is unaffected.
+- Ruling: `report`'s v7 source takes `--status-json` beside running v7's installed `tickets.py`, refuses `--all`/`--status`/`--plan` (3.x only), and joins a ticket to its sidecar through the plan's `ticket:` frontmatter as `join_plans` does — why: tests and CI have no `tickets.py`, and the status rows carry no plan path — cost if wrong: a plan whose `ticket:` names neither the id nor the leaf stem shows no actuals, which tickets.py reports as a problem anyway.
+- Ruling: `waves` is not folded into `report` — why: `pm_status` takes no graph library (plan-graph.py's docstring), and the board already renders waves — cost if wrong: the v7 report lists epics in build order rather than by wave.
+- Ruling: `DECLARED_EXTRAS` may name a skill with no `pm_status` copy, which then declares its extras alone — why: plan-graph.py is l3io-plan's, and the plan has l3io-plan declare it — cost if wrong: none; `check:scripts` and the new extras-only test pin it.
+
 **Files:**
 - Modify: `skills/l3io-pm/l3io-plan/scripts/plan-graph.py`. Add `waves --status-json F` and `lanes --status-json F --lanes-toml T`. The input is `tickets.py status` JSON on an initiative **or a parent initiative** (§4.1, `board.md:13`). The sort runs over `[[epic]] after`, entry `after`, and `[[initiative]] after`. It preserves each `needs` reason string. `l3io-plan` declares it, so it installs at `_bmad/l3io-pm/scripts/plan-graph.py`.
 - Create: `pm_status` verb `set-lane --project-root P --initiative-dir D --epic SLUG --lane N`. It refuses a non-number and anything outside `1..lane_count`, and writes only `[epic.<slug>].lane`.
@@ -326,17 +340,17 @@ Rules the hooks live under:
 
 - `waves` output: `{"scope": "initiative|parent", "waves": [{"n": 1, "epics": [...], "parallel": bool, "after": [{"epic": …, "needs": "…"}]}], "gates": [<epic slugs whose closure gates a later wave>]}`. `gates` is what Task 4.7 pauses on.
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `test_waves_from_status_json`, on a recorded fixture from the pin's `tickets.py`;
   - `test_waves_parent_initiative_scope`;
   - `test_needs_reason_preserved`;
   - `test_gates_lists_epics_a_later_wave_waits_on`;
   - `test_set_lane_refuses_name_and_range`;
   - `test_report_reads_v7_tree`.
-- [ ] **Step 2:** Implement, declare `plan-graph.py`, and wire.
-- [ ] **Step 3: On the fixture:** run `waves` over the hand-written initiative's live `tickets.py status` output. Render Sofia after wire; `board.md` ends with our text.
-- [ ] **Step 4:** Sync, regenerate manifests, then run the gate run.
-- [ ] **Step 5: Commit.** `feat(l3io-pm): waves and lanes on Sofia's board`.
+- [x] **Step 2:** Implement, declare `plan-graph.py`, and wire.
+- [x] **Step 3: On the fixture:** run `waves` over the hand-written initiative's live `tickets.py status` output. Render Sofia after wire; `board.md` ends with our text.
+- [x] **Step 4:** Sync, regenerate manifests, then run the gate run.
+- [x] **Step 5: Commit.** `feat(l3io-pm): waves and lanes on Sofia's board`.
 
 ### Task 4.6: Closure on `bmad-retrospective` (item 7)
 
