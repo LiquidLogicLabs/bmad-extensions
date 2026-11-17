@@ -331,6 +331,23 @@ Everything here attaches to a v7 skill. Each item names its host and extension p
 
 ## Phase 6 — Migration (`feat/bmad-v7-layer`) — needs ADR g, Task 0.2 Step 3
 
+> **Done 2026-11-17.** ADR-0019's native entry point ships: `skills/l3io-pm/bmod-l3io-pm/migration-1.toml`
+> (`from = "3"`, `to = "4"`), whose `detect` requires v7's initiative layout and a finished method
+> migration — measured necessary, since v7's `knowledge.py` lists migrations by module name
+> (`:128`), offering `l3io-pm`'s before `method`'s. Its guide runs l3io-util's declared
+> `migrate-engine.py` (detect → read → resolve → plan → gate → write → verify → dispose), which
+> reads the sharded 3.x tree and the flat, split and per-epic layouts (a flat file in method's
+> `archive-v6/` too) and writes only l3io's sidecars and `{output_folder}/l3io/`; it maps a 3.x
+> key by `v6_key`, `previous_keys`, title or `--map`, refuses rather than guesses, never writes a
+> plan (it names `tickets.py mark`), and renames the source `.legacy` only after verification.
+> R5 is proved by `tests/l3io-doctor/test-engine.py` (27 tests, one fixture per layout plus a
+> leftover-shim project). The 3.x path retired with it: `import-node`, `import-actual`,
+> `estimate-story`/`estimate-rollup` (`estimate-entries` is their v7 address), `calibration
+> redrive`, the 3.x addressing on the four kept verbs and the `nodes/` resolver (pm_status is 18
+> verbs); the doctor's `migrate-state` and `redrive` and health Checks 2, 6, 7 and the 3.x half of
+> 16 (new Check 20 points at `bmad migrate`). `install.sh` and the doctor's install mode are v7's
+> `npx skills add` → `bmad setup` → `/l3io-doctor wire`. Not re-pinned: built at `e435a22`.
+
 1. Build the entry point ADR g chooses. If it's native: `migration-1.toml` with `module = "l3io-pm"`, `from = "3"`, `to = "4"`, a `detect` that requires the v7 initiative layout to already exist (Review Focus 3), a `guide` that invokes `migrate-engine.py`, and a `checklist` that verifies every moved datum.
 2. Add engine readers and writers for the four v6 layouts → §3.3 targets (§7's list), keeping detect → read → resolve → plan → **gate** → write → verify → dispose.
 3. Build fixtures for each source layout, including one with a leftover v6 shim.
