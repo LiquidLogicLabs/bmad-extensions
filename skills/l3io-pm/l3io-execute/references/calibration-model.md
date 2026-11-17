@@ -30,10 +30,10 @@ below.
 
 | Component | Learns | Sampled at |
 |---|---|---|
-| `scope` | story sizing ratio, per classification | inside `set-actual --node story` |
-| `closure` | closure overhead ratio, at epic level | inside `epic-close` (v7) or `set-actual --node epic` (3.x) |
-| `fix` | fix cost, per classification (`clean` vs `reworked` cohorts) | inside `set-actual --node story` |
-| `orchestration` | orchestration overhead as a **fraction** of children's actuals, at epic level | inside `set-actual --block orchestration --node epic` |
+| `scope` | story sizing ratio, per classification | inside `build-close`, once per ticket |
+| `closure` | closure overhead ratio, at epic level | inside `epic-close`, once per epic |
+| `fix` | fix cost, per classification (`clean` vs `reworked` cohorts) | inside `build-close`, once per ticket |
+| `orchestration` | orchestration overhead as a **fraction** of children's actuals, at epic level | not sampled on v7 yet: its 3.x sampler (`set-actual --block orchestration`) retired with the 3.x tree, so the band stays unseeded and contributes nothing |
 
 `CALIBRATED_METRIC_FIELDS` is `METRIC_FIELDS` minus `cost` — `("elapsed_hours", "man_hours",
 "hitl_hours", "tokens_k")`. `cost` never calibrates on any component, at any level: it is
@@ -129,8 +129,8 @@ rather than a relabelling:
   factor to back out arithmetically, but no iteration count to say which cohort the
   man-hours belong to.
 
-- **The estimate has no `fix_factor` recorded at all** (a story estimated before
-  `estimate-story` existed, or estimated by hand) — `provenance: legacy`, checked first and
+- **The estimate has no `fix_factor` recorded at all** (a story estimated before the
+  estimate engine existed, or estimated by hand) — `provenance: legacy`, checked first and
   independent of `fix_iterations`. Both missing factors are treated as `1.0`, so the sample
   is `actual / estimate`; the label preserves the imprecision for a later audit. No
   fix-cohort sample is recorded: there is nothing to attribute rework to without knowing
@@ -166,7 +166,8 @@ closure expected    = midpoint(parent estimate) − E − E × orchestration_fra
 sample              = closure actual × closure_ratio_applied / closure expected
 ```
 
-**The denominator must be the quantity the ratio is applied to.** `estimate-rollup` applies
+**The denominator must be the quantity the ratio is applied to.** The epic roll-up
+(`estimate-entries`, `rollup_values`) applies
 the learned ratio to the closure band alone (`total × (1 + ratio × closure band + fraction ×
 ORCH_SPREAD)`), so dividing the residual by the *whole* parent estimate midpoint measures a
 different quantity than the one being corrected and the loop cannot converge — with a
@@ -182,7 +183,7 @@ is a separate block outside `actual` (see "Attribution" in §6). Leaving it in t
 understates every closure sample by exactly the factor the two bands differ by: with children
 summing to 20, an active orchestration fraction of `0.5`, and a true closure overhead of `5`,
 the recorded sample is `0.3704` instead of the correct `1.4286` — 3.9× low, and worse as the
-fraction grows. `derive_closure_sample` therefore subtracts `Σ children estimate ×
+fraction grows. `closure_ratio` therefore subtracts `Σ children estimate ×
 estimate.orchestration_ratios[metric] × mid(ORCH_SPREAD)` (`ORCH_MID`, `1.0` for the shipped
 `(0.8, 1.2)`) before dividing, leaving exactly the closure band.
 
@@ -220,13 +221,13 @@ negative case is not mis-reported as a miscount. A parent actual equal to the su
 children means this level's own closure-phase spend was attributed to nothing (see
 "Attribution" in §6). Recording that as a legitimate `0.0` is strictly worse than recording
 nothing: `0.0` is not `None`, so after three such closes `active_closure_ratio` returns `0.0`,
-`estimate-rollup` accepts it, and the closure band contributes nothing to any future estimate
+the roll-up accepts it, and the closure band contributes nothing to any future estimate
 — permanently, with nothing on disk saying why. The skip reason names the defect and points
 back at the capture rule.
 
 A stored sample of `0.0` is ignored on read — excluded from the weighted average and
 from the count toward the three-sample activation threshold. The write-side guard in
-`derive_closure_sample` refuses to create one; this is what protects a file that already
+`epic-close` refuses to create one; this is what protects a file that already
 contains one, which no migration can be relied on to reach.
 
 ### The orchestration sample — denominator completeness
@@ -237,21 +238,19 @@ sample(metric) = orchestration.actual(metric) / Σ children's actual(metric)
 
 recorded only when **every** child has a numeric actual for that metric — a partial sum would
 silently understate the true total and inflate the fraction, permanently and invisibly. This
-is the same completeness guard `derive_closure_sample` applies to its residual, reused here
+is the same completeness guard the closure sample applies to its children, reused here
 rather than duplicated. `cost` is not sampled (it is outside `CALIBRATED_METRIC_FIELDS`); its
 fraction is already implied by the `tokens_k` fraction, and a second, independently-drifting
 copy would add nothing but disagreement.
 
 ### Idempotency
 
-`set-actual` stamps `calibration_sampled_at` on the node once it has emitted that node's
-`actual`-block sample, and a separate `orchestration_sampled_at` once it has emitted the
-`orchestration`-block sample — **two markers on one node**, deliberately independent: an
-epic node carries both an `actual` and an `orchestration` block, and one marker
-would let whichever write happens first silently suppress the other. A second `set-actual`
-on the same block records nothing and says so in its stdout suffix (`sample already recorded
-at … — skipped (replay)`). `--no-calibrate` still exists for backfills, but correctness no
-longer depends on the caller remembering it.
+`build-close` stamps `calibration_sampled_at` on the ticket's sidecar once it has emitted
+that ticket's sample, and a second close of the same ticket records nothing and says why on
+stderr (`already recorded at …`). `epic-close` takes one closure sample per epic, recorded as
+`calibration_sampled_at` in the epic's `[epic]` table. `set-actual` on a ticket records no
+sample at all: a sample pairs an actual with the estimate made before the work, and that
+pairing is the build bracket's.
 
 ### Concurrency
 
@@ -281,11 +280,9 @@ count) is deliberate, not a bug.
 
 `granularity` lives **in the calibration file itself** (`new_calibration`'s `granularity`
 key), not bound from a step file or `customize.toml` — nothing currently varies it, so every
-project effectively runs `"story"` granularity: `set-actual --node story` records one scope
-sample and (when derivable) one fix-cohort update per closed story; `set-actual --node epic`
-(or, on v7, `epic-close`) records one closure sample per closed epic, and `set-actual --block
-orchestration --node epic` records one orchestration sample per closed epic that carries an
-`orchestration` block. There is no coarser aggregation path in the shipped code — a project cannot presently opt into coarser story
+project effectively runs `"story"` granularity: `build-close` records one scope sample and
+(when derivable) one fix-cohort update per built ticket, and `epic-close` records one closure
+sample per closed epic. There is no coarser aggregation path in the shipped code — a project cannot presently opt into coarser story
 sampling by changing this key. `calibration show` prints whatever value is stored for
 information only; it does not change any sampling behavior.
 
@@ -326,9 +323,9 @@ path), a `closure` ratio is `closure actual / closure expected`, and an `orchest
 is `orchestration_actual / Σ children_actual` — the first two divide the applied ratio back
 out per "The scope/fix split" and "Closure sampling" above; orchestration has no prior ratio
 to divide out, since it is not correcting anything (see "Four separable components"). A
-component below its activation threshold is recorded but **not applied** — `estimate-story`
-and `estimate-rollup` fall back to the cold-start prior for that metric/bucket (or, for
-orchestration, to contributing nothing).
+component below its activation threshold is recorded but **not applied** — `estimate-entries`
+falls back to the cold-start prior for that metric/bucket (or, for orchestration, to
+contributing nothing).
 
 ### The metrics migration (`calibration migrate-metrics`)
 
@@ -375,8 +372,8 @@ The file is preserved beforehand as `pm-calibration.yaml.pre-metrics` (parallel 
 `pm-calibration.yaml.v1` for the older version-1-to-2 migration below), and the migration is
 idempotent — a second run is a no-op because the marker is already set.
 
-Both `record_story_sample` and `record_closure_sample` (and `record_orchestration_sample`) run
-this migration automatically, inline, before appending a new sample — so it happens
+Both `record_story_sample` and `append_closure_ratios` run this migration automatically,
+inline, before appending a new sample — so it happens
 transparently the first time any project touches its calibration file after upgrading. It is
 also exposed directly:
 
@@ -384,8 +381,8 @@ also exposed directly:
 uv run {pm_status} calibration migrate-metrics --state-root {pm_state_root} [--format {text,json}]
 ```
 
-**Never runs from a read-only command.** `calibration show`, `estimate-story`, and
-`estimate-rollup` only read the file (`load_calibration`) and never migrate it — a
+**Never runs from a read-only command.** `calibration show` and `estimate-entries` only read
+the file (`load_calibration`) and never migrate it — a
 never-migrated file just reads as "nothing sampled yet" for `man_hours`/`fix`/`orchestration`
 until a write path actually runs.
 
@@ -393,7 +390,7 @@ until a write path actually runs.
 
 Distinct from the metrics migration above — this is the older schema-shape migration, still
 present and unaffected by this rework. A `version: 1` file is auto-migrated **the first time a
-write path touches it** (`record_story_sample` / `record_closure_sample`, both via
+write path touches it** (`record_story_sample` / `append_closure_ratios`, both via
 `migrate_calibration`). The original is preserved alongside as `pm-calibration.yaml.v1` and is
 never read again. Migration maps the old blended ratio onto the `scope` component and starts
 `closure`, `fix`, and `orchestration` fresh at zero samples — the old file has no way to
@@ -401,8 +398,8 @@ separate them, and seeding them from a blended figure would import exactly the b
 exists to remove.
 
 **`load_calibration` never migrates**, either version-1-to-2 or the metrics reshape above. It
-is deliberately side-effect-free: `calibration show` and `estimate-story`/`estimate-rollup`
-(which only read the file to look up active ratios) call `load_calibration` and treat an
+is deliberately side-effect-free: `calibration show` and `estimate-entries` (which only reads
+the file to look up active ratios) call `load_calibration` and treat an
 unmigrated file as if the missing components had no samples yet, but they never rewrite it.
 Only the sampling write paths migrate, and only at the moment they are about to append.
 
@@ -415,19 +412,16 @@ Only the sampling write paths migrate, and only at the moment they are about to 
 
 `pm-status.py` now runs this loop; it is not orchestrator prose.
 
-- **`estimate-story`** and **`estimate-rollup`** read the file (`load_calibration`, never
-  migrating) and apply whichever ratios/fractions are active — cold-start priors (or, for
-  orchestration, nothing) otherwise.
-- **`set-actual`** derives and appends a sample automatically after every successful actuals
-  write (`record_story_sample` for `--node story`; `record_closure_sample` for `--node
-  epic` on the `actual` block; `record_orchestration_sample` for the `orchestration`
-  block), unless `--no-calibrate` is passed. A derivation failure is caught, warned on
-  stderr, and never fails the actuals write — the actual is the primary record; the
-  calibration sample is derived, secondary data. The `set-actual` stdout line reports what
-  was recorded (e.g. `scope+4 metrics, provenance=exact, class=complex`, or `orchestration
-  epic +3 metrics`) or why nothing was (e.g. `no sample (missing estimate or actual)`).
-  **Skip reasons go to stdout**, inside that `[...]` suffix — only an unexpected exception
-  warns on stderr.
+- **`estimate-entries`** reads the file (`load_calibration`, never migrating) and applies
+  whichever ratios/fractions are active — cold-start priors (or, for orchestration, nothing)
+  otherwise — to each entry's estimate (`compute_story_estimate`) and to the epic roll-up
+  (`rollup_values`).
+- **`build-close`** derives and appends a ticket's sample (`record_story_sample`) when the
+  plan reads `built` or `done` and the entry was estimated before the build; **`epic-close`**
+  appends one closure sample per epic (`closure_ratio`, `append_closure_ratios`) on an
+  accepted verdict. A derivation failure is caught and reported on stderr, and never fails
+  the actuals write — the actual is the primary record; the calibration sample is derived,
+  secondary data.
 - **`calibration show`** is read-only. A missing file reports cold-start for every component
   and exits `0` — there is no error state for "no calibration data yet."
 - **`calibration migrate-metrics`** performs the one-time reshape described above and reports

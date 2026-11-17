@@ -1,10 +1,9 @@
 """pm_status.sidecar.verbs -- set-estimate, set-actual, add-test-run and verify on v7's tree.
 
-The four verbs keep their 3.x node addressing (`--state-root` plus `--story`/`--epic`/
-`--sprint`) and gain v7 addressing beside it: `--project-root` in place of `--state-root`,
-then `--ticket-dir DIR --entry ID` for an estimate or `--plan-file PATH` for an actual, a
-test run or a verify. `route` picks the handler after parsing; the 3.x handlers are
-untouched, so every existing caller runs exactly as before.
+Each verb takes `--project-root` and a v7 address: `--ticket-dir DIR --entry ID` for an
+estimate, `--plan-file PATH` for an actual, a test run or a verify. The 3.x node addressing
+(`--state-root` with `--story`/`--epic`/`--sprint`) retired with the 3.x tree in Phase 6;
+the migration (`migrate-engine.py`) reads that tree and writes these sidecars.
 
 What each v7 verb writes (status-files.md §12):
 
@@ -12,8 +11,8 @@ What each v7 verb writes (status-files.md §12):
   set-actual    `[actual]` in `<plan-stem>.l3io.toml`, plus one `actual` event in
                 `{state_root}/events.jsonl`
   add-test-run  `completion_evidence.test_runs` / `tests_passing` in the same sidecar
-  verify        nothing; judges that sidecar as 3.x verify judges a story node, except
-                the status, which is the plan's and v7's to write
+  verify        nothing; judges that sidecar's actuals and completion evidence
+                (`verbs.verify_node`), except the status, which is the plan's and v7's
 
 `set-actual` on a ticket records NO calibration sample. A sample compares an actual with
 the estimate made before the work, and that pairing (plan file -> entry -> estimate) is
@@ -24,44 +23,17 @@ It sits above `verbs` and `metrics`, whose value logic it reuses (`apply_estimat
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
 
 from .. import metrics, nodes, sidecar, verbs
 from ..core import _die_notfound, _die_usage, _now_iso, append_event
+from ..sidecar import entry_address_args, plan_address_args
 from . import estimate, lanes, reconcile
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---(?:\n|\Z)", re.DOTALL)
-
-def route(args):
-    """The handler for a parsed command line: the v7 one when any v7 address flag is
-    given, else the 3.x one. Mixing the two addressing schemes is a usage error, and so is
-    giving neither a state root nor a project root."""
-    spec = _V7.get(args.cmd)
-    if spec is None:
-        return args.func
-    if not sidecar.is_v7(args):
-        if not getattr(args, "state_root", None):
-            _die_usage(f"{args.cmd} needs --state-root (3.x state tree) or --project-root "
-                       "with a v7 address (--plan-file, or --ticket-dir and --entry)")
-        if args.cmd == "add-test-run" and not args.story:
-            _die_usage("add-test-run --state-root needs --story")
-        return args.func
-    mixed = [f"--{d.replace('_', '-')}" for d in ("state_root", "story", "epic", "sprint")
-             if getattr(args, d, None)]
-    if mixed:
-        _die_usage(f"{', '.join(mixed)} cannot be combined with v7 addressing "
-                   "(--project-root, --plan-file, --ticket-dir, --entry)")
-    if not args.project_root:
-        _die_usage(f"{args.cmd} with a v7 address needs --project-root")
-    kind, handler = spec
-    if kind == "entry" and not (args.ticket_dir and args.entry):
-        _die_usage(f"{args.cmd} --project-root needs --ticket-dir and --entry")
-    if kind == "plan" and not args.plan_file:
-        _die_usage(f"{args.cmd} --project-root needs --plan-file")
-    return handler
-
 
 def plan_rel(plan: str, project_root: str) -> str:
     """A plan's path relative to the project root, as event payloads carry it."""
@@ -125,13 +97,6 @@ def _set_estimate(args) -> int:
     if args.cost is not None or args.cost_low is not None or args.cost_high is not None:
         _die_usage("cost is derived from tokens x rates and cannot be set directly — "
                    "fix the token counts or modules.l3io-pm.token_rates instead")
-    ranged = [f for f in ("man_hours_low", "man_hours_high", "hitl_hours_low", "hitl_hours_high",
-                          "elapsed_hours_low", "elapsed_hours_high", "tokens_k_max")
-              if getattr(args, f, None) is not None]
-    if ranged:
-        _die_usage("a ticket entry takes single values (--man-hours, --hitl-hours, "
-                   "--elapsed-hours, --tokens-k), not "
-                   + ", ".join("--" + f.replace("_", "-") for f in ranged))
     nodes.project_state_root(args.project_root)       # a v7 project, or exit 2
     folder = nodes.v7_tickets_folder(args.ticket_dir)
     entries = sidecar.read_entries(os.path.join(folder, "tickets.toml"))
@@ -142,7 +107,7 @@ def _set_estimate(args) -> int:
     with sidecar.edit(path) as doc:
         est_tbl = sidecar.table(doc, "entry", entry_id, "estimate")
         est = sidecar.plain(est_tbl)
-        verbs.apply_estimate(est, args, "story")
+        verbs.apply_estimate(est, args)
         sidecar.put_metrics(est_tbl, est)
     over = sidecar.hand_set(entries[entry_id])
     if over:
@@ -157,9 +122,6 @@ def _set_actual(args) -> int:
     if args.cost is not None:
         _die_usage("--cost is not accepted: cost is derived from tokens x rates. "
                    "Fix the token counts or modules.l3io-pm.token_rates instead.")
-    if args.node != "story" or args.block != "actual":
-        _die_usage("a v7 ticket's actual is --node story --block actual; an epic's is "
-                   "written at its closure")
     plan, path = _plan_or_die(args.plan_file)
     state_root = nodes.project_state_root(args.project_root)
     provided = metrics.actuals_usage.actual_values(args)
@@ -187,8 +149,6 @@ def _add_test_run(args) -> int:
 
 
 def _verify(args) -> int:
-    if args.scope != "story":
-        _die_usage("a v7 ticket is verified with --scope story")
     plan, path = _plan_or_die(args.plan_file)
     nodes.project_state_root(args.project_root)
     if not os.path.isfile(path):
@@ -198,16 +158,74 @@ def _verify(args) -> int:
                              judge_status=False)
 
 
-# The v7 handler per subcommand, and which address it takes.
-_V7 = {
-    "set-estimate": ("entry", _set_estimate),
-    "set-actual": ("plan", _set_actual),
-    "add-test-run": ("plan", _add_test_run),
-    "verify": ("plan", _verify),
-}
-
-
 def register(sub):
+    v = sub.add_parser("verify", help="read-back gate on a ticket's sidecar; nonzero exit "
+                                      "on any gap")
+    plan_address_args(v)
+    v.add_argument("--scope", choices=["story"], default="story",
+                   help="a v7 ticket is judged as a story (the only scope left)")
+    v.add_argument("--require-tokens", action="store_true")
+    v.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
+    v.add_argument("--token-rates", dest="token_rates", default="",
+                   help="JSON object of per-model rate overrides")
+    v.set_defaults(func=_verify)
+
+    se = sub.add_parser("set-estimate", help="write [entry.<id>].estimate in an epic's "
+                                             "l3io.toml")
+    entry_address_args(se)
+    se.add_argument("--man-hours", dest="man_hours")
+    se.add_argument("--hitl-hours", dest="hitl_hours",
+                    help="human attention actually spent supervising (hours)")
+    se.add_argument("--elapsed-hours", dest="elapsed_hours")
+    se.add_argument("--tokens-k", dest="tokens_k")
+    # --cost / --cost-low / --cost-high are declared but SUPPRESSed and rejected in
+    # _set_estimate: cost is derived from tokens x rates, never input, and a declared flag
+    # turns that into a clear usage error instead of argparse's "unrecognized arguments".
+    se.add_argument("--cost", dest="cost", help=argparse.SUPPRESS)
+    se.add_argument("--cost-low", dest="cost_low", help=argparse.SUPPRESS)
+    se.add_argument("--cost-high", dest="cost_high", help=argparse.SUPPRESS)
+    se.add_argument("--confidence", choices=["low", "medium", "high"])
+    se.add_argument("--fix-factor", dest="fix_factor",
+                    help="fix multiplier applied; required for the scope/fix split")
+    se.add_argument("--scope-ratio", dest="scope_ratio",
+                    help="calibrated scope ratio applied (1.0 when cold-start)")
+    se.set_defaults(func=_set_estimate)
+
+    a = sub.add_parser("set-actual", help="write a ticket's validated actual block")
+    plan_address_args(a)
+    a.add_argument("--node", choices=["story"], default="story",
+                   help="a v7 ticket's actual is a story's (the only node left)")
+    a.add_argument("--elapsed-hours", dest="elapsed_hours")
+    a.add_argument("--man-hours", dest="man_hours")
+    a.add_argument("--hitl-hours", dest="hitl_hours",
+                   help="human attention actually spent supervising (hours)")
+    a.add_argument("--tokens-input", dest="tokens_input")
+    a.add_argument("--tokens-output", dest="tokens_output")
+    a.add_argument("--tokens-cache-write", dest="tokens_cache_write")
+    a.add_argument("--tokens-cache-read", dest="tokens_cache_read")
+    a.add_argument("--tokens-na", dest="tokens_na", action="store_true",
+                   help="record tokens/cost as N/A (runtime=other only)")
+    a.add_argument("--model", default="", help="model id that priced these tokens")
+    a.add_argument("--tokens-by-model", dest="tokens_by_model", default=None,
+                   help="JSON {model: {input, output, cache_write, cache_read}} in thousands: "
+                        "a run on more than one model, each priced at its own rates "
+                        "(replaces --tokens-* and --model)")
+    a.add_argument("--token-rates", dest="token_rates", default="",
+                   help="JSON object of per-model rate overrides")
+    a.add_argument("--cost", default=None, help=argparse.SUPPRESS)
+    a.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
+    a.add_argument("--no-events", dest="no_events", action="store_true",
+                   help="skip the events.jsonl append for this call")
+    a.add_argument("--session-id", dest="session_id", default=None,
+                   help="recorded in the event payload; null when omitted")
+    a.set_defaults(func=_set_actual)
+
+    a = sub.add_parser("add-test-run", help="record one executed test command and its exit code")
+    plan_address_args(a)
+    a.add_argument("--command", required=True, help="the test command actually executed")
+    a.add_argument("--exit-code", dest="exit_code", type=int, required=True)
+    a.set_defaults(func=_add_test_run)
+
     rc = sub.add_parser("sidecar-reconcile",
                         help="repoint l3io sidecars after tickets.py move, or sweep for "
                              "orphans")

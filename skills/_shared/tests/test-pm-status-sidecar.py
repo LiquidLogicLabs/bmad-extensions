@@ -226,17 +226,25 @@ class TestBoundary(Project):
                          "_bmad-output/initiative-checkout/tickets/epic-cart/tickets/"
                          "story-ui-shell-plan.md")
 
-    def test_v7_addressing_excludes_node_keys(self):
+    def test_the_3x_node_address_is_gone(self):
+        """The 3.x address retired in Phase 6: a node key or a state root is no flag of these
+        verbs any more, and the v7 address is required, so each call is a usage error."""
         r = self.run_cli("set-actual", "--project-root", self.root, "--plan-file",
                          self.plans[1], "--node", "story", "--story", "E001-S01-001",
                          "--man-hours", "1", check=False)
         self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("unrecognized arguments: --story", r.stderr)
         r = self.run_cli("set-actual", "--state-root", self.state_root, "--plan-file",
                          self.plans[1], "--node", "story", "--man-hours", "1", check=False)
         self.assertEqual(r.returncode, 2, r.stderr)
-        r = self.run_cli("set-actual", "--node", "story", "--story", "E001-S01-001",
-                         "--man-hours", "1", check=False)
-        self.assertEqual(r.returncode, 2, "no --state-root and no --project-root")
+        for verb, extra in (("set-actual", ["--man-hours", "1"]),
+                            ("set-estimate", ["--man-hours", "1"]),
+                            ("add-test-run", ["--command", "x", "--exit-code", "0"]),
+                            ("verify", [])):
+            r = self.run_cli(verb, "--state-root", self.state_root, "--story", "E001-S01-001",
+                             *extra, check=False)
+            self.assertEqual(r.returncode, 2, f"{verb}: {r.stderr}")
+            self.assertIn("required: --project-root", r.stderr, verb)
 
     def test_a_missing_plan_is_not_found(self):
         r = self.run_cli("set-actual", "--project-root", self.root, "--plan-file",

@@ -213,11 +213,16 @@ test("the package's other findings are NOT gated, and the count is reported not 
 });
 
 test("a pre-existing [operator] finding is not enough to fail — the cut is the message", (t) => {
-  // The obvious narrow cut, "fail on any [operator] finding", fails on an unmodified file:
-  // it carries 4 of them (`Unsupported operand types for + ("object" and "int")`).
-  const r = run(fixture(t), ["-v"]);
-  assert.equal(r.status, 0);
-  assert.match(r.stdout, /operator=\d+/, "the ungated tally should still show operator findings");
+  // The obvious narrow cut, "fail on any [operator] finding", failed on an unmodified package
+  // while it carried four (`Unsupported operand types for + ("object" and "int")`). They left
+  // with the 3.x code in Phase 6, so the finding is planted: the property is that the gate
+  // tallies it and still passes, whatever the tree happens to carry today.
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, path.dirname(REL), "operator_probe.py"),
+    "def f(x: object) -> object:\n    return x + 1\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /operator=\d+/, "the ungated tally should show the operator finding");
 });
 
 test("a defect in a SECOND file of the package is caught, not just __main__.py", (t) => {

@@ -75,8 +75,8 @@ Extract and bind from the resolved JSON:
   input tier. An unknown id is a hard error, exit 2, never a silent fallback.
 - `{token_rates_json}` — `modules.l3io-pm.token_rates`, serialized to compact JSON; empty
   when the key is absent, which is the normal case (the shipped rate table applies). When it
-  is **non-empty**, add `--token-rates '{token_rates_json}'` to `estimate-story`,
-  `estimate-rollup`, `estimate-entries`, `set-actual`, **and `verify`**; when it is empty, omit the flag
+  is **non-empty**, add `--token-rates '{token_rates_json}'` to
+  `estimate-entries`, `set-actual`, **and `verify`**; when it is empty, omit the flag
   entirely. Passing it to the writers but not to `verify` makes `verify` recompute `cost`
   against the shipped rates and fail every node the override priced. See
   `references/config-resolution.md` §3.
@@ -177,8 +177,7 @@ fi
 ```
 
 **Warn but do not block.** This skill can complete without the doctor for its own core path;
-the failure is deferred to whichever specific step tries to forward to it (`migrate-state`,
-`stats`). Surfacing the warning up front turns "skill not found"
+the failure is deferred to whichever specific step tries to forward to it (`stats`). Surfacing the warning up front turns "skill not found"
 into a diagnosable install anomaly instead of a downstream mystery.
 
 When `doctor=absent`, print exactly once at activation (do not repeat later):

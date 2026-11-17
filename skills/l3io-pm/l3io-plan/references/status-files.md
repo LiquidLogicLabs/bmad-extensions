@@ -7,8 +7,9 @@ activation. `pm-status.py` outranks it, since it enforces these rules mechanical
 
 **On BMad v7 (4.x) the contract is §12**: v7 owns the work-item tree, and l3io writes only
 sidecars beside it plus the project-wide files under `{output_folder}/l3io/`. **§1–§11 describe
-the 3.x sharded state tree**, which nothing in 4.x writes any more: it is read by
-`/l3io-doctor migrate-state` (until Phase 6 moves a 3.x project onto v7's tree).
+the 3.x sharded state tree — read only by the migration.** Nothing in 4.x writes it, and
+`pm-status.py` no longer addresses it: `l3io-pm`'s `migration-1` (run by `bmad migrate`) reads
+it with the doctor's `migrate-engine.py` and writes its data into the §12 sidecars.
 
 **4.x: v7 backlog.** l3io keeps no issues ledger. A 3.x tree's `issues.yaml` and
 `issues-resolved.yaml` have no reader or writer in 4.x: deferred work is a ticket in v7's
@@ -16,13 +17,13 @@ the 3.x sharded state tree**, which nothing in 4.x writes any more: it is read b
 (`bmad-agent-po`). `/l3io-doctor triage` audits that backlog read-only and `harvest-debt`
 proposes candidate bugs; neither writes a leaf.
 
-State is addressed through `pm-status.py` by **key**, never by hand-built path. No skill or
-step file should construct a state path itself — see "Addressing" below.
+State is addressed through `pm-status.py` by a v7 address, never by hand-built path. No skill
+or step file should construct a state path itself — see "Addressing" below.
 
 ## 1. File locations
 
-All l3io-pm state lives under `{implementation_artifacts}/state/` — committed to git,
-co-located with the artifacts it describes. Nothing state-related lives under
+In a 3.x tree, all l3io-pm state lived under `{implementation_artifacts}/state/` — committed
+to git, co-located with the artifacts it describes. Nothing state-related lives under
 `{project-root}/_bmad/` any more; that tree is installer-owned and gitignored.
 
 ```
@@ -265,68 +266,42 @@ actual:
 
 **In a 3.x tree, an epic's directory lives in the folder named for its status** —
 `planned/`, `active/` or `archived/` — with its sprints and stories inside it. A node lives in
-exactly one place. Nothing in 4.x moves an epic between those folders; `migrate-state` reads
+exactly one place. Nothing in 4.x moves an epic between those folders; the migration reads
 them as they are.
 
 ## 6. Ownership lock
 
 A 3.x run claimed an epic by writing a `_lock` block (`session_id`, `claimed_at`,
-`ttl_minutes`) as the first key of its `epic.yaml`. Nothing writes or reads one in 4.x; the
-migration carries it as data.
+`ttl_minutes`) as the first key of its `epic.yaml`. Nothing writes or reads one in 4.x.
 
 ## 7. Addressing
 
-**All 3.x node operations go through `pm-status.py` with `--state-root` plus node keys. Skills
-never construct state paths themselves.** Layout knowledge lives in exactly one place —
-`pm-status.py` — so a layout change only touches that script, not every step file.
-
-```bash
-# epic node
-uv run {pm_status} import-node --state-root {pm_state_root} --epic E001 --status in-progress
-
-# sprint node (epic + sprint key together)
-uv run {pm_status} import-node --state-root {pm_state_root} --epic E001 --sprint S01 --status in-progress
-
-# story node (story key alone is enough — it encodes epic + sprint)
-uv run {pm_status} import-node --state-root {pm_state_root} --story E001-S01-003 --status done
-```
-
-`pm-status.py` resolves `E001-S01-003` to
-`{pm_state_root}/{planned|active|archived}/epic-001/sprint-01/E001-S01-003.yaml`, searching
-the three status folders (`active` first, as the hottest path). The same resolution applies
-to `--epic`/`--sprint` pairs. No caller ever supplies a raw path for a node.
+**Every write goes through `pm-status.py`, at a v7 address (§12). Skills never construct state
+paths themselves.** Layout knowledge lives in exactly one place — `pm_status/nodes/`, the
+resolver section check 26 judges — so a layout change only touches that package. The 3.x node
+address (`--state-root` with `--story`/`--epic`/`--sprint`), and the migration-only
+`import-node` and `import-actual`, retired with the 3.x tree; the migration engine reads that
+tree itself and writes the sidecars directly.
 
 Subcommand summary (see `pm-status.py --help` for full flags):
 
 | Subcommand | Addressing |
 |---|---|
-| `import-node` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) `--status S` + optional `--goal`, `--superseded-by`, `--depends-on KEY` (repeatable) — the migration's writer; creates a missing node, never overwrites one (SKIP) |
-| `set-actual`, `set-estimate`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`), or the v7 addresses of §12 |
-| `set-actual` extra | `--node {story,epic}`; `--block {actual,orchestration}` (default `actual`); `orchestration` writes the orchestrator's own overhead and is valid on an epic only, never a story |
-| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex} [--confidence ...] [--model ID] [--token-rates JSON]` — computes and writes a story's estimate block from `BASE_BANDS` × calibrated scope ratio × fix factor, per metric, then prices `cost` from the estimated `tokens_k` |
-| `estimate-rollup` | `--state-root --epic ID [--model ID] [--token-rates JSON]` — sums every story estimate under the epic (no sprint level between them, ADR-0016) and writes the epic's range-form estimate, widened by the calibrated (or cold-start) closure band and the calibrated (or unseeded) orchestration band, then prices `cost` from the rolled-up `tokens_k` range |
-| `calibration show` \| `migrate-metrics` \| `redrive` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent); `redrive` re-derives calibration samples from the story files already on disk (`redrive_story_samples`), for backfilling or repairing samples without re-running the work |
+| `set-estimate` | `--project-root P --ticket-dir DIR --entry ID` + the four calibrated metrics — writes `[entry.<id>].estimate`; the manual override of what `estimate-entries` computes |
+| `set-actual`, `add-test-run`, `verify` | `--project-root P --plan-file PATH` — the ticket sidecar `<plan-stem>.l3io.toml` beside the plan |
+| `estimate-entries` | `--project-root P --ticket-dir DIR [--entry ID ...] [--class ID=CLASS ...] [--model ID] [--token-rates JSON]` — computes each entry's estimate from `BASE_BANDS` × calibrated scope ratio × fix factor, per metric, prices `cost` from the estimated `tokens_k`, and rolls the epic's range-form estimate up with the closure and orchestration bands (no sprint level, ADR-0016). It is the v7 address of the retired 3.x story-estimate and roll-up verbs |
+| `calibration show` \| `migrate-metrics` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent). The 3.x `redrive` retired with the story files it re-derived from |
 | `report` | `--project-root P --initiative-dir D` (+ optional `--status-json F`, `--format`, `--out`, `--watch`, `--stall-minutes N`) — progress over a v7 initiative (§12); read-only unless `--out` is given |
-| `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch boundary into `events.jsonl`; the input to `report`'s stalled-dispatch flags |
+| `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a dispatch boundary into `events.jsonl`; the keys are labels, not addresses |
 | `rates` | `[--model ID] [--token-rates JSON]` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 |
 
-`import-node` and `set-actual` both append a line to `events.jsonl` as a side effect of
-a successful write (`--no-events` suppresses it, `--session-id` stamps it). A failed append
-warns on stderr and never fails the write — the node file is the primary record and telemetry
-must not be able to block it.
-
-This replaced an optional `--ledger` flag and a `progress` subcommand, both removed. Because
-the flag was opt-in and no step file ever passed it, no project ever produced a ledger; the
-event log is unconditional so it cannot be silently skipped.
-
-`set-actual` also derives and appends a calibration sample as a side effect of a successful
-write (`--no-calibrate` suppresses it). What it computes, and why a failed derivation only
-warns rather than failing the actuals write, is specified in the calibration model —
-`l3io-execute/references/calibration-model.md`, which ships with the PM skills
-(`l3io-execute`, `l3io-plan`) and not with every skill that carries
-this contract. Do not go looking for it here
-unless your own `references/` has it; `pm-status.py` performs the whole loop itself, so
-nothing on a normal run needs to read it.
+`set-actual` appends a line to `events.jsonl` as a side effect of a successful write
+(`--no-events` suppresses it, `--session-id` stamps it). A failed append warns on stderr and
+never fails the write — the sidecar is the primary record and telemetry must not be able to
+block it. It records **no** calibration sample: that is `build-close`'s and `epic-close`'s
+(§12), specified in the calibration model — `l3io-execute/references/calibration-model.md`,
+which ships with the PM skills (`l3io-execute`, `l3io-plan`) and not with every skill that
+carries this contract.
 
 ### Exit codes
 
@@ -334,36 +309,20 @@ nothing on a normal run needs to read it.
 |---|---|
 | `0` | Success / verified |
 | `2` | Usage error |
-| `3` | Node not found |
-| `4` | Verification failure (missing/invalid field, or structural mismatch) |
+| `3` | Plan, entry or sidecar not found |
+| `4` | Verification failure (missing/invalid field) |
 
-### `verify` — two different checks behind one subcommand
+### `verify`
 
-`verify --scope epic` and `verify --scope {story,sprint}` check **different things**; do not
-assume they are the same test at a different granularity.
-
-- **`--scope epic`** walks the epic's whole subtree (its `epic.yaml`, every `sprint-{nn}/`
-  directory, every file in them) and checks **structural / back-reference integrity**: every
-  sprint directory must contain a `sprint.yaml`, and every sprint and story file must carry
-  `epic:`/`sprint:` back-references that match the directory it was found in. A **missing**
-  back-reference fails exactly like a mismatched one — a self-describing file that does not
-  describe itself is not verified, and `migrate-state` writes those back-references for the
-  first time, so "absent" is the case this most needs to catch. It does **not** check
-  completion status — an in-progress epic legitimately contains stories that are not `done`,
-  and this scope must not fail on that. Nor can it detect a story file that was never
-  written: the directory listing is the only list of children there is (§4), so there is
-  nothing to compare an absence against.
-- **`--scope story`** and **`--scope sprint`** check **completion of one node**: `status ==
-  done`, all five `actual.*` metric fields present and correctly typed (numeric for
-  `elapsed_hours`/`man_hours`/`hitl_hours`; `tokens_k`/`cost` may only be `N/A` under a
-  non-Claude runtime), a structured `tokens_k.total` matching the sum of its four classes, and
-  `cost` matching what those classes price out to under the node's own `model` field — a
-  hand-edited cost cannot pass — and, for stories, `completion_evidence` present. A bare
-  scalar `tokens_k` (the pre-rework shape) also fails under `--runtime claude` or
-  `--require-tokens`: with no class split there is nothing to price `cost` against, so the
-  cost check would otherwise be skipped entirely.
-
-`verify --scope epic` checks "is this file usable", not "is this work finished".
+`verify --plan-file PATH` checks **completion of one ticket's sidecar**: all five `actual.*`
+metric fields present and correctly typed (numeric for `elapsed_hours`/`man_hours`/
+`hitl_hours`; `tokens_k`/`cost` may only be `N/A` under a non-Claude runtime), a structured
+`tokens_k.total` matching the sum of its four classes, `cost` matching what those classes
+price out to under the sidecar's own `model` field — a hand-edited cost cannot pass — and
+`completion_evidence` present. A bare scalar `tokens_k` fails under `--runtime claude` or
+`--require-tokens`: with no class split there is nothing to price `cost` against. The status
+is the plan's and v7's, so it is not judged. The 3.x `--scope epic` structural check retired
+with the tree it walked.
 
 ## 8. Ordering is structural
 
@@ -374,66 +333,35 @@ way for order to drift out of sync with intent, the way it could inside a YAML l
 
 ## 9. Concurrency
 
-Every `epic.yaml` write takes `epic_node_lock(state_root, epic_key)` — the epic-scoped
-writers (status, estimate, actual, lock, move) all serialize on it, so two writers to the
-*same* epic never race even though they still touch only that epic's own files. Two
-developers working different epics never contend for the same lock, since each epic has its
-own lock file. `sprint.yaml` and story `.yaml` writes still take no flock of their own —
-sharding gives each epic its own directory, and nothing below the epic level needs one.
+Every write takes a lock over its whole read-modify-write cycle — load, derive, mutate, save —
+never just the save. Locking only the save was not safe: two concurrent callers each loaded
+the same state and the second save silently dropped the first's write, with both calls still
+exiting 0.
 
-**Lock files.**
-- `{state_root}/epic-NNN.lock` — one per epic, created empty (opened `"w"`, never written)
-  the first time any locking verb touches that epic. It lives in the state root itself,
-  beside `pm-calibration.yaml.lock`, never inside an epic directory,
-  so it survives a directory move unchanged. It is never deleted
-  (deleting a flock file is racy) — do not delete one while a run may be active.
-- `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for the two
-  shared-append targets below, likewise created empty and never deleted.
-- `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-time-ever
-  advisory ledger `pm-status.py notice` reads/writes, keyed on `--key` alone (not a session —
-  there is no cross-invocation session identifier available), for the
-  `l3io-execute`/`l3io-plan` setup-pointer (`config-resolution.md` §5). Same shape as
-  the two above: whole read-modify-write cycle under one lock, likewise created empty and
-  never deleted.
-- `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
-  `acquired_at`, `expires_at`), not an empty flock target: an epic closure's spec sync holds it
-  across an agent's turns. It is a `*.lock`, so the same ignore rule keeps it out of git.
-- A `.yaml.lock` sidecar per locked node file — taken by `--flock` on
-  `set-actual`/`set-estimate`, and always by `add-test-run`, which therefore
-  leaves an `E{nnn}-S{nn}-{nnn}.yaml.lock` beside every story that records a test run — also
-  empty. For an epic node this sidecar is redundant with `epic_node_lock` (a different file,
-  so it cannot self-deadlock against it).
+- **A sidecar** is written under an exclusive `flock` on its own directory (`sidecar.locked`),
+  so every writer of every sidecar in one tickets folder serialises and no lock file is left
+  in the user's tree.
+- **`pm-calibration.yaml`** and **`adr-register.yaml`**, the two project-wide shared-append
+  targets, each take their own lock (`calibration_lock` / `adr_register_lock`), re-entrant
+  within a process so a save nested inside its own lock does not deadlock. Every
+  `build-close` and `epic-close` across every worktree may append a calibration sample; every
+  `adr-reserve` allocates a block of ADR numbers.
+- **`.notices.yaml`** is read and written under `notices_lock`, keyed on `--key` alone (there
+  is no cross-invocation session identifier), for the `l3io-execute`/`l3io-plan` setup-pointer
+  (`config-resolution.md` §5).
+- **`events.jsonl`** is appended under a leaf flock inside `append_event`.
+- **`spec-sync.lock`** is the spec-edit lease written by `spec-align.py lease` (JSON:
+  `owner`, `acquired_at`, `expires_at`), held across an agent's turns.
 
-**None of these is ever committed.** `pm-status.py` keeps both `*.lock` and `.notices.yaml`
-in `{state_root}/.gitignore` — the same `_ensure_lock_ignore` mechanism covers both patterns,
-not two separate ones. Every lock acquisition inside a state root checks that file, at most
-once per process per state root. A lock taken outside one (no status folders, no
-`--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Any pattern
-absent from the file is appended (patterns already present are left alone, never rewritten or
-reordered); an absent file is created with both. The check is best-effort: a failure warns on
-stderr and never fails the verb. Neither pattern matches a directory, so a `git check-ignore`
-of the state-root directory itself (the doctor's health check runs one) still passes. Lock files a project
-committed before this rule existed are untracked, and left on disk, by `/l3io-doctor`'s
-health check (Check 14). Old `epic.yaml.lock` files
-left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock;
-the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
-is harmless.
+**None of the lock files is ever committed.** `pm-status.py` keeps both `*.lock` and
+`.notices.yaml` in `{state_root}/.gitignore` — one `_ensure_lock_ignore` mechanism covers both
+patterns. Every lock acquisition inside a state root checks that file, at most once per process
+per state root; a lock taken with no state root is skipped, so it never writes a `.gitignore`
+into a repo root. Any pattern absent from the file is appended (patterns already present are
+left alone, never rewritten or reordered); an absent file is created with both. The check is
+best-effort: a failure warns on stderr and never fails the verb. Neither pattern matches a
+directory, so a `git check-ignore` of the state-root directory itself still passes.
 
-`pm-calibration.yaml` and `adr-register.yaml` are the two shared-append targets sharding
-does not shard, because both are inherently cross-epic aggregates. Every `set-actual` across
-every epic and every parallel subagent may append a calibration sample to the first (specified
-by the calibration model — see above); every `adr-reserve` call across every parallel agent
-allocates a block of ADR numbers from the second (§1, §6). Both therefore run their **whole
-read-modify-write cycle** — load, allocate/derive, mutate, save — inside one exclusive lock
-each (`calibration_lock` / `adr_register_lock`), not just the save. Locking only the save is
-not sufficient and was not safe: two concurrent callers each loaded the same pre-write state
-and the second save silently dropped the first's write (for `adr-register.yaml`, two parallel
-agents both claiming the same ADR number), with both calls still exiting 0. There is no
-`--flock` flag to remember — the lock is automatic, not opt-in. Both locks are re-entrant
-within a process, so a save that nests inside its own lock (as `save_calibration` does) does
-not deadlock against its own flock. Contrast this with per-epic node files: `sprint.yaml` and
-story `.yaml` still need no flock, because sharding gives each epic its own directory;
-`epic.yaml` does, per above.
 The first number `adr-reserve` hands out is the larger of the register's `next` and the
 highest ADR number already on disk — in `--adr-dir` and in the old per-epic home
 `epic-*/arch/` — plus one (ADR-0005). Outside a git work tree and with no `--adr-dir`, the
@@ -442,27 +370,16 @@ register untouched) and names `--adr-dir` in the message. It does not fall back 
 and print a number: a caller reads the number off stdout, and an allocation made without seeing
 `docs/adr/` is exactly the collision the register exists to prevent.
 
-**The epic lock is always the outer lock; nothing takes it in reverse.** The full nesting
-set:
-
-- **epic → `calibration_lock`** — `set-actual --node epic` takes `epic_node_lock` across the
-  actuals write, then nests `calibration_lock` for the closure/orchestration sample
-  (`record_closure_sample` / `record_orchestration_sample`).
-- **epic → the `events.jsonl` flock** — a leaf lock, taken and released inside `append_event`
-  for any epic-level status/actuals write.
-- **epic → epic** — the same epic only, re-entered; no second flock is taken.
-
-None holds two `epic_node_lock`s at once — the re-entrancy counter is per lock family, not
-per path, and requesting a second epic's lock while one is already held raises. **A fresh
-epic lock is never taken while `calibration_lock` is held** — that ordering is enforced at
-runtime: `epic_node_lock` raises `RuntimeError` if it is requested fresh (not a same-epic
-re-entry) while it is held.
+A 3.x tree serialised every `epic.yaml` write on a per-epic lock (`{state_root}/epic-NNN.lock`)
+and left a `.yaml.lock` beside a story that recorded a test run. Nothing takes either in 4.x;
+the files the migration finds are left where they are and stay ignored.
 
 ## 10. Read resolution at activation
 
 4.x activation reads no 3.x tree. It binds `{pm_state_root}` = `{output_folder}/l3io` (§12),
-and leaves a 3.x tree where it is. The doctor's health check reports one and proposes
-`/l3io-doctor migrate-state`, which detects the layout itself:
+and leaves a 3.x tree where it is. `l3io-pm`'s migration (`bmad migrate`, once method's own
+migration has built the v7 initiative) moves its data; `migrate-engine.py` detects the layout
+itself:
 
 | Found | Layout |
 |---|---|
@@ -474,7 +391,7 @@ and leaves a 3.x tree where it is. The doctor's health check reports one and pro
 
 | Binding | Resolves to |
 |---|---|
-| `{pm_state_root}` | `{output_folder}/l3io` on v7 (§12); `{implementation_artifacts}/state` for a 3.x tree |
+| `{pm_state_root}` | `{output_folder}/l3io` (§12); a 3.x tree's `{implementation_artifacts}/state` is read only by the migration |
 | `{pm_calibration_file}` | `{pm_state_root}/pm-calibration.yaml` |
 
 There are no other state-path bindings: every path below `{pm_state_root}` is resolved
@@ -506,8 +423,8 @@ permits the second; numbering closes that by construction. `set-lane` refuses an
 
 `depends_on` on an epic node (`epic.yaml`): list of epic keys that must be `status: done`
 before this epic can start. Present regardless of which status folder the epic currently
-sits in (most commonly populated while the epic is under `planned/`). Carried by
-`migrate-state` (`import-node --depends-on`).
+sits in (most commonly populated while the epic is under `planned/`). On v7 the dependency
+is the epic's `after`, which v7's own migration writes from `epics.md`.
 
 `depends_on` on a story node: list of globally-unique story keys (`E{nnn}-S{nn}-{nnn}`) that
 must be `status: done` before this story starts. Lives in that story's own file.
@@ -517,7 +434,8 @@ must be `status: done` before this story starts. Lives in that story's own file.
 `plan-graph.py`; it is not coerced, because a bare string could equally have been meant as
 one key or as several. The refusal exists because a string *iterates character by character*:
 a scalar `'E001'` is read as the four keys `E`, `0`, `0`, `1`, none of which match an epic, so
-the dependency is dropped entirely and the epic reads as having none.
+the dependency is dropped entirely and the epic reads as having none. A migration reader meets
+both shapes in old trees.
 
 ## 12. 4.x sidecars
 
@@ -569,8 +487,8 @@ no `tickets.toml` holds is reported, since it cannot be followed without the mov
 `tickets_after`, a `refine_after` and a `replan_after` hook and an `l3io-estimate` menu item.
 Each hook runs `estimate-entries --project-root P --ticket-dir D`, which estimates every entry
 of the epic that is new, whose `description`, `verify` or `covers` changed (the recorded
-`fingerprint`), whose class changed, or that `--entry` names, exactly as `estimate-story` does
-a 3.x story; then it recomputes `[epic].estimate` as the entries' sum plus the epic closure
+`fingerprint`), whose class changed, or that `--entry` names (band × calibrated scope ratio ×
+fix factor, per metric); then it recomputes `[epic].estimate` as the entries' sum plus the epic closure
 and orchestration bands, with no sprint term. The class is the agent's judgement, passed as
 `--class ID=CLASS`; an entry to write without one is refused with nothing written. An entry
 with a hand-set estimate in `tickets.toml` is never written. The replan hook runs

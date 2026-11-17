@@ -23,11 +23,10 @@ required there, and tokens follow metrics-contract.md §3 exactly as `build-clos
 
 ONE CLOSURE SAMPLE PER EPIC, taken only when `[epic].estimate` exists and the verdict is
 `accepted` or `accepted-with-open-items`: a rejected epic goes back to its tickets, and its
-closure is not over. The ratio's numerator is the closure actual itself -- the residual
-`derive_closure_sample` computes on the 3.x tree, measured directly here -- and its
-denominator is the closure overhead the epic estimate carried over the entries it was rolled
-up from (`calibration.closure_ratio`). A metric whose closure actual is zero or `N/A` is
-skipped, as on the 3.x tree.
+closure is not over. The ratio's numerator is the closure actual itself, measured directly
+here, and its denominator is the closure overhead the epic estimate carried over the entries
+it was rolled up from (`calibration.closure_ratio`). A metric whose closure actual is zero
+or `N/A` is skipped.
 
 IT WRITES NO STATUS. Neither does the retrospective (retro-document.md:39): whether the epic
 is `done` is the owner's call after the verdict, made through v7's own store. No v7 file is

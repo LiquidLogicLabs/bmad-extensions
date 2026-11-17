@@ -96,10 +96,9 @@ if it is shorter; placeholders in braces match whatever they hold at runtime.
 **Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. An epic's
 last-line template (`BLOCKED: <one-line reason>`, indented in `execute/step-04-dispatch.md`
 §3) is a report format, not a halt, and is deliberately out of scope. Outside the inventory
-too are the doctor's own halts — `skills/l3io-util/l3io-doctor/steps/redrive.md` and
-`skills/l3io-util/l3io-doctor/SKILL.md`'s `BLOCKED: _bmad/l3io-util/scripts/pm_status is not
-installed — run bmad setup l3io-util` — which are not orchestrator steps. That last one is a
-**halt**, for the reason its `l3io-pm` twin in `step-00-activate` is: the remedy, `bmad setup
+too is the doctor's own halt in `skills/l3io-util/l3io-doctor/SKILL.md`, `BLOCKED:
+_bmad/l3io-util/scripts/pm_status is not installed — run bmad setup l3io-util`, which is not
+an orchestrator step. It is a **halt**, for the reason its `l3io-pm` twin in `step-00-activate` is: the remedy, `bmad setup
 l3io-util`, asks the module's config questions, and the answers are the user's to give.
 
 ## Re-entry

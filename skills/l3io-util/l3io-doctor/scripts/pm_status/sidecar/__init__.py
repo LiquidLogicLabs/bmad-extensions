@@ -20,8 +20,8 @@ reentrant: never hold `locked()` on a directory and call it again on the same on
 never touches a sidecar does not need it provisioned.
 
 It also carries the CLI helpers for v7 addressing (`entry_address_args`,
-`plan_address_args`): `verbs` and `metrics` call them inside their own `register`, so the
-flags sit on the same parsers as the 3.x node keys. They import nothing above `core`.
+`plan_address_args`), which `sidecar.verbs` and `metrics` call inside their own
+`register`. They import nothing above `core`.
 """
 from __future__ import annotations
 
@@ -203,29 +203,18 @@ def effective_estimate(ticket_dir: str, entry_id) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# CLI helpers: v7 addressing, beside the 3.x node keys on the same parsers. Mutually
-# exclusive with --state-root/--epic/--sprint/--story; `sidecar.verbs.route` enforces it,
-# because argparse cannot group flags that two different helpers add.
+# CLI helpers: the v7 address flags, shared by every parser that takes one.
 # --------------------------------------------------------------------------- #
-V7_ADDRESS_DESTS = ("project_root", "ticket_dir", "entry", "plan_file")
-
-
 def entry_address_args(sp):
-    sp.add_argument("--project-root", dest="project_root",
-                    help="v7 project root, in place of --state-root (state under "
-                         "{output_folder}/l3io/)")
-    sp.add_argument("--ticket-dir", dest="ticket_dir",
-                    help="v7 epic folder or its tickets/ folder (with --entry)")
-    sp.add_argument("--entry", help="v7 tickets.toml entry id (with --ticket-dir)")
+    sp.add_argument("--project-root", dest="project_root", required=True,
+                    help="v7 project root (state under {output_folder}/l3io/)")
+    sp.add_argument("--ticket-dir", dest="ticket_dir", required=True,
+                    help="v7 epic folder or its tickets/ folder")
+    sp.add_argument("--entry", required=True, help="v7 tickets.toml entry id")
 
 
 def plan_address_args(sp):
-    sp.add_argument("--project-root", dest="project_root",
-                    help="v7 project root, in place of --state-root (state under "
-                         "{output_folder}/l3io/)")
-    sp.add_argument("--plan-file", dest="plan_file",
+    sp.add_argument("--project-root", dest="project_root", required=True,
+                    help="v7 project root (state under {output_folder}/l3io/)")
+    sp.add_argument("--plan-file", dest="plan_file", required=True,
                     help="v7 ticket plan (<stem>-plan.md); its sidecar is <stem>-plan.l3io.toml")
-
-
-def is_v7(args) -> bool:
-    return any(getattr(args, d, None) for d in V7_ADDRESS_DESTS)

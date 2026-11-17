@@ -28,16 +28,11 @@ This file imports the seven submodules and re-exports NOTHING OF THEIRS. That is
 deliberate: a name re-exported here would sit beside `metrics.<mod>.<name>` as a second
 binding of the same function, and `mock.patch` on one would not reach the other.
 `__main__.py` re-exports what the facade needs, from the defining module, and leaves the
-three patch targets out. The one name imported by name is `core.node_args` (a CLI helper
-one level BELOW this bucket, so it cannot collide with a `metrics.<mod>.<name>` binding);
-everything `register` wires is reached as `<submodule>.<name>`.
+three patch targets out. Everything `register` wires is reached as `<submodule>.<name>`.
+`set-actual` is registered by `sidecar.verbs`, which owns its v7 handler.
 """
 from __future__ import annotations
 
-import argparse
-
-from ..core import node_args
-from ..sidecar import plan_address_args
 from . import (  # noqa: F401 -- submodule imports, so `metrics.<mod>` resolves on the package
     actuals_usage,
     calibration,
@@ -50,67 +45,16 @@ from . import (  # noqa: F401 -- submodule imports, so `metrics.<mod>` resolves 
 
 
 # --------------------------------------------------------------------------- #
-# CLI registration -- this bucket's nine verbs (design §3.2; the contract and the reason
+# CLI registration -- this bucket's verbs (design §3.2; the contract and the reason
 # are in core's own register section).
 #
-# Written against the SUBMODULE OBJECTS (`actuals_usage.cmd_set_actual`, not a
-# `from .actuals_usage import cmd_set_actual` at the top of this file) for the reason this
+# Written against the SUBMODULE OBJECTS (`actuals_usage.cmd_usage`, not a
+# `from .actuals_usage import cmd_usage` at the top of this file) for the reason this
 # module's docstring gives: a name re-exported here would sit beside `metrics.<mod>.<name>`
 # as a second binding, and `mock.patch` on one would not reach the other. `register` is a
 # function this file DEFINES, so it adds no such second binding.
 # --------------------------------------------------------------------------- #
 def register(sub):
-    a = sub.add_parser("set-actual", help="write a validated actual block")
-    a.add_argument("--state-root", help="path to {implementation_artifacts}/state")
-    a.add_argument("--node", required=True, choices=["story", "epic"])
-    node_args(a)
-    plan_address_args(a)
-    a.add_argument("--block", choices=["actual", "orchestration"], default="actual",
-                   help="which metric block to write (orchestration: epic only)")
-    a.add_argument("--elapsed-hours", dest="elapsed_hours")
-    a.add_argument("--man-hours", dest="man_hours")
-    a.add_argument("--hitl-hours", dest="hitl_hours",
-                   help="human attention actually spent supervising (hours)")
-    a.add_argument("--tokens-input", dest="tokens_input")
-    a.add_argument("--tokens-output", dest="tokens_output")
-    a.add_argument("--tokens-cache-write", dest="tokens_cache_write")
-    a.add_argument("--tokens-cache-read", dest="tokens_cache_read")
-    a.add_argument("--tokens-na", dest="tokens_na", action="store_true",
-                   help="record tokens/cost as N/A (runtime=other only)")
-    a.add_argument("--model", default="", help="model id that priced these tokens")
-    a.add_argument("--tokens-by-model", dest="tokens_by_model", default=None,
-                   help="JSON {model: {input, output, cache_write, cache_read}} in thousands: "
-                        "a run on more than one model, each priced at its own rates "
-                        "(replaces --tokens-* and --model)")
-    a.add_argument("--token-rates", dest="token_rates", default="",
-                   help="JSON object of per-model rate overrides")
-    a.add_argument("--cost", default=None, help=argparse.SUPPRESS)
-    a.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
-    a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
-    a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
-                   help="skip calibration sampling (backfills, replays)")
-    a.add_argument("--no-events", dest="no_events", action="store_true",
-                   help="skip the events.jsonl append for this call")
-    a.add_argument("--session-id", dest="session_id", default=None,
-                   help="recorded in the event payload; null when omitted")
-    a.set_defaults(func=actuals_usage.cmd_set_actual)
-
-    ia = sub.add_parser("import-actual",
-                        help="record an actual observed elsewhere (migration); runtime=other, "
-                             "tokens=N/A and no calibration sample are FIXED, not optional")
-    ia.add_argument("--state-root", required=True)
-    ia.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
-    ia.add_argument("--story")
-    ia.add_argument("--epic")
-    ia.add_argument("--sprint")
-    ia.add_argument("--elapsed-hours", dest="elapsed_hours")
-    ia.add_argument("--man-hours", dest="man_hours")
-    ia.add_argument("--hitl-hours", dest="hitl_hours")
-    ia.add_argument("--flock", action="store_true")
-    ia.add_argument("--no-events", dest="no_events", action="store_true")
-    ia.add_argument("--session-id", dest="session_id", default=None)
-    ia.set_defaults(func=actuals_usage.cmd_import_actual)
-
     rp = sub.add_parser("report", help="progress over a v7 initiative (read-only unless --out)")
     rp.add_argument("--project-root", dest="project_root", required=True,
                     help="the v7 project root")
@@ -161,30 +105,10 @@ def register(sub):
     up.set_defaults(func=actuals_usage.cmd_usage)
 
     cal = sub.add_parser("calibration", help="inspect the calibration file")
-    cal.add_argument("action", choices=["show", "migrate-metrics", "redrive"])
+    cal.add_argument("action", choices=["show", "migrate-metrics"])
     cal.add_argument("--state-root", required=True)
     cal.add_argument("--format", choices=["text", "json"], default="text")
     cal.set_defaults(func=calibration.cmd_calibration)
-
-    es = sub.add_parser("estimate-story", help="compute and write a story estimate")
-    es.add_argument("--state-root", required=True)
-    es.add_argument("--story", required=True)
-    es.add_argument("--classification", required=True, choices=list(calibration.CLASSIFICATIONS))
-    es.add_argument("--confidence", choices=["low", "medium", "high"])
-    es.add_argument("--model", default="",
-                    help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
-    es.add_argument("--token-rates", dest="token_rates", default="",
-                    help="JSON object of per-model rate overrides")
-    es.set_defaults(func=estimates.cmd_estimate_story)
-
-    er = sub.add_parser("estimate-rollup", help="roll an epic's story estimates up to the epic")
-    er.add_argument("--state-root", required=True)
-    er.add_argument("--epic", required=True)
-    er.add_argument("--model", default="",
-                    help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
-    er.add_argument("--token-rates", dest="token_rates", default="",
-                    help="JSON object of per-model rate overrides")
-    er.set_defaults(func=estimates.cmd_estimate_rollup)
 
     rt = sub.add_parser("rates", help="print the effective token rate table (read-only)")
     rt.add_argument("--model", default="")

@@ -8,7 +8,7 @@ estimate or actual by hand (§4), explaining a calibration result (§8), or a wo
 (§10).
 
 Most of what follows is now mechanized. §6 (roll-up), §7 (fix reserve), and §8 (calibration)
-describe what `estimate-story`, `estimate-rollup`, and `set-actual` do themselves — read them
+describe what `estimate-entries`, `build-close` and `epic-close` do themselves — read them
 to understand or debug a number, not to perform a calculation by hand.
 
 `pm-status.py` outranks this file.
@@ -81,7 +81,7 @@ field name**, `elapsed_hours`, at every level. The old estimate-side flags survi
 on disk anywhere, in a freshly-written node.
 
 **`tokens_k` is a mapping, not a scalar**, wherever it is written by the mechanized paths
-(`estimate-story`, `estimate-rollup`, `set-actual`):
+(`estimate-entries`, `build-close`, `epic-close`, `set-actual`):
 
 ```yaml
 tokens_k:
@@ -100,8 +100,8 @@ or cache-hit-rate mix shift visible. `TOKEN_CLASSES` is `("input", "output", "ca
 "cache_read")`, in that order.
 
 **`cost` is derived, never entered.** `cost = Σ(class tokens × that class's per-model rate) /
-1000`, computed once at capture time (inside `set-actual`, `estimate-story`, or
-`estimate-rollup`) and frozen on the node alongside the `model` field that priced it.
+1000`, computed once at capture time (inside `estimate-entries`, `build-close`, `epic-close` or
+`set-actual`) and frozen beside the `model` field that priced it.
 `set-actual` and `set-estimate` **reject** `--cost`/`--cost-low`/`--cost-high` outright — exit
 `2` — with a message pointing at the token counts or `modules.l3io-pm.token_rates` instead.
 `verify` recomputes `cost` from the stored `tokens_k` and `model` and fails if they disagree by
@@ -110,8 +110,8 @@ more than $0.005 (§5) — a hand-edited `cost` cannot survive `verify`.
 **Rate table.** `TOKEN_RATES` in `pm-status.py` is a per-model, per-class USD-per-million-token
 table (Anthropic and OpenAI first-party API rates). It is overridable via `modules.l3io-pm.token_rates`
 (merged in, not replaced — an override for one model does not blank the rest) and reaches the
-CLI as `--token-rates '<json>'` on `set-actual`, `set-estimate`* , `estimate-story`,
-`estimate-rollup`, `verify`, and `rates`. An unknown model is a hard error (`KeyError`, exit
+CLI as `--token-rates '<json>'` on `estimate-entries`, `build-close`, `epic-close`,
+`set-actual`, `verify`, and `rates`. An unknown model is a hard error (`KeyError`, exit
 `2`) — never a silent default; a silently-wrong rate is exactly the failure this model exists
 to remove. `--model` is **required** whenever any `--tokens-*` flag is given: the same token
 count prices roughly 2× apart between, e.g., a $3/M and a $10/M-input tier, so there is no
@@ -130,23 +130,23 @@ call, not the project's answer: without the binding every estimate in a project 
 to `verify` fails **every** node, because `verify` re-derives `cost` against whatever rate
 table is in force for it. Full contract: `references/config-resolution.md` §3.
 
-*(`set-estimate` accepts `--token-rates` too, but only to reject `--cost*` with a clear usage
-error, per the point above — it never derives a cost itself; only `estimate-story`/
-`estimate-rollup` do.)*
+*(`set-estimate` never derives a cost itself and takes no `--token-rates`: it rejects
+`--cost*` with a clear usage error, per the point above.)*
 
 ### Field names on disk
 
 Because estimate and actual now share field names, the schema is closer to symmetric than it
-used to be — but two divergences remain and matter:
+used to be — but two divergences remain and matter. The blocks are TOML tables in our
+sidecars (`status-files.md` §12), shown here in YAML for brevity:
 
 ```yaml
-# story node — estimate is single values
+# an entry — [entry.<id>].estimate in the epic's l3io.toml; single values
 estimate:
   man_hours: 6
   hitl_hours: 0.8
   elapsed_hours: 1.5
   tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
-  cost: 1.32                # derived by estimate-story from tokens_k x rates; never entered
+  cost: 1.32                # derived by estimate-entries from tokens_k x rates; never entered
   model: claude-opus-5
   confidence: high           # low | medium | high
   fix_factor: 1.25           # the fix multiplier applied (one per classification)
@@ -156,7 +156,7 @@ estimate:
     elapsed_hours: 1.0
     tokens_k: 1.0
 
-# epic nodes — estimate is low/high ranges
+# an epic — [epic].estimate in the same l3io.toml; low/high ranges
 estimate:
   man_hours_low: 12
   man_hours_high: 18
@@ -166,7 +166,7 @@ estimate:
   elapsed_hours_high: 4
   tokens_k_min: 600
   tokens_k_max: 950
-  cost_low: 2.48              # derived by estimate-rollup from tokens_k_min/max x rates
+  cost_low: 2.48              # derived by the roll-up from tokens_k_min/max x rates
   cost_high: 3.93             #   (600K/950K split by the cold-start mix, priced at `model` below)
   model: claude-opus-5
   closure_ratios:              # the closure ratio applied, PER CALIBRATED METRIC — load-bearing
@@ -181,7 +181,7 @@ estimate:
     tokens_k: 0
   confidence: high
 
-# actual — identical shape at story and epic level; always single values
+# actual — [actual] in a ticket's <plan-stem>.l3io.toml, [epic].actual for an epic; single values
 actual:
   elapsed_hours: 3.2
   man_hours: 15               # counterfactual re-assessment at closure — NOT observed
@@ -190,7 +190,8 @@ actual:
   cost: 2.02                  # derived; written by the tool, never by hand
   model: claude-sonnet-5
 
-# epic only — the orchestrator's own overhead, a SEPARATE block from `actual`
+# [epic].orchestration — the orchestrator's own overhead, a SEPARATE block from `actual`
+# (carried over by the migration from a 3.x epic; no v7 verb writes it yet)
 orchestration:
   elapsed_hours: 0.6
   man_hours: 0                # AI-only overhead; no human-developer counterfactual
@@ -199,21 +200,20 @@ orchestration:
   cost: 0.23
   model: claude-sonnet-5
 
-# stamped by set-actual once the node's calibration sample has been emitted;
-# a later set-actual on the same block records nothing (§8, Idempotency)
+# stamped by build-close (a ticket) or epic-close (an epic) once the sample has been
+# emitted; a later close records nothing (§8, Idempotency)
 calibration_sampled_at: '2026-08-16T22:34:03Z'
-orchestration_sampled_at: '2026-08-16T22:41:10Z'   # separate marker for the orchestration block
 ```
 
 **Divergence 1 — `tokens_k`'s shape depends on which command wrote it.** The mechanized paths
-(`estimate-story`, `estimate-rollup`, `set-actual`) always write the full mapping above. The
+(`estimate-entries`, `build-close`, `set-actual`) always write the full mapping above. The
 **manual** `set-estimate` path writes `tokens_k` (story) / `tokens_k_min`/`tokens_k_max`
 (epic) as a **plain scalar** — it has no per-class flags, so there is nothing to build
 a mapping from. Every reader that needs a metric's numeric value — `_estimate_metric`,
 `_actual_metric` — checks for the mapping shape first (`hasattr(v, "get")`) and falls back to
 treating a bare scalar as the total, so both shapes read correctly; but a story estimated by
 hand through `set-estimate` will show a scalar `tokens_k` next to a mechanized sibling's
-mapping. Prefer `estimate-story`/`estimate-rollup` for anything that should carry a class
+mapping. Prefer `estimate-entries` for anything that should carry a class
 split. On the **actual** side the scalar shape is not merely inferior, it **fails**
 `verify --runtime claude` (§5): with no class split there is nothing to price `cost` against,
 so the cost invariant cannot run.
@@ -231,8 +231,8 @@ returns it unchanged.
 |---|---|---|
 | `set-actual` | tokens given (the normal case) | an **unquoted float** (`cost_from_tokens`'s return value, stored directly) |
 | `set-actual` | `--tokens-na` (runtime=other only) | the literal **string** `"N/A"` |
-| `estimate-story` | — | a **float** (`round(value, 2)`) |
-| `estimate-rollup` | — | a **float** (`round(value, 2)`) |
+| `estimate-entries` (an entry) | — | a **float** (`round(value, 2)`) |
+| `estimate-entries` (the epic roll-up) | — | a **float** (`round(value, 2)`) |
 
 So in ordinary operation — any node with a real `cost` — every writer agrees on an unquoted
 float; the only quoted form is the `N/A` sentinel itself, which is a string by definition
@@ -436,78 +436,48 @@ timestamped similarly) and pass the extracted counts to `set-actual` via the app
 All writes go through `pm-status.py`. Never hand-edit a state file.
 
 **`set-estimate` is the direct, manual write** — pass every field yourself. The bottom-up
-flow does not call it: on v7 it is `estimate-entries`, and on a 3.x tree `estimate-story` (classification in,
-band × calibrated ratio × fix factor out, `cost` priced from the resulting `tokens_k`) and
-`estimate-rollup` (children in, closure- and orchestration-widened range out, `cost` priced
-from the rolled-up `tokens_k` range) instead, so the arithmetic runs once, in `pm-status.py`,
-not in step-file prose. `set-estimate` still exists for a manual override or any write outside
-that flow.
+flow does not call it: it is `estimate-entries` (a class in, band × calibrated ratio × fix
+factor out per entry, `cost` priced from the resulting `tokens_k`; then the entries rolled up
+into the epic's closure- and orchestration-widened range, `cost` priced from the rolled-up
+`tokens_k` range), so the arithmetic runs once, in `pm-status.py`, not in step-file prose.
+`set-estimate` still exists for a manual override of one entry. Both write our sidecars at
+the v7 addresses of `status-files.md` §12; the 3.x node address (`--state-root` with
+`--story`/`--epic`) retired with the 3.x tree.
 
 ```bash
-# story estimate — single-value aliases
-uv run {pm_status} set-estimate --state-root {pm_state_root} \
-  --story E001-S01-003 \
+# an entry's estimate — single values
+uv run {pm_status} set-estimate --project-root {project-root} \
+  --ticket-dir {epic_dir} --entry 3 \
   --man-hours 6 --hitl-hours 0.8 --elapsed-hours 1.5 --tokens-k 320 \
   --confidence high
 
-# epic estimate — ranges
-uv run {pm_status} set-estimate --state-root {pm_state_root} \
-  --epic E001 \
-  --man-hours-low 12 --man-hours-high 18 \
-  --hitl-hours-low 1.5 --hitl-hours-high 2.5 \
-  --elapsed-hours-low 2.5 --elapsed-hours-high 4 \
-  --tokens-k-min 600 --tokens-k-max 950 \
-  --confidence high
-
-# actual — same metric flags at every level; tokens are per-class, cost is derived
-uv run {pm_status} set-actual --state-root {pm_state_root} \
-  --node {story|epic} (--story KEY | --epic ID) \
+# a ticket's actual — tokens are per-class, cost is derived
+uv run {pm_status} set-actual --project-root {project-root} \
+  --plan-file {plan_file} \
   --runtime {runtime} \
   --elapsed-hours 3.2 --man-hours 15 --hitl-hours 1.8 \
   --tokens-input 122 --tokens-output 41 --tokens-cache-write 244 --tokens-cache-read 405 \
   --model claude-sonnet-5
-
-# orchestration block — epic only, never story; --man-hours 0 always (AI-only overhead)
-uv run {pm_status} set-actual --state-root {pm_state_root} \
-  --node epic --epic ID --block orchestration \
-  --runtime {runtime} \
-  --elapsed-hours 0.6 --man-hours 0 --hitl-hours 0.1 \
-  --tokens-input 14 --tokens-output 5 --tokens-cache-write 27 --tokens-cache-read 44 \
-  --model claude-sonnet-5
 ```
+
+An ordinary build never calls `set-actual`: `build-close` writes the ticket's actual from its
+own bracket, and `epic-close` writes the epic's (§6). `set-actual` is the manual write.
 
 `--cost`/`--cost-low`/`--cost-high` on either subcommand are **rejected, exit 2** — "cost is
 derived from tokens x rates and cannot be set directly." Fix the token counts or
 `modules.l3io-pm.token_rates` instead.
 
-Node kind for `set-estimate` is **inferred** from which selector flags are present
-(`--story` → story; `--epic` → epic). `set-actual` takes an explicit `--node`. On v7 both take
-the ticket addresses of `status-files.md` §12 instead.
-
-**`--block {actual,orchestration}`** (default `actual`) selects which block `set-actual`
-writes. `--block orchestration` on a story node is a **usage error, exit 2** — a story's
-orchestration overhead belongs to its epic, not to itself. Everything else about the
-call (flags, calibration side effect, event logging) works the same for either block; only the
-target block and which calibration component samples (§8) differ.
-
-**Flag/kind mismatches are silently ignored, not rejected.** On a story node the range
-flags are dropped; on an epic node the single-value flags are dropped. `--tokens-k`
-and `--tokens-k-min` share an argparse destination (the alias exists for the story form), so
-passing both in one `set-estimate` call means the last one parsed wins. Use exactly the form
-that matches the node kind.
-
 `--confidence` is optional. When omitted and no confidence is already set, it is **derived**:
-`medium` if every field for that kind is present, `low` otherwise. It is never derived as
-`high` — pass `--confidence high` explicitly when the calibration data justifies it (§8). The
-completeness check names only the fields `set-estimate` can actually write — the four
-calibrated metrics (story form) or their eight range keys (epic form). `cost` is in
-neither list: `set-estimate` rejects `--cost*` outright, so requiring it would have made every
+`medium` if every field is present, `low` otherwise. It is never derived as `high` — pass
+`--confidence high` explicitly when the calibration data justifies it (§8). The completeness
+check names only the fields `set-estimate` can actually write — the four calibrated metrics.
+`cost` is not among them: `set-estimate` rejects `--cost*` outright, so requiring it would have made every
 hand-written estimate permanently `low` no matter how complete it was, and the derivation could
 only ever have reported one of its two values.
 
-Write the actual and the completion evidence as separate calls, then gate on `verify`. Story
-closeout additionally requires `completion_evidence` (`add-test-run`, and on v7 the build
-hook's `fix_iterations`), which `verify --scope story` checks. The status is v7's.
+Write the actual and the completion evidence as separate calls, then gate on `verify`. A
+ticket's closeout additionally requires `completion_evidence` (`add-test-run`, and the build
+hook's `fix_iterations`), which `verify` checks. The status is v7's.
 
 ### 4b. `elapsed_hours` deferral for blocked stories
 
@@ -517,7 +487,7 @@ calibration sample. Design:
 
 The mechanism, at write time:
 
-- `set-actual` (on a story node, before it records the sample) calls
+- `build-close` (on a ticket, before it records the sample) calls
   `_total_blocked_hours(state_root, story_key)`, which sums `duration_hours`
   across every `block_close` event on that story in `events.jsonl`.
 - When the sum is `> 0`, `derive_story_sample` is called with
@@ -529,7 +499,7 @@ The mechanism, at write time:
 - Other metrics (`man_hours`, `hitl_hours`, `tokens_k`) are unaffected —
   assessed or counted, not measured against a wall-clock, so blocked time
   does not poison them.
-- The `actual.elapsed_hours` on the node is still written and still visible;
+- The `actual.elapsed_hours` in the ticket's sidecar is still written and still visible;
   the exclusion is per-metric on the CALIBRATION SAMPLE, not on the recorded
   actual.
 
@@ -573,10 +543,9 @@ Limits of this check, which the orchestrator must compensate for:
 
 ### Half 2 — `verify`, at read-back
 
-`verify` is the completeness gate. `--scope story` and `--scope sprint` check **completion
-of one node**:
+`verify` is the completeness gate over one ticket's sidecar (`--plan-file`). The status is
+the plan's and v7's, so it is not judged; the rest is:
 
-- `status == done`
 - all five `actual.*` fields **present**
 - `elapsed_hours`, `man_hours`, and `hitl_hours` numeric and not `N/A`
 - `tokens_k` and `cost` may be `N/A` **only** under `--runtime other` and without
@@ -594,18 +563,12 @@ of one node**:
   effective rate table (tolerance $0.005 — half of the smallest unit either figure can carry).
   A hand-edited `cost`, or a `tokens_k` edited without re-deriving `cost`, fails here. A missing
   `model` when `tokens_k` is structured also fails ("cost cannot be verified")
-- `completion_evidence` present (story scope only)
+- `completion_evidence` present
 
 ```bash
-uv run {pm_status} verify --state-root {pm_state_root} \
-  --scope {story|sprint} (--story KEY | --epic ID --sprint ID) \
+uv run {pm_status} verify --project-root {project-root} --plan-file {plan_file} \
   --runtime {runtime} [--require-tokens] [--token-rates JSON]
 ```
-
-`--scope epic` is a **different check**: it walks the epic's whole subtree and validates
-structural / back-reference integrity (every sprint directory has a `sprint.yaml`; every
-sprint and story file carries `epic:`/`sprint:` back-references matching its directory). It
-does **not** look at `status`, `estimate`, or `actual` at all. See `status-files.md` §7.
 
 Exit codes (identical across all subcommands):
 
@@ -613,15 +576,11 @@ Exit codes (identical across all subcommands):
 |---|---|
 | `0` | Success / verified |
 | `2` | Usage error — including `runtime=claude` + `--tokens-na`, and any `--cost*` flag |
-| `3` | Node not found |
-| `4` | Verification failure (missing/invalid field, cost/token mismatch, or structural mismatch) |
-| `5` | Epic locked by another session |
+| `3` | Plan, entry or sidecar not found |
+| `4` | Verification failure (missing/invalid field, cost/token mismatch) |
 
-**Planning-vs-execution model mismatch.** When `estimate.model` and `actual.model` both exist
-but differ (e.g. the node was estimated with `claude-opus-5` and executed with `gpt-5.6-terra`),
-`set-actual` appends a bracketed note to its OK line and `verify` emits a `WARN` line before
-PASS/FAIL. Neither blocks the write nor changes the exit code — the annotation is informational.
-The estimate cost is denominated in the planning model's rates; the actual cost is denominated in
+**Planning-vs-execution model mismatch.** An entry estimated with one model (`claude-opus-5`)
+and built with another (`gpt-5.6-terra`) keeps both in its sidecars. The estimate cost is denominated in the planning model's rates; the actual cost is denominated in
 the execution model's rates; they are not directly comparable. Calibration records which models
 contributed to each scope-metric bucket (`models_seen`) and `calibration show` warns when a
 bucket contains mixed-model samples. See `docs/estimation-guide.md §Cross-runtime planning`.
@@ -633,14 +592,13 @@ bucket contains mixed-model samples. See `docs/estimation-guide.md §Cross-runti
   records `confidence: low` instead. The estimate half of the HARD RULE is orchestrator
   discipline, as is the anti-anchoring read-order for `man_hours` (§2) — no script checks
   either.
-- **No metric check at epic scope.** Because `verify --scope epic` is structural, the
-  epic-level actual has no read-back gate on a 3.x tree. On v7 `epic-close` derives the
+- **No metric check at epic scope.** `verify` judges a ticket. `epic-close` derives the
   epic's actual from its tickets' sidecars and its closure runs, so there is nothing typed by
   hand to check.
-- **No calibration enforcement.** `set-actual` derives and appends a calibration sample by
-  default, but nothing forces the caller to keep that on — `--no-calibrate` suppresses it
-  silently, and a derivation that fails (bad estimate shape, no comparable actual) only warns
-  on stderr; the actuals write still succeeds. See §8.
+- **No calibration enforcement.** `build-close` and `epic-close` take their samples when
+  they can, and a derivation that fails (bad estimate shape, no comparable actual, an
+  estimate recorded after the build) only reports on stderr; the actuals write still
+  succeeds. See §8.
 
 ## 6. The estimation roll-up
 
@@ -661,8 +619,8 @@ epic.estimate   = Σ story.estimate + calibrated epic-closure band + calibrated 
 
 The estimate above has three terms, so the actuals must have three matching buckets, and every
 unit of spend must land in **exactly one** of them. This is what makes the estimate and the
-actual comparable at all, and it is what `derive_closure_sample` and
-`record_orchestration_sample` each measure their own component from.
+actual comparable at all, and it is what the closure and orchestration samples each
+measure their own component from.
 
 | Bucket | Where it is recorded | What belongs in it |
 |---|---|---|
@@ -720,12 +678,11 @@ a retry reuses its identity, taking the original hang's timestamp with it.
 
 `BASE_BANDS` in `pm-status.py` is the single source for these — do not copy the numbers into
 a second table that can drift out of sync. It has **no `cost` row** — see "Pricing `cost`"
-below. `estimate-story` reads it directly:
+below. `estimate-entries` reads it directly:
 
 ```bash
-uv run {pm_status} estimate-story --state-root {pm_state_root} \
-  --story {story_key} --classification {simple|standard|complex} \
-  [--confidence {low|medium|high}] [--model ID] [--token-rates JSON]
+uv run {pm_status} estimate-entries --project-root {project-root} --ticket-dir {epic_dir} \
+  --entry {id} --class {id}={simple|standard|complex} [--model ID] [--token-rates JSON]
 ```
 
 | Classification | man_hours | hitl_hours | elapsed_hours | tokens_k |
@@ -734,28 +691,28 @@ uv run {pm_status} estimate-story --state-root {pm_state_root} \
 | standard | 4–8 | 0.2–0.5 | 1–3 | 40–100 |
 | complex | 8–16 | 0.3–1.0 | 2–6 | 80–200 |
 
-The model's only job is choosing the classification; `estimate-story` looks up the band,
+The model's only job is choosing the classification; `estimate-entries` looks up the band,
 applies the calibrated `scope_ratio` (per metric) and `fix_factor`, and writes the estimate
 block. See §8 for how those two multipliers are derived.
 
 Stories store the band **midpoint × ratio × fix** as a single value per metric; ranges appear
 only at epic level.
 
-**`estimate-story` records one ratio PER CALIBRATED METRIC**, as `estimate.scope_ratios`. This
+**`estimate-entries` records one ratio PER CALIBRATED METRIC**, as `estimate.scope_ratios`. This
 is load-bearing, not provenance: `derive_story_sample` divides the applied ratio back out so the
 next sample is measured against the base band (§8), and four independently calibrated metrics
 cannot be reconstructed from one recorded number. A scalar `scope_ratio` (what
 `set-estimate --scope-ratio` writes, or an estimate written before per-metric ratios existed)
-is still *read* as a fallback for every metric, but `estimate-story` no longer writes it.
+is still *read* as a fallback for every metric, but `estimate-entries` never writes it.
 
 ### Pricing `cost`
 
-`cost` is **not** one of the banded/calibrated metrics. `estimate-story` prices it by splitting
+`cost` is **not** one of the banded/calibrated metrics. `estimate-entries` prices it by splitting
 the banded `tokens_k` total across the four classes — using `observed_mix` (the mean observed
 split once ≥3 story samples carry class data) or, below that, the cold-start assumption
 `COLD_START_TOKEN_MIX = {input: 0.15, output: 0.05, cache_write: 0.30, cache_read: 0.50}` — and
 running the split through `cost_from_tokens` for `--model` (falling back to
-`DEFAULT_ESTIMATE_MODEL = "claude-opus-5"` when omitted). `estimate-rollup` does the same for
+`DEFAULT_ESTIMATE_MODEL = "claude-opus-5"` when omitted). Its epic roll-up does the same for
 the rolled-up `tokens_k_min`/`tokens_k_max` range. This keeps `cost` arithmetically bound to
 the token estimate it prices — it cannot drift apart from it the way an independently banded
 and independently calibrated cost figure could (and, before this rework, did).
@@ -784,7 +741,7 @@ So, on both sides of the ratio:
   estimate. Not `tokens_k.total`, on either side — the cancellation to `actual / band_mid`
   only holds while the denominator is the banded quantity, and since the estimate now carries
   a projected `cache_read` on top, its `total` no longer is.
-- **`estimate-story`** bands fresh tokens, splits them across the three fresh classes by the
+- **`estimate-entries`** bands fresh tokens, splits them across the three fresh classes by the
   mix renormalized over those three, then projects `cache_read = fresh × (mix.cache_read /
   mix.fresh_share)`. The estimate's `total` therefore *exceeds* its band, which is correct
   and is the visible sign the two are on the same footing.
@@ -794,7 +751,7 @@ no raw counts behind it — so the purge drops `scope.*.tokens_k` once, under it
 marker, keeping every other component and every `token_mix` sample. It runs automatically on
 the next sample write, and `pm-status.py calibration migrate-metrics` triggers it explicitly. Until that
 purge runs, `active_scope_ratio` refuses to apply a `tokens_k` ratio at all, so a read-only
-`estimate-story` falls back to cold start rather than applying a poisoned one.
+`estimate-entries` falls back to cold start rather than applying a poisoned one.
 
 `COLD_START_TOKEN_MIX` is an **assumption, not a measurement** — it affects only how a banded
 fresh total is *split*, and what `cache_read` is projected against, never the band itself.
@@ -808,11 +765,11 @@ requiring ≥3 usable samples (`MIN_SAMPLES`), and it never appears in `CALIBRAT
 
 ### Roll-up mechanics
 
-`estimate-rollup` (3.x tree) and `estimate-entries` (v7) compute the epic range from its
-children plus a closure band plus an orchestration band:
+`estimate-entries` computes the epic range from its entries plus a closure band plus an
+orchestration band, every time it runs over an epic's tickets folder:
 
 ```bash
-uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} [--model ID] [--token-rates JSON]
+uv run {pm_status} estimate-entries --project-root {project-root} --ticket-dir {epic_dir} [--model ID] [--token-rates JSON]
 ```
 
 For each calibrated metric:
@@ -827,7 +784,8 @@ For each calibrated metric:
   contributes **nothing** — there is no cold-start prior for orchestration, unlike closure (see
   §8's `active_orchestration_fraction` for why: every measurement available when this was
   designed was contaminated by a cache-eviction defect, so there was nothing safe to seed a
-  prior from). `estimate-rollup` warns on stderr, naming the inactive metrics, whenever
+  prior from). `estimate-entries` names the inactive metrics in its roll-up line
+  (`orchestration_unestimated`) whenever
   **any** calibrated metric's orchestration component is still unseeded at that level — this
   estimate is known-low on those metrics until real observations exist.
 - The combined low/high bound for a metric is:
@@ -864,7 +822,7 @@ fix_mult = calibration.fix.avg_fix_factor if it is active
 Activation for `fix` is stricter than for `scope`/`closure`/`orchestration` — see §8 for why it
 needs **both** cohorts (`clean` and `reworked`) at ≥3 samples, not just ≥3 samples of one thing.
 
-**`fix_mult` applies to every calibrated metric** — `estimate-story` multiplies each of
+**`fix_mult` applies to every calibrated metric** — `estimate-entries` multiplies each of
 `man_hours`, `hitl_hours`, `elapsed_hours`, and `tokens_k` by the same `scope_ratio ×
 fix_mult` for that metric. `cost` has no `fix_mult` of its own to apply: it is priced from the
 already-fix-adjusted `tokens_k`, so the fix reserve reaches it indirectly, through the token
@@ -872,12 +830,13 @@ total it prices.
 
 ## 8. Calibration
 
-`pm-status.py` runs the calibration loop itself — deriving a sample on every `set-actual`,
+`pm-status.py` runs the calibration loop itself — deriving a sample at every `build-close` and
+`epic-close`,
 weighting it, and applying whichever components are active at estimate time. A run never has
 to do any of it by hand, which is why the model lives in its own file rather than here:
 
 > **Full model: `references/calibration-model.md`.** Read it to explain a calibration result,
-> to diagnose a `provenance=` or `no ... sample:` note on `set-actual`'s stdout, or to run the
+> to diagnose a `no calibration sample:` note on `build-close`'s stderr, or to run the
 > one-time metrics migration. It is not needed to capture metrics correctly.
 
 What a step file needs to know inline:
@@ -890,17 +849,17 @@ What a step file needs to know inline:
   its cold-start prior. `fix` needs both cohorts at ≥3.
 - **`cost` is never calibrated.** It is derived from `tokens_k × rates`, so a second learned
   copy could only disagree with the tokens it prices.
-- **Every sample is replay-guarded** by a marker written onto the node. A second `set-actual`
-  on the same node records nothing and says so — a retry is safe, and never skews a ratio.
-- **Write `completion_evidence.fix_iterations` before `set-actual`**, or the scope-versus-fix
-  split cannot see it and the fix factor stays frozen at the cold-start prior, silently.
+- **Every sample is replay-guarded** by a marker written onto the ticket's sidecar. A second
+  `build-close` of the same ticket records nothing and says so — a retry is safe, and never
+  skews a ratio.
+- **`fix_iterations` is read before the sample is taken** (`build-close` takes it from the
+  plan's `review_loop_iteration`), or the scope-versus-fix split cannot see it and the fix
+  factor stays frozen at the cold-start prior, silently.
 - **It must be a number.** Stored as text the field once looked right on disk while reading as
   `provenance=backout` on a story that needed no rework — dividing its scope ratio by a 1.25
   fix factor it never incurred, and leaving the `clean` cohort empty so `fix` could never
-  activate. The build hook writes it as an integer. To repair samples already recorded that way, run `pm-status.py calibration
-  redrive --state-root S`: the nodes still hold every input, so `scope` and `fix` are derived
-  again rather than discarded.
-- **The file** is `{implementation_artifacts}/state/pm-calibration.yaml`, committed, shared
+  activate. The build hook writes it as an integer.
+- **The file** is `{output_folder}/l3io/pm-calibration.yaml`, committed, shared
   across every epic and parallel subagent; every write takes flock.
 
 ## 9. Where `CLAUDE.md` and the code disagree
@@ -937,12 +896,12 @@ covers this classification), but `scope.complex.man_hours` already active at rat
 **Estimate.** The model supplies only the classification:
 
 ```bash
-uv run {pm_status} estimate-story --state-root {pm_state_root} \
-  --story E001-S01-003 --classification complex
-# OK estimate-story E001-S01-003 class=complex scope_ratios[man_hours=1.1 hitl_hours=1.0 elapsed_hours=1.0 tokens_k=1.0] fix_factor=1.25
+uv run {pm_status} estimate-entries --project-root {project-root} --ticket-dir {epic_dir} \
+  --entry 3 --class 3=complex
+# {"action": "new", "class": "complex", "entry": "3", "estimate": {...}}
 ```
 
-`estimate-story` looks up `BASE_BANDS["complex"]` (man_hours 8–16, hitl_hours 0.3–1.0,
+`estimate-entries` looks up `BASE_BANDS["complex"]` (man_hours 8–16, hitl_hours 0.3–1.0,
 elapsed_hours 2–6, tokens_k 80–200), takes each midpoint, and multiplies by that metric's own
 scope ratio and the classification's fix multiplier — `fix_mult` = `F` = `1.25` here, since
 `fix` has no active cohorts yet:
@@ -969,28 +928,21 @@ not reconstruct four different corrections.
 (`completion_evidence.fix_iterations: 1`, recorded before closeout). The
 closing agent first re-assesses `man_hours` — reviewing the delivered diff and tests, before
 reading the estimate above — and settles on 18.2 as the counterfactual developer-hours figure.
-Compute hours (6.1) and human-attention hours (0.9) are read from the run itself, and the four
-token classes (say totaling 171K) are read from the transcript `usage` fields:
+Compute hours (6.1) come from the build bracket, human-attention hours (0.9) from the run
+itself, and the four token classes (say totaling 171K) from the transcript `usage` fields over
+the bracket, which `build-close` reads itself:
 
 ```bash
-uv run {pm_status} set-actual --state-root {pm_state_root} \
-  --node story --story E001-S01-003 --runtime claude \
-  --elapsed-hours 6.1 --man-hours 18.2 --hitl-hours 0.9 \
-  --tokens-input 26 --tokens-output 9 --tokens-cache-write 51 --tokens-cache-read 85 \
-  --model claude-opus-5
-# OK set-actual E001-S01-003 ['cost', 'elapsed_hours', 'hitl_hours', 'man_hours', 'model', 'tokens_k'] [scope+4 metrics, provenance=backout, class=complex]
-
-uv run {pm_status} verify --state-root {pm_state_root} \
-  --scope story --story E001-S01-003 --runtime claude
-# PASS E001-S01-003
+uv run {pm_status} build-close --project-root {project-root} --agent bmad-build \
+  --plan-file {plan_file} --runtime claude --man-hours 18.2 --hitl-hours 0.9
+uv run {pm_status} verify --project-root {project-root} --plan-file {plan_file} --runtime claude
+# PASS ticket story-<slug>-plan.md
 ```
 
-Had `--tokens-na` been passed with `--runtime claude`, `set-actual` would have exited **2**
-before writing anything, and no calibration sample would have been derived. Had `--cost 1.24`
-been passed instead of letting it derive, `set-actual` would have exited **2** for the same
-reason — cost is never an input.
+Under `--runtime claude`, `N/A` tokens are refused before anything is written, and no
+calibration sample is derived. A cost is never an input on any runtime.
 
-**What `set-actual` derived, inline.** `fix_iterations` is `1`, not `0`, so this is the
+**What `build-close` derived, inline.** `fix_iterations` is `1`, not `0`, so this is the
 **backout** path: the actual mixes scope and rework, the scope portion is `actual ÷
 fix_factor`, and the `fix_factor` cancels out of the ratio. Each calibrated metric divides its
 own applied `scope_ratios` entry back out, so the comparison lands against the base band:

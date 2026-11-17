@@ -47,9 +47,6 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
 # package and fails unless the two agree.
 PM_STATUS_VERSION = "3.7.1"
 
-VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done", "blocked"}
-VALID_SPRINT_STATUS = {"backlog", "in-progress", "review", "done"}
-VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
 
 METRIC_FIELDS = ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost")
 
@@ -65,45 +62,10 @@ CALIBRATED_METRIC_FIELDS = tuple(m for m in METRIC_FIELDS if m != "cost")
 
 
 # --------------------------------------------------------------------------- #
-# Key shapes and status folders: pure string vocabulary, no filesystem knowledge.
-#
-# The resolver section in nodes/ owns the other half -- turning one of these
-# names into a path that exists. (It lived in __main__.py until the nodes
-# extraction; check 26 derives which file declares it, so this comment is the
-# only copy of the fact that can go stale.) These are here because the primitives below need
-# them: _state_root_of_node and _file_lock read STATUS_DIRS, and epic_lock_path
-# builds its name from epic_dirname.
+# Key shapes: pure string vocabulary, no filesystem knowledge. The event log and the
+# ADR register still carry epic and sprint keys, so a key spelled 'E1' and one spelled
+# '001' must compare equal.
 # --------------------------------------------------------------------------- #
-STATUS_DIRS = ("active", "planned", "archived")  # active first: hottest path
-
-# DIR_FOR_STATUS is DERIVED, never written out a second time -- two hand-kept
-# halves of one mapping is how they drift apart.
-STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
-DIR_FOR_STATUS = {status: folder for folder, status in STATUS_FOR_DIR.items()}
-
-
-def epic_dirname(epic_key: str) -> str:
-    """'E001' -> 'epic-001'. Accepts unpadded input ('E42' -> 'epic-042')."""
-    n = str(epic_key).strip().lstrip("Ee")
-    if not n.isdigit():
-        raise ValueError(f"bad epic key: {epic_key!r}")
-    return f"epic-{int(n):03d}"
-
-
-def sprint_dirname(sprint_key: str) -> str:
-    """'S01' -> 'sprint-01'. Accepts unpadded input ('S7' -> 'sprint-07')."""
-    n = str(sprint_key).strip().lstrip("Ss")
-    if not n.isdigit():
-        raise ValueError(f"bad sprint key: {sprint_key!r}")
-    return f"sprint-{int(n):02d}"
-
-
-def parse_story_key(key: str) -> tuple:
-    """'E001-S01-003' -> ('E001', 'S01', '003')."""
-    parts = str(key).strip().split("-")
-    if len(parts) != 3 or not parts[0].startswith("E") or not parts[1].startswith("S"):
-        raise ValueError(f"bad story key: {key!r} (expected E{{nnn}}-S{{nn}}-{{nnn}})")
-    return parts[0], parts[1], parts[2]
 
 
 def _norm_num(v, width: int) -> str:
@@ -160,11 +122,7 @@ def _load(path: str):
 
 
 def _atomic_dump(y: YAML, data, path: str) -> None:
-    """Write to a temp file in the same directory, then os.replace (atomic on POSIX).
-
-    Every node write reaches the disk through here, so this is where the rule "an epic.yaml
-    write holds its epic_node_lock" is checked (`_require_epic_lock`)."""
-    _require_epic_lock(path)
+    """Write to a temp file in the same directory, then os.replace (atomic on POSIX)."""
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=d)
@@ -294,9 +252,9 @@ def _ensure_lock_ignore(state_root: str, patterns=_GITIGNORE_PATTERNS) -> None:
 
     Called on EVERY lock acquisition inside a state root, not only when a pattern's file is
     first written: a project whose lock files already exist, or that adopts a newer
-    pm-status.py that adds a pattern, gets the missing rule(s) on its next lock. A bare
-    `append-issue --file` outside a state root (no status folders, no --state-root) is
-    skipped, so it never writes a .gitignore into a repo root (_file_lock). Memoized per
+    pm-status.py that adds a pattern, gets the missing rule(s) on its next lock. A lock
+    taken with no state root is skipped, so it never writes a .gitignore into a repo root
+    (_file_lock). Memoized per
     process, so each state root is checked at most once. Absent file -> created (no-clobber
     _atomic_create) with one comment line and every pattern. Present -> READ first, and only
     when at least one pattern is missing (as git reads it, _lock_rule_present) is it opened
@@ -345,45 +303,6 @@ def _ensure_lock_ignore(state_root: str, patterns=_GITIGNORE_PATTERNS) -> None:
     except (OSError, UnicodeDecodeError) as e:
         sys.stderr.write(f"pm-status.py: warning -- could not add "
                          f"{', '.join(patterns)} to {path}: {e}\n")
-
-
-def _state_root_of_node(path: str):
-    """The state root above a node file: the parent of the nearest ancestor named for a
-    status folder (active/planned/archived). None when there is no such ancestor."""
-    d = os.path.dirname(os.path.abspath(path))
-    while True:
-        parent = os.path.dirname(d)
-        if os.path.basename(d) in STATUS_DIRS:
-            return parent
-        if parent == d:
-            return None
-        d = parent
-
-
-def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
-    """Acquire an exclusive flock on `path` (or a sidecar .lock file) then atomic-dump."""
-    if not use_flock:
-        _atomic_dump(y, data, path)
-        return
-    try:
-        import fcntl
-    except ImportError:
-        # Windows or environments without fcntl — fall back to plain write with a warning
-        sys.stderr.write("pm-status.py: fcntl unavailable — writing without flock (non-POSIX)\n")
-        _atomic_dump(y, data, path)
-        return
-    lock_path = path + ".lock"
-    d = os.path.dirname(os.path.abspath(lock_path)) or "."
-    os.makedirs(d, exist_ok=True)
-    state_root = _state_root_of_node(path)
-    if state_root is not None:                  # never a .gitignore inside a node directory
-        _ensure_lock_ignore(state_root)
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf, fcntl.LOCK_EX)
-        try:
-            _atomic_dump(y, data, path)
-        finally:
-            fcntl.flock(lf, fcntl.LOCK_UN)
 
 
 # --------------------------------------------------------------------------- #
@@ -459,23 +378,6 @@ def append_event(state_root: str, payload: dict) -> None:
         sys.stderr.write(f"pm-status.py: warning — could not append event: {e}\n")
 
 
-def _event_keys(kind: str, args) -> dict:
-    """Node-identifying fields for an event payload, by node kind."""
-    if kind == "story":
-        epic_key, sprint_key, _ = parse_story_key(args.story)
-        return {"node": "story", "key": args.story, "epic": epic_key, "sprint": sprint_key}
-    # Canonical, not raw. `_dispatch_identity` is (agent, epic, sprint, story), so a close
-    # spelled differently from its open never cancels it and the dispatch reports as
-    # permanently stalled in `report --stall-minutes`. Measured: open --epic 003 then close
-    # --epic E003 leaves 1 dispatch open. The story branch above already yields key form via
-    # parse_story_key; these two now match it instead of echoing the caller.
-    if kind == "sprint":
-        sk = canonical_sprint_key(args.sprint)
-        return {"node": "sprint", "key": sk, "epic": canonical_epic_key(args.epic), "sprint": sk}
-    ek = canonical_epic_key(args.epic)
-    return {"node": "epic", "key": ek, "epic": ek, "sprint": None}
-
-
 # --------------------------------------------------------------------------- #
 # State-root files that have a lock family, and the lock families themselves. Each path
 # function sits with its lock rather than with the code that reads the file: the lock
@@ -514,8 +416,8 @@ def _file_lock(lock_path: str, depth_state: dict, state_root: str | None = None)
     a calibration hold and an ADR-register hold never share depth counting.
 
     `state_root` is the root whose .gitignore gets `*.lock` (_ensure_lock_ignore). The
-    calibration, ADR and epic families pass theirs. Without one, the lock's own directory is
-    used only if it holds a status folder: it might be the repo root, where `*.lock` would
+    calibration and ADR families pass theirs. Without one, no .gitignore is touched: the
+    lock's own directory might be the repo root, where `*.lock` would
     silently ignore uv.lock, yarn.lock and Cargo.lock repo-wide.
     """
     if depth_state["depth"] > 0:               # already held by this process
@@ -536,8 +438,6 @@ def _file_lock(lock_path: str, depth_state: dict, state_root: str | None = None)
     os.makedirs(lock_dir, exist_ok=True)
     if state_root is not None:
         _ensure_lock_ignore(state_root)
-    elif any(os.path.isdir(os.path.join(lock_dir, s)) for s in STATUS_DIRS):
-        _ensure_lock_ignore(lock_dir)           # a bare --file that does sit in a state root
     fh = open(lock_path, "w")  # noqa: SIM115 -- the fd outlives this statement; flock holds it until the finally
     fcntl.flock(fh, fcntl.LOCK_EX)
     depth_state["depth"], depth_state["fh"] = 1, fh
@@ -613,82 +513,6 @@ def agent_instructions_lock(project_root: str):
     with _file_lock(os.path.join(bmad, ".agent-instructions.lock"),
                     _AGENT_INSTR_LOCK, None):
         yield
-
-
-_EPIC_NODE_LOCK = {"depth": 0, "fh": None, "path": None}
-
-
-def epic_lock_path(state_root: str, epic_key: str) -> str:
-    """One epic's lock file: `{state_root}/epic-{nnn}.lock`.
-
-    OUTSIDE the epic's directory, deliberately. The 3.x placement rule moves that whole
-    directory between status folders. A lock file inside it would travel with it: a waiter
-    that had resolved the old path would then lock a file that is no longer there (and
-    recreate the old directory to hold it) while later callers lock the moved file -- two
-    holders of one lock. A name built from the state root and the epic key alone is the same
-    before, during and after a move, and for every spelling of the key ('E001', '001', '1')
-    and of the root (relative or absolute -- realpath)."""
-    return os.path.join(os.path.realpath(state_root), epic_dirname(epic_key) + ".lock")
-
-
-@contextlib.contextmanager
-def epic_node_lock(state_root: str, epic_key: str):
-    """Hold an exclusive lock over one epic's epic.yaml read-modify-write cycle.
-
-    Same reasoning as calibration_lock/adr_register_lock: load -> decide -> save
-    is not atomic. Every epic.yaml writer needs it so a concurrent holder cannot overwrite
-    its change with a stale copy. `_atomic_dump`
-    refuses an epic.yaml write made without it (`_require_epic_lock`). Each epic is its own
-    contention domain, so the lock is per epic (epic_lock_path), not per state root.
-
-    Callers resolve the epic, take this lock, then RESOLVE AGAIN inside it: a directory
-    move that landed while a caller waited has moved the directory its first answer named. They resolve first as well, so an absent epic exits 3 with no lock file
-    created.
-
-    ONE EPIC AT A TIME. The re-entrancy counter is per lock family, not per epic, so a nested
-    acquire of a SECOND epic's lock would skip its flock silently; it raises instead.
-    Re-entry on the same epic nests on the one flock.
-
-    LOCK ORDER, enforced: the epic lock is taken first, never under calibration_lock.
-    set-actual holds epic -> calibration; a FRESH epic lock taken inside it would invert
-    that order and can deadlock against it, so it raises. A same-epic re-entry is not fresh
-    and is allowed."""
-    lock_path = epic_lock_path(state_root, epic_key)
-    held = _EPIC_NODE_LOCK["path"]
-    if held is not None and held != lock_path:
-        raise RuntimeError(f"epic_node_lock: {lock_path} requested while {held} is held -- "
-                           f"one epic lock at a time")
-    if held is None and _CAL_LOCK["depth"]:
-        raise RuntimeError(f"epic_node_lock: lock order -- {lock_path} requested under "
-                           f"calibration_lock; the epic lock is taken first, never under "
-                           f"calibration_lock")
-    with _file_lock(lock_path, _EPIC_NODE_LOCK, state_root):
-        _EPIC_NODE_LOCK["path"] = lock_path
-        try:
-            yield
-        finally:
-            if held is None:
-                _EPIC_NODE_LOCK["path"] = None
-
-
-def _require_epic_lock(path: str) -> None:
-    """Refuse an epic.yaml write unless this process holds THAT epic's epic_node_lock.
-
-    Called from `_atomic_dump`, which every node write reaches, so the rule is checked on
-    every write pm-status.py makes rather than trusted to a list of verbs -- the list once
-    left several verbs writing epic.yaml unlocked. Files made
-    outside this script (doctor's bootstrap-state heredoc, agent-written migrate-state
-    output) are not covered; they only create epic files, so there is nothing to race. A
-    RuntimeError, not a PMError: no input causes this, only a code path that skipped the
-    lock."""
-    if os.path.basename(path) != "epic.yaml":
-        return
-    epic_dir = os.path.dirname(os.path.abspath(path))
-    state_root = os.path.dirname(os.path.dirname(epic_dir))
-    want = os.path.join(os.path.realpath(state_root), os.path.basename(epic_dir) + ".lock")
-    if _EPIC_NODE_LOCK["path"] != want:
-        raise RuntimeError(f"{path} written without its epic_node_lock ({want}) -- "
-                           f"every epic.yaml write must hold it")
 
 
 # --------------------------------------------------------------------------- #
@@ -788,7 +612,7 @@ def _estimate_metric(est: dict, metric: str):
     `_num_or_none(est.get(metric))` directly. That direct form is exactly what
     silently zeroed two independent things before Task 10 found and fixed the
     first: `_child_estimate_value` (a sprint/epic roll-up would see zero
-    children with a tokens_k estimate, `estimate-rollup` would just never emit
+    children with a tokens_k estimate, the roll-up would just never emit
     `tokens_k_min`/`tokens_k_max`) and `derive_story_sample` (a story's
     tokens_k scope ratio never accumulated a sample — cold-start forever,
     silently, for the metric the whole cost derivation now hangs off). Both
@@ -871,23 +695,3 @@ def _coerce(field: str, v: str):
         return int(f) if f.is_integer() and field != "cost" else f
     except ValueError:
         return v
-
-
-# --------------------------------------------------------------------------- #
-# CLI registration.
-#
-# Each module of this package registers its OWN verbs on the shared subparsers object
-# (design §3.2), so the 4.0.0 cut removes a bucket's verbs by deleting its directory and one
-# import line rather than hand-editing a 520-line build_parser(). `__main__.py` keeps only
-# the root parser, the fixed order the modules are called in, and `main`.
-#
-# `node_args` lives HERE, in the dependency root, because two modules need it -- `verbs`
-# (verify, set-estimate) and `metrics` (set-actual) -- and a copy in
-# each is two CLI contracts that can drift apart silently: the help strings below are part
-# of the surface `cli-surface-before.txt` pins. core is the only module both already import.
-# --------------------------------------------------------------------------- #
-def node_args(sp):
-    sp.add_argument("--story", help="story key (addresses a story node)")
-    sp.add_argument("--epic", help="zero-paddable epic id")
-    sp.add_argument("--sprint", help="zero-paddable sprint id")
-

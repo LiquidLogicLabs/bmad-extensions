@@ -88,9 +88,9 @@ visible.
 
 `{token_rates_json}` is the per-model override table, and it is **optional**: bind it only
 when `modules.l3io-pm.token_rates` is present, serialize that section to compact JSON, and
-pass `--token-rates '{token_rates_json}'` on `estimate-entries`, `estimate-story`,
-`estimate-rollup`, `set-actual`, **and `verify`**. Omit the flag entirely when the key is absent — an empty
-string is accepted but adds nothing. Passing it to the three writers but not to `verify` is
+pass `--token-rates '{token_rates_json}'` on `estimate-entries`, `set-actual`, **and
+`verify`**. Omit the flag entirely when the key is absent — an empty
+string is accepted but adds nothing. Passing it to the writers but not to `verify` is
 the specific mistake to avoid: `verify` recomputes `cost` from the node's own `tokens_k` and
 `model`, so without the same override in force it recomputes against the shipped rates and
 fails every node the override priced. Overrides merge per model rather than replacing the

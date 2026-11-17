@@ -1,14 +1,14 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["ruamel.yaml>=0.18"]
+# dependencies = ["ruamel.yaml>=0.18", "tomlkit>=0.13"]
 # ///
 """
 Tests for pm-status.py — run with: uv run test-pm-status.py
-Exercises the 3.x sharded layout resolution and key-based node addressing
-(import-node/set-actual/set-estimate/verify), adr-reserve, calibration and estimates,
-comment/order preservation, the events.jsonl log, and verify exit codes. The v7 sidecar
-verbs are in test-pm-status-sidecar.py.
+Exercises the value logic of set-actual/set-estimate/add-test-run/verify (through a v7
+ticket, see TestLayoutResolution), adr-reserve, calibration and the estimate engine, the
+events.jsonl log, notices, the agent-instructions block, and verify exit codes. The v7
+sidecar addressing itself is in test-pm-status-sidecar.py.
 """
 import argparse
 import ast
@@ -70,43 +70,6 @@ def tearDownModule():
         raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
                              f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
                              f"cleanup: {', '.join(leaked[:5])}")
-
-
-def _epic_locked(root, fn, *args, epic="E001"):
-    """Call `fn` holding an epic's lock, as every CLI writer of an epic node does."""
-    with pm.epic_node_lock(root, epic):
-        return fn(*args)
-
-
-def _fx_node_path(root, story=None, epic=None):
-    return pm.story_file(root, story) if story else pm.nodes.epic_file(root, epic)
-
-
-def _fx_set_status(root, status, story=None, epic=None):
-    """Write a node's status directly: a fixture step, not a verb under test."""
-    path = _fx_node_path(root, story, epic)
-    y, node = pm.load_node(path)
-    node["status"] = status
-    _epic_locked(root, pm.core._atomic_dump, y, node, path)
-
-
-def _fx_set_field(root, field, value, story=None, epic=None):
-    path = _fx_node_path(root, story, epic)
-    y, node = pm.load_node(path)
-    cur = node
-    parts = field.split(".")
-    for k in parts[:-1]:
-        cur = cur.setdefault(k, {})
-    cur[parts[-1]] = value
-    _epic_locked(root, pm.core._atomic_dump, y, node, path)
-
-
-def _fx_move_epic(root, epic, to):
-    """Rename an epic's directory into another status folder, as a 3.x placement did."""
-    src = pm.find_epic_dir(root, epic)
-    dest = os.path.join(root, to, os.path.basename(src))
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    os.rename(src, dest)
 
 
 class Base(unittest.TestCase):
@@ -353,7 +316,7 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
         """`import pm_status.verbs` and `pm.verbs.<name>` must resolve, so that a patch target
         added to `verbs` fails HERE -- with the repair instructions above -- rather than as an
         ImportError at the natural spelling. This is also `verbs`' reader for the gate below."""
-        self.assertIs(pm.verbs.cmd_import_node, pm.verbs.cmd_import_node)
+        self.assertIs(pm.verbs.cmd_notice, pm.verbs.cmd_notice)
 
     def test_every_re_export_only_name_has_a_reader(self):
         """A `# noqa: F401` on a facade import in `__main__.py` is a claim that SOMETHING reads
@@ -426,27 +389,26 @@ class TestSubcommandRegistration(unittest.TestCase):
     """
 
     # The CLI surface, in registration order. Adding or removing a verb is a deliberate edit
-    # here. It is spec §4.5's keep set, the 4.x sidecar verbs, and import-node/import-actual,
-    # which retire with the migration in Phase 6.
+    # here. It is spec §4.5's keep set and the 4.x sidecar verbs; the migration-only verbs
+    # (import-node, import-actual) and the 3.x estimators (estimate-story, estimate-rollup,
+    # whose v7 address is estimate-entries) retired with the 3.x tree in Phase 6.
     EXPECTED = (
-        "import-node", "verify", "set-estimate", "add-test-run", "notice",
-        "set-actual", "import-actual", "report", "dispatch", "usage", "calibration",
-        "estimate-story", "estimate-rollup", "rates", "adr-reserve",
+        "notice", "report", "dispatch", "usage", "calibration", "rates", "adr-reserve",
         "sync-agent-instructions",
+        "verify", "set-estimate", "set-actual", "add-test-run",
         "sidecar-reconcile", "estimate-entries", "set-lane", "build-open", "build-close",
         "epic-close",
     )
-    # Spec §4.5, verbatim: the keep set, the support verbs, the 4.x sidecar verbs, and the
-    # two migration verbs that live until Phase 6.
+    # Spec §4.5: the keep set, the support verbs and the 4.x sidecar verbs.
     SURFACE_4_5 = frozenset({
-        "estimate-story", "estimate-rollup", "calibration", "set-estimate", "set-actual",
+        "calibration", "set-estimate", "set-actual",
         "add-test-run", "dispatch", "report", "adr-reserve",
         "usage", "rates", "verify", "notice", "sync-agent-instructions",
         "sidecar-reconcile", "build-open", "build-close", "estimate-entries", "set-lane",
         "epic-close",
-        "import-node", "import-actual",
     })
     RETIRED = (
+        "import-node", "import-actual", "estimate-story", "estimate-rollup",
         "set-status", "move-epic", "reparent-story", "retire-epic", "reorg-log",
         "reorg-undo", "dump-plan", "list-epics", "list-stories", "show",
         "set-depends-on", "story-doc-init", "set-field", "set-lock", "clear-lock",
@@ -505,12 +467,12 @@ class TestSubcommandRegistration(unittest.TestCase):
             f"build_parser() registers {len(registered)} subcommands, expected "
             f"{len(self.EXPECTED)}.{detail}")
 
-    def test_the_count_is_22(self):
+    def test_the_count_is_18(self):
         """Stated as its own assertion because the number is quoted in the design spec, the
         task briefs and the surface baseline. A set comparison alone reports 'missing one'
         without ever saying what the total is supposed to be."""
-        self.assertEqual(len(self._registered()), 22)
-        self.assertEqual(len(set(self.EXPECTED)), 22, "EXPECTED has a duplicate")
+        self.assertEqual(len(self._registered()), 18)
+        self.assertEqual(len(set(self.EXPECTED)), 18, "EXPECTED has a duplicate")
 
     def test_cli_surface_after_placement_retired(self):
         """Sofia owns the work-item tree (ADR-0015), so the 3.x placement, listing, node-write
@@ -520,8 +482,9 @@ class TestSubcommandRegistration(unittest.TestCase):
         self.assertEqual(registered, set(self.EXPECTED))
 
     def test_pm_status_surface_is_4_5(self):
-        """Issues live in v7's backlog (Task 4.9): the CLI is exactly spec §4.5's set, and no
-        issues verb survives."""
+        """Issues live in v7's backlog (Task 4.9) and the 3.x tree is read only by the
+        migration (Phase 6): the CLI is exactly spec §4.5's set, and no issues, import or 3.x
+        estimate verb survives."""
         registered = set(self._registered())
         self.assertEqual(sorted(registered - self.SURFACE_4_5), [])
         self.assertEqual(sorted(self.SURFACE_4_5 - registered), [])
@@ -758,37 +721,15 @@ class TestNoticeReadHappensAfterTheLock(Base):
             f"_load was renamed or bypassed in cmd_notice.")
 
 
-def _build_issue_tree(root):
-    """A small 3.x state tree. Epic/sprint nodes are hand-written because no verb creates
-    them.
-      active/epic-001: S01 in-progress, S02 backlog
-      planned/epic-005: S01 backlog
-    """
-    nodes = {
-        "active/epic-001/epic.yaml": "key: 'E001'\ntitle: 'Foundation'\nstatus: in-progress\n",
-        "active/epic-001/sprint-01/sprint.yaml":
-            "key: 'S01'\nepic: 'E001'\ntitle: 'One'\nstatus: in-progress\n",
-        "active/epic-001/sprint-02/sprint.yaml":
-            "key: 'S02'\nepic: 'E001'\ntitle: 'Two'\nstatus: backlog\n",
-        "planned/epic-005/epic.yaml": "key: 'E005'\ntitle: 'Later'\nstatus: backlog\n",
-        "planned/epic-005/sprint-01/sprint.yaml":
-            "key: 'S01'\nepic: 'E005'\ntitle: 'Later one'\nstatus: backlog\n",
-    }
-    for rel, text in nodes.items():
-        p = os.path.join(root, rel)
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-
 class StateTreeBase(Base):
-    """impl/ is the artifacts root; impl/state a 3.x state root with one epic."""
+    """impl/state: a state root, as the project-wide verbs (adr-reserve, notice, calibration)
+    take one."""
 
     def setUp(self):
         super().setUp()
         self.arts = os.path.join(self.d, "impl")
         self.root = os.path.join(self.arts, "state")
-        _build_issue_tree(self.root)
+        os.makedirs(self.root)
 
     def run_all(self, argv):
         out, err = io.StringIO(), io.StringIO()
@@ -802,112 +743,176 @@ class StateTreeBase(Base):
 
 
 class TestLayoutResolution(unittest.TestCase):
+    """A v7 project with one ticket, and an adapter the value-logic suites run through.
+
+    The fixture: `_bmad-output/initiative-shop/tickets/epic-cart/tickets/` with entries 1-3
+    in `tickets.toml` and a plan for entry 3 (`story-3-plan.md`). `self.root` is the
+    project's state root (`{output_folder}/l3io/`), where the calibration file and the event
+    log live, so a suite that reads either reads it from `self.root` as before.
+
+    THE ADAPTER (`_v7`). These suites test what `set-actual`, `set-estimate`, `add-test-run`
+    and `verify` decide about their VALUES -- token classes, runtimes, derived cost, the
+    test-run derivation -- and that logic (`actual_values`, `apply_estimate`,
+    `tests_passing`, `verify_node`) is the same whatever the address. The 3.x node address
+    retired in Phase 6, so `_v7` rewrites a story key to the v7 address of the ticket it
+    stands for: `E001-S01-<nnn>` is entry `<nnn>` of `epic-cart`, a set-estimate goes to
+    `--ticket-dir/--entry` and the rest to `--plan-file`. A key with no plan names a plan
+    that does not exist, so it exits 3 exactly as an absent node did. `load_node` and
+    `save_node` read and write the ticket's sidecars the same way: the entry's `estimate`
+    and `class` from the epic's `l3io.toml`, everything else from the plan sidecar.
+    """
+
+    STORY = "E001-S01-003"
+    V7_VERBS = ("set-actual", "set-estimate", "add-test-run", "verify")
+
     def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.root = os.path.join(self.d, "state")
-        # active/epic-001/sprint-01/{sprint.yaml,E001-S01-003.yaml} + epic.yaml
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        os.makedirs(sd)
-        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
-            f.write("key: 'E001'\nstatus: in-progress\n")
-        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
-            f.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
-        with open(os.path.join(sd, "E001-S01-003.yaml"), "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
-        # a planned epic, to prove the folder search spans all three
-        os.makedirs(os.path.join(self.root, "planned", "epic-005"))
-        with open(os.path.join(self.root, "planned", "epic-005", "epic.yaml"), "w") as f:
-            f.write("key: 'E005'\nstatus: backlog\n")
+        self.project = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.project, True)
+        self.root = os.path.join(self.project, "_bmad-output", "l3io")
+        os.makedirs(self.root)
+        # The state root, seeded so no test pays for BMad core's resolver: nodes caches it
+        # per project root, and this is the value it would resolve to.
+        pm.nodes._STATE_ROOTS[self.project] = self.root
+        self.addCleanup(pm.nodes._STATE_ROOTS.pop, self.project, None)
+        ini = os.path.join(self.project, "_bmad-output", "initiative-shop")
+        self.tdir = os.path.join(ini, "tickets", "epic-cart", "tickets")
+        os.makedirs(self.tdir)
+        with open(os.path.join(ini, "initiative-shop.md"), "w") as f:
+            f.write("---\ntype: initiative\n---\n# Shop\n")
+        with open(os.path.join(ini, "tickets", "tickets.toml"), "w") as f:
+            f.write('[[epic]]\nid = 1\nslug = "epic-cart"\n')
+        with open(os.path.join(self.tdir, "tickets.toml"), "w") as f:
+            # Entries 1 and 2 carry a hand-set estimate, so `estimate-entries` never asks for
+            # their class and the roll-up counts entry 3 alone.
+            for n in (1, 2):
+                f.write(f'[[entry]]\nid = {n}\ntype = "story"\ntitle = "story {n}"\n'
+                        f'estimate = "1d"\n\n')
+            f.write('[[entry]]\nid = 3\ntype = "story"\ntitle = "story 3"\n')
+        self.plan = self.plan_for(self.STORY)
+        with open(self.plan, "w") as f:
+            f.write("---\ntitle: 'story 3'\nticket: 3\nstatus: in-review\n---\n\n# story 3\n")
 
-    def test_dirname_conversions(self):
-        self.assertEqual(pm.epic_dirname("E001"), "epic-001")
-        self.assertEqual(pm.epic_dirname("E42"), "epic-042")
-        self.assertEqual(pm.sprint_dirname("S01"), "sprint-01")
-        self.assertEqual(pm.sprint_dirname("S7"), "sprint-07")
+    # -- addressing ------------------------------------------------------------------- #
+    @staticmethod
+    def entry_of(key: str) -> str:
+        return str(int(str(key).rsplit("-", 1)[-1]))
 
-    def test_parse_story_key(self):
-        self.assertEqual(pm.parse_story_key("E001-S01-003"), ("E001", "S01", "003"))
+    def plan_for(self, key: str) -> str:
+        return os.path.join(self.tdir, f"story-{self.entry_of(key)}-plan.md")
 
-    def test_parse_story_key_rejects_malformed(self):
-        with self.assertRaises(ValueError):
-            pm.parse_story_key("not-a-key")
+    def story_file(self, key: str):
+        """The plan sidecar standing in for a story node; None when the ticket has no plan."""
+        plan = self.plan_for(key)
+        return plan[:-len(".md")] + ".l3io.toml" if os.path.isfile(plan) else None
 
-    def test_find_epic_dir_searches_all_status_folders(self):
-        self.assertTrue(pm.find_epic_dir(self.root, "E001").endswith("active/epic-001"))
-        self.assertTrue(pm.find_epic_dir(self.root, "E005").endswith("planned/epic-005"))
-        self.assertIsNone(pm.find_epic_dir(self.root, "E999"))
+    def epic_node(self):
+        """The epic's `[epic]` table, as a 3.x epic node was read."""
+        return pm.sidecar.plain(pm.sidecar.load(self._entry_path())).get("epic", {})
 
-    def test_node_file_resolution(self):
-        self.assertTrue(pm.nodes.epic_file(self.root, "E001").endswith("active/epic-001/epic.yaml"))
-        self.assertTrue(pm.sprint_file(self.root, "E001", "S01").endswith("sprint-01/sprint.yaml"))
-        self.assertTrue(pm.story_file(self.root, "E001-S01-003").endswith("sprint-01/E001-S01-003.yaml"))
-        self.assertIsNone(pm.story_file(self.root, "E001-S01-999"))
+    def _v7(self, argv):
+        """A 3.x-addressed argv as the v7 verb takes it (see the class docstring)."""
+        argv = list(argv)
+        if argv and argv[0] in ("estimate-story", "estimate-rollup"):
+            return self._v7_estimate(argv)
+        if not argv or argv[0] not in self.V7_VERBS:
+            return argv
+        out, story, i = [argv[0]], None, 1
+        while i < len(argv):
+            a = argv[i]
+            if a in ("--state-root", "--story"):
+                if a == "--story":
+                    story = argv[i + 1]
+                i += 2
+                continue
+            if a in ("--no-calibrate", "--flock"):
+                i += 1
+                continue
+            out.append(a)
+            i += 1
+        out += ["--project-root", self.project]
+        if story is not None:
+            if argv[0] == "set-estimate":
+                out += ["--ticket-dir", self.tdir, "--entry", self.entry_of(story)]
+            else:
+                out += ["--plan-file", self.plan_for(story)]
+        return out
 
-    def test_load_node_returns_bare_mapping(self):
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["key"], "E001-S01-003")
-        self.assertNotIn("epics", node)
+    def _v7_estimate(self, argv):
+        """estimate-story and estimate-rollup as their v7 address, `estimate-entries`: a story
+        is the entry it names with its class, a roll-up is the epic of the fixture."""
+        out = ["estimate-entries", "--project-root", self.project, "--ticket-dir", self.tdir]
+        i, story, cls = 1, None, None
+        while i < len(argv):
+            a = argv[i]
+            if a == "--story":
+                story = argv[i + 1]
+            elif a == "--classification":
+                cls = argv[i + 1]
+            elif a in ("--model", "--token-rates"):
+                out += [a, argv[i + 1]]
+            elif a in ("--sprint",):
+                out += ["--sprint", argv[i + 1]]       # not an estimate-entries flag: exit 2
+            i += 2 if a.startswith("--") and i + 1 < len(argv) else 1
+        if story is not None:
+            entry = self.entry_of(story)
+            out += ["--entry", entry]
+            if cls:
+                out += ["--class", f"{entry}={cls}"]
+        return out
 
-    def test_save_node_roundtrips(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
-        node["status"] = "done"
-        pm.nodes.save_node(y, node, p)
-        _, again = pm.load_node(p)
-        self.assertEqual(again["status"], "done")
+    # -- reading and writing the ticket's sidecars ------------------------------------ #
+    def _entry_path(self):
+        return os.path.join(self.tdir, "l3io.toml")
 
-    def test_check_backrefs_detects_misplacement(self):
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(pm.check_backrefs(node, "E001", "S01"), [])
-        self.assertTrue(pm.check_backrefs(node, "E002", "S01"))
+    def load_node(self, path):
+        """(None, node): the plan sidecar's tables, plus the entry's `estimate` and `class`
+        (as `classification`) from the epic's l3io.toml."""
+        node = pm.sidecar.plain(pm.sidecar.load(path)) if path else {}
+        entry = os.path.basename(path)[len("story-"):].split("-", 1)[0] if path else None
+        ours = pm.sidecar.plain(pm.sidecar.load(self._entry_path())).get("entry", {})
+        mine = ours.get(entry, {})
+        if "estimate" in mine:
+            node["estimate"] = mine["estimate"]
+        if "class" in mine:
+            node["classification"] = mine["class"]
+        return None, node
 
-    def test_check_backrefs_flags_absent_epic_backref(self):
-        """A file with no `epic:` at all must FAIL, not pass. migrate-state adds these
-        back-references as a brand-new step, so "absent" is precisely the case this
-        check exists to catch — treating absent as OK made the migration's only
-        automated gate blind to its own newest transformation."""
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nsprint: 'S01'\nstatus: review\n")
-        _, node = pm.load_node(p)
-        problems = pm.check_backrefs(node, "E001", "S01")
-        self.assertEqual(len(problems), 1, problems)
-        self.assertIn("epic back-reference absent", problems[0])
+    def save_node(self, _y, node, path):
+        """Write `node` back: `estimate` to the entry, everything else to the plan sidecar."""
+        node = pm.sidecar.plain(dict(node))
+        node.pop("status", None)
+        node.pop("classification", None)
+        est = node.pop("estimate", None)
+        doc = pm.sidecar._tomlkit().document()
+        for k, v in node.items():
+            doc[k] = v
+        pm.sidecar.save(path, doc)
+        if est is not None:
+            entry = os.path.basename(path)[len("story-"):].split("-", 1)[0]
+            with pm.sidecar.edit(self._entry_path()) as d:
+                tbl = pm.sidecar.table(d, "entry", entry, "estimate")
+                for k in list(tbl):
+                    del tbl[k]
+                pm.sidecar.put_metrics(tbl, est)
 
-    def test_check_backrefs_flags_absent_sprint_backref(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E001'\nstatus: review\n")
-        _, node = pm.load_node(p)
-        problems = pm.check_backrefs(node, "E001", "S01")
-        self.assertEqual(len(problems), 1, problems)
-        self.assertIn("sprint back-reference absent", problems[0])
-
-    def test_check_backrefs_flags_both_absent(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nstatus: review\n")
-        _, node = pm.load_node(p)
-        self.assertEqual(len(pm.check_backrefs(node, "E001", "S01")), 2)
-
-    def test_check_backrefs_absent_sprint_on_sprint_node_is_not_checked(self):
-        """Sprint nodes are checked with sprint_key=None (they have no `sprint:` of
-        their own to verify), so only the `epic:` back-reference is required there."""
-        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
-        self.assertEqual(pm.check_backrefs(node, "E001"), [])
+    def ensure_story_sidecar(self, key=None):
+        """The plan sidecar for `key`, created empty when absent (a node always existed)."""
+        path = self.plan_for(key or self.STORY)[:-len(".md")] + ".l3io.toml"
+        if not os.path.exists(path):
+            with open(path, "w") as f:
+                f.write("")
+        return path
 
 
 class TestElapsedHoursUnification(TestLayoutResolution):
     """estimate-side time_hours and actual-side elapsed_hours are one name now —
-    ESTIMATE_TO_ACTUAL is gone, and the deprecated --time-hours* CLI flags still
-    write the elapsed_hours* destinations."""
+    ESTIMATE_TO_ACTUAL is gone."""
 
     def run_main(self, argv):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -916,19 +921,8 @@ class TestElapsedHoursUnification(TestLayoutResolution):
         code, out = self.run_main(["estimate-story", "--state-root", self.root,
                                    "--story", "E001-S01-003", "--classification", "standard"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertIn("elapsed_hours", node["estimate"])
-        self.assertNotIn("time_hours", node["estimate"])
-
-    def test_deprecated_time_hours_flag_still_writes_elapsed_hours(self):
-        # set-estimate has no --node flag (unlike set-actual) — kind is inferred
-        # from --story vs --epic[/--sprint]
-        code, out = self.run_main(["set-estimate", "--state-root", self.root,
-                                   "--story", "E001-S01-003",
-                                   "--time-hours", "3"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(float(node["estimate"]["elapsed_hours"]), 3.0)
         self.assertNotIn("time_hours", node["estimate"])
 
     def test_estimate_to_actual_map_is_gone(self):
@@ -946,7 +940,7 @@ class TestHitlHours(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -963,7 +957,7 @@ class TestHitlHours(TestLayoutResolution):
         code, out = self.run_main(["estimate-story", "--state-root", self.root,
                                    "--story", "E001-S01-003", "--classification", "complex"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         # complex band 0.3-1.0, midpoint 0.65, x cold-start scope 1.0 x fix 1.25
         self.assertAlmostEqual(float(node["estimate"]["hitl_hours"]), 0.81, places=2)
 
@@ -972,33 +966,8 @@ class TestHitlHours(TestLayoutResolution):
                                    "--story", "E001-S01-003", "--hitl-hours", "0.3",
                                    "--no-calibrate"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertAlmostEqual(float(node["actual"]["hitl_hours"]), 0.3, places=2)
-
-    def test_set_actual_hitl_hours_produces_scope_sample(self):
-        """A metric recorded on the node but never sampled can never calibrate.
-        This drives the real CLI path (set-estimate then set-actual, calibration
-        left ON) and reads pm-calibration.yaml back, so a regression that once
-        again drops hitl_hours from derive_story_sample's metric loop fails
-        here — asserting on the node alone would not have caught it."""
-        code, out = self.run_main(["set-estimate", "--state-root", self.root,
-                                   "--story", "E001-S01-003", "--hitl-hours", "0.5",
-                                   "--fix-factor", "1.0"])
-        self.assertEqual(code, 0, out)
-
-        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
-                                   "--story", "E001-S01-003", "--hitl-hours", "0.6",
-                                   "--runtime", "other"])
-        self.assertEqual(code, 0, out)
-
-        _, cal = pm.load_calibration(self.root)
-        # no classification was set on the fixture story -> derive_story_sample's
-        # default bucket, "standard"
-        samples = pm._component_samples(cal, "scope", "standard", "hitl_hours")
-        self.assertEqual(len(samples), 1, cal)
-        # fix_factor=1.0, no completion_evidence -> provenance "backout":
-        # sample = actual x applied_ratio(1.0, none recorded) / estimate
-        self.assertAlmostEqual(samples[0], 0.6 * 1.0 / 0.5, places=4)
 
     def test_calibration_show_lists_hitl_hours_rows(self):
         """cmd_calibration's display loops must enumerate hitl_hours too, or a
@@ -1026,88 +995,12 @@ class TestHitlHours(TestLayoutResolution):
         self.assertFalse(any(b.endswith("/cost") for b in buckets), buckets)
 
 
-class TestAtomicAndCLI(TestLayoutResolution):
-    """Reuses TestLayoutResolution's tree fixture."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def test_no_temp_files_left(self):
-        self.run_main(["set-estimate", "--state-root", self.root,
-                       "--story", "E001-S01-003", "--man-hours", "2"])
-        sd = os.path.dirname(pm.story_file(self.root, "E001-S01-003"))
-        leftovers = [n for n in os.listdir(sd) if n.startswith(".pm-status.")]
-        self.assertEqual(leftovers, [])
-
-
-class TestKeyBasedAddressing(TestLayoutResolution):
-    """Reuses TestLayoutResolution's tree fixture."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def test_missing_node_exits_3(self):
-        code, _ = self.run_main(
-            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-999",
-             "--man-hours", "1"])
-        self.assertEqual(code, 3)
-
-    def test_set_actual_writes_all_four_metrics(self):
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story", "--story", "E001-S01-003",
-             "--elapsed-hours", "1.8", "--man-hours", "7", "--tokens-input", "300",
-             "--tokens-output", "55", "--model", "claude-sonnet-5"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(int(node["actual"]["tokens_k"]["total"]), 355)
-        self.assertEqual(node["actual"]["man_hours"], 7)
-
-    def test_claude_runtime_still_rejects_na(self):
-        code, _ = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story", "--story", "E001-S01-003",
-             "--tokens-na", "--runtime", "claude"])
-        self.assertEqual(code, 2)
-
-    def test_set_estimate_story_uses_single_values(self):
-        # --cost is not passed here: cost is derived from tokens x rates and
-        # set-estimate rejects it outright (see TestEstimateTokensAndCost).
-        code, out = self.run_main(
-            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
-             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["estimate"]["man_hours"], 6.0)
-        self.assertNotIn("man_hours_low", node["estimate"])
-        self.assertNotIn("cost", node["estimate"])
-
-    def test_backref_mismatch_exits_4(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E999'\nsprint: 'S01'\nstatus: review\n")
-        code, _ = self.run_main(
-            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
-             "--man-hours", "1"])
-        self.assertEqual(code, 4)
-
-
 class TestStructuredActualTokens(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -1135,7 +1028,7 @@ class TestStructuredActualTokens(TestLayoutResolution):
                               "--tokens-cache-write", "4300", "--tokens-cache-read", "253",
                               "--model", "claude-opus-5", "--runtime", "claude")
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         tk = node["actual"]["tokens_k"]
         self.assertEqual(int(tk["total"]), 4999)
         self.assertEqual(int(tk["cache_write"]), 4300)
@@ -1157,7 +1050,7 @@ class TestStructuredActualTokens(TestLayoutResolution):
     def test_tokens_na_allowed_under_runtime_other(self):
         code, out = self._set("--tokens-na", "--runtime", "other")
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertTrue(pm._is_na(node["actual"]["tokens_k"]))
         self.assertTrue(pm._is_na(node["actual"]["cost"]))
 
@@ -1167,23 +1060,20 @@ class TestStructuredActualTokens(TestLayoutResolution):
 
 
 class TestVerify(TestLayoutResolution):
-    """Reuses TestLayoutResolution's tree fixture. Covers cmd_verify against the
-    --state-root interface for story/sprint scope. --scope epic is a distinct
-    branch (back-reference integrity across the whole subtree, not per-node
-    completion) — see TestVerifyEpicScope below."""
+    """verify on a ticket's sidecar (`verbs.verify_node`, through the v7 adapter)."""
 
     def run_main(self, argv):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
 
     def _complete(self, path, story=False):
         from ruamel.yaml.comments import CommentedMap
-        y, node = pm.load_node(path)
+        y, node = self.load_node(path)
         node["status"] = "done"
         actual = CommentedMap()
         actual["elapsed_hours"] = 0.4
@@ -1199,28 +1089,28 @@ class TestVerify(TestLayoutResolution):
             ce["fix_iterations"] = 0
             ce["tests_passing"] = 10
             node["completion_evidence"] = ce
-        pm.nodes.save_node(y, node, path)
+        self.save_node(y, node, path)
 
     def test_scope_story_passes_when_complete(self):
-        self._complete(pm.story_file(self.root, "E001-S01-003"), story=True)
+        self._complete(self.story_file("E001-S01-003"), story=True)
         code, out = self.run_main(
             ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-003"])
         self.assertEqual(code, 0, out)
         self.assertIn("PASS", out)
 
     def test_scope_story_fails_exit_4_when_incomplete(self):
-        # fixture default: status=review, no actual block, no completion_evidence
+        # a sidecar with no actual block and no completion_evidence
+        self.ensure_story_sidecar()
         code, out = self.run_main(
             ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-003"])
         self.assertEqual(code, 4)
-        self.assertIn("status=", out)
+        self.assertIn("actual.", out)
+        self.assertIn("completion_evidence absent", out)
 
-    def test_scope_sprint_passes_when_complete(self):
-        self._complete(pm.sprint_file(self.root, "E001", "S01"))
-        code, out = self.run_main(
-            ["verify", "--state-root", self.root, "--scope", "sprint", "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("PASS", out)
+    def test_no_sidecar_yet_exits_3(self):
+        code, _ = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-003"])
+        self.assertEqual(code, 3)
 
     def test_nonexistent_node_exits_3(self):
         code, _ = self.run_main(
@@ -1233,21 +1123,21 @@ class TestVerifyDerivedCost(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
 
     def _done_story(self, cost, total=4999):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 3.1, "man_hours": 14, "hitl_hours": 0.3,
                           "tokens_k": {"total": total, "input": 412, "output": 34,
                                        "cache_write": 4300, "cache_read": 253},
                           "cost": cost, "model": "claude-opus-5"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
 
     def test_passes_when_cost_matches_the_tokens(self):
         self._done_story(29.91)
@@ -1275,15 +1165,15 @@ class TestVerifyDerivedCost(TestLayoutResolution):
         # have let this pass) but IS > 0.005 (the new tolerance catches it).
         # This is not float noise working in our favor by luck in one
         # direction — it is the precise case the old tolerance was blind to.
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 1.0, "man_hours": 2, "hitl_hours": 0.1,
                           "tokens_k": {"total": 30, "input": 30, "output": 0,
                                        "cache_write": 0, "cache_read": 0},
                           "cost": 0.02, "model": "claude-haiku-4-5"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003", "--runtime", "claude"])
         self.assertEqual(code, 4, out)
@@ -1297,13 +1187,13 @@ class TestVerifyDerivedCost(TestLayoutResolution):
         self.assertIn("total", out)
 
     def test_fails_when_hitl_hours_absent(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 3.1, "man_hours": 14,
                           "tokens_k": "N/A", "cost": "N/A"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003"])
         self.assertEqual(code, 4, out)
@@ -1319,11 +1209,11 @@ class TestMixedModelActual(TestVerifyDerivedCost):
              "claude-sonnet-5-5": {"input": 50, "output": 20, "cache_write": 500, "cache_read": 100}}
 
     def _ready(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
 
     def _set(self, *extra):
         return self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
@@ -1336,7 +1226,7 @@ class TestMixedModelActual(TestVerifyDerivedCost):
                               "--story", "E001-S01-003", "--runtime", "claude"])
 
     def _actual(self):
-        return pm.load_node(pm.story_file(self.root, "E001-S01-003"))[1]["actual"]
+        return self.load_node(self.story_file("E001-S01-003"))[1]["actual"]
 
     def test_split_is_priced_per_model_and_verifies(self):
         self._ready()
@@ -1356,10 +1246,10 @@ class TestMixedModelActual(TestVerifyDerivedCost):
     def test_verify_fails_a_hand_edited_split_cost(self):
         self._ready()
         self._set("--tokens-by-model", json.dumps(self.SPLIT))
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["actual"]["cost"] = 9.99
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
         code, out = self._verify()
         self.assertEqual(code, 4, out)
         self.assertIn("actual.cost=9.99 != derived 7.2 for each model in by_model", out)
@@ -1367,10 +1257,10 @@ class TestMixedModelActual(TestVerifyDerivedCost):
     def test_verify_fails_when_by_model_does_not_sum_to_tokens_k(self):
         self._ready()
         self._set("--tokens-by-model", json.dumps(self.SPLIT))
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["actual"]["by_model"]["claude-sonnet-5-5"]["input"] = 999
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
         code, out = self._verify()
         self.assertEqual(code, 4, out)
         self.assertIn("actual.tokens_k.input=150.0 != sum of by_model (1099.0)", out)
@@ -1395,18 +1285,18 @@ class TestMixedModelActual(TestVerifyDerivedCost):
         code, _ = self._set("--tokens-by-model", json.dumps(
             {"claude-opus-5-5": {"input": 1, "output": 1, "cache_write": 0}}))
         self.assertEqual(code, 2)
-        self.assertNotIn("actual", pm.load_node(pm.story_file(self.root, "E001-S01-003"))[1] or {})
+        self.assertNotIn("actual", self.load_node(self.story_file("E001-S01-003"))[1] or {})
 
     def _priced_sonnet5(self, cost):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 1.0, "man_hours": 2, "hitl_hours": 0.1,
                           "tokens_k": {"total": 1100, "input": 1000, "output": 100,
                                        "cache_write": 0, "cache_read": 0},
                           "cost": cost, "model": "claude-sonnet-5"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
 
     def test_an_actual_priced_before_the_sonnet5_correction_still_verifies(self):
         """claude-sonnet-5 moved from $3/$15 to $2/$10. Actuals frozen at the old card
@@ -1436,14 +1326,14 @@ class TestVerifyTokenRatesWiring(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
 
     def _done_story_priced_only_under_override(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         # "acme-model" does not exist in TOKEN_RATES; it is priced only by the
@@ -1453,7 +1343,7 @@ class TestVerifyTokenRatesWiring(TestLayoutResolution):
                           "tokens_k": {"total": 100, "input": 100, "output": 0,
                                        "cache_write": 0, "cache_read": 0},
                           "cost": 1.00, "model": "acme-model"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
 
     def test_fails_with_unknown_model_message_without_override(self):
         self._done_story_priced_only_under_override()
@@ -1469,101 +1359,6 @@ class TestVerifyTokenRatesWiring(TestLayoutResolution):
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003", "--token-rates", overrides])
         self.assertEqual(code, 0, out)
-
-
-class TestVerifyEpicScope(TestLayoutResolution):
-    """verify --scope epic — deferred from Task 2 (ruling R3), implemented in Task 4
-    since it depends on list_sprint_dirs/list_story_files. Unlike story/sprint scope,
-    this branch checks only back-reference integrity across the whole epic subtree,
-    not per-node completion."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def test_scope_epic_passes_on_good_fixture(self):
-        code, out = self.run_main(
-            ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("PASS", out)
-
-    def test_scope_epic_fails_exit_4_on_corrupted_backref(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E999'\nsprint: 'S01'\nstatus: review\n")
-        err = io.StringIO()
-        try:
-            with redirect_stderr(err):
-                code = pm.main(
-                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 4)
-        self.assertIn("epic back-reference 'E999' != path epic 'E001'", err.getvalue())
-
-    def test_scope_epic_nonexistent_exits_3(self):
-        code, _ = self.run_main(
-            ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E999"])
-        self.assertEqual(code, 3)
-
-    def test_scope_epic_fails_exit_4_when_story_backref_absent(self):
-        """migrate-state Stage E2 relies on this scope to prove Stage B actually wrote
-        the `epic:`/`sprint:` back-references it introduces. A story file missing them
-        entirely must fail the gate."""
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nstatus: review\n")
-        err = io.StringIO()
-        try:
-            with redirect_stderr(err):
-                code = pm.main(
-                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 4)
-        self.assertIn("back-reference absent", err.getvalue())
-
-    def test_scope_epic_fails_exit_4_when_sprint_backref_absent(self):
-        sp = pm.sprint_file(self.root, "E001", "S01")
-        with open(sp, "w") as f:
-            f.write("key: 'S01'\nstatus: in-progress\n")
-        err = io.StringIO()
-        try:
-            with redirect_stderr(err):
-                code = pm.main(
-                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 4)
-        self.assertIn("epic back-reference absent", err.getvalue())
-
-    def test_scope_epic_reports_missing_sprint_and_corrupted_story_together(self):
-        """Addition B: a sprint with no sprint.yaml must still be descended into, so a
-        corrupted story co-located with the missing sprint.yaml is also reported —
-        not silently skipped by the `continue` that used to follow the missing-file
-        failure."""
-        sd2 = os.path.join(self.root, "active", "epic-001", "sprint-02")
-        os.makedirs(sd2)
-        with open(os.path.join(sd2, "E001-S02-001.yaml"), "w") as f:
-            f.write("key: 'E001-S02-001'\nepic: 'E999'\nsprint: 'S02'\nstatus: review\n")
-
-        err = io.StringIO()
-        try:
-            with redirect_stderr(err):
-                code = pm.main(
-                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 4)
-        failures = err.getvalue()
-        self.assertEqual(failures.count("FAIL "), 2, failures)
-        self.assertIn("sprint.yaml missing", failures)
-        self.assertIn("E001-S02-001", failures)
 
 
 class TestCalibrationIO(unittest.TestCase):
@@ -1952,8 +1747,8 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
 
 
 class TestCalibrationMetricsMigrationReadOnlySafety(TestLayoutResolution):
-    """Read-only commands (`calibration show`, `estimate-story`,
-    `estimate-rollup`) must never trigger the metrics migration — proved by
+    """Commands that only READ the calibration file (`calibration show`, and the estimate
+    `estimate-entries` computes) must never trigger the metrics migration — proved by
     comparing the calibration file's raw BYTES before and after, not merely
     checking that no exception was raised.
     """
@@ -1994,21 +1789,8 @@ class TestCalibrationMetricsMigrationReadOnlySafety(TestLayoutResolution):
     def test_estimate_story_leaves_calibration_file_untouched(self):
         buf = io.StringIO()
         with redirect_stdout(buf):
-            code = pm.main(["estimate-story", "--state-root", self.root,
-                            "--story", "E001-S01-003", "--classification", "complex"])
-        self.assertEqual(code, 0, buf.getvalue())
-        self._unchanged()
-
-    def test_estimate_rollup_leaves_calibration_file_untouched(self):
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        with open(os.path.join(sd, "E001-S01-003.yaml"), "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
-                    "estimate:\n  man_hours: 4\n  elapsed_hours: 1\n"
-                    "  tokens_k: 10\n  cost: 0.5\n")
-        buf = io.StringIO()
-        with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-            code = pm.main(["estimate-rollup", "--state-root", self.root,
-                            "--epic", "E001"])
+            code = pm.main(self._v7(["estimate-story", "--story", self.STORY,
+                                     "--classification", "complex"]))
         self.assertEqual(code, 0, buf.getvalue())
         self._unchanged()
 
@@ -2018,7 +1800,7 @@ class TestEstimateFactors(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -2028,10 +1810,10 @@ class TestEstimateFactors(TestLayoutResolution):
         # rejects it (see TestEstimateTokensAndCost.test_cost_low_flag_is_rejected).
         code, out = self.run_main(
             ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
-             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320",
+             "--man-hours", "6", "--elapsed-hours", "1.5", "--tokens-k", "320",
              "--fix-factor", "1.25", "--scope-ratio", "1.1"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertAlmostEqual(float(node["estimate"]["fix_factor"]), 1.25)
         self.assertAlmostEqual(float(node["estimate"]["scope_ratio"]), 1.1)
 
@@ -2040,7 +1822,7 @@ class TestEstimateFactors(TestLayoutResolution):
             ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
              "--man-hours", "6"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertNotIn("fix_factor", node["estimate"])
 
 
@@ -2177,516 +1959,12 @@ class TestStorySampling(unittest.TestCase):
         self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
 
 
-class TestClosureSampling(TestLayoutResolution):
-    def _write(self, path, mapping):
-        y = pm._yaml()
-        with open(path, "w") as f:
-            y.dump(mapping, f)
-
-    def _sprint_with_stories(self, story_actuals, sprint_actual, sprint_estimate=None,
-                             story_estimates=None):
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        for f in os.listdir(sd):
-            if f.endswith(".yaml") and f != "sprint.yaml":
-                os.remove(os.path.join(sd, f))
-        for i, a in enumerate(story_actuals, start=1):
-            m = {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
-                 "status": "done"}
-            if a is not None:
-                m["actual"] = {"man_hours": a}
-            if story_estimates is not None:
-                m["estimate"] = {"man_hours": story_estimates[i - 1]}
-            self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), m)
-        sm = {"key": "E001", "status": "done"}
-        if sprint_actual is not None:
-            sm["actual"] = {"man_hours": sprint_actual}
-        if sprint_estimate is not None:
-            sm["estimate"] = sprint_estimate
-        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"), sm)
-
-    def test_residual_is_parent_minus_children(self):
-        self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNotNone(s, reason)
-        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
-
-    def test_missing_child_actual_skips_with_reason(self):
-        self._sprint_with_stories([3.0, None], 9.0,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNone(s)
-        self.assertIn("actual", reason.lower())
-
-    def test_negative_residual_skips_with_reason(self):
-        self._sprint_with_stories([5.0, 5.0], 8.0,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNone(s)
-        self.assertIn("negative", reason.lower())
-
-    def test_no_parent_actual_skips(self):
-        self._sprint_with_stories([3.0, 4.0], None,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNone(s)
-
-    def test_record_appends_closure_sample(self):
-        # children estimated 3+4=7, parent estimated 8-9 (mid 8.5) -> estimated
-        # closure overhead 1.5; actual overhead 9-(3+4)=2 -> ratio 2/1.5
-        self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
-                                  story_estimates=[3.0, 4.0])
-        _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
-        self.assertEqual(len(samples), 1)
-        self.assertAlmostEqual(float(samples[0]), round(2.0 / 1.5, 4))
-
-    def test_closure_ratio_divides_by_estimated_overhead_not_whole_estimate(self):
-        # THE C2 REGRESSION: dividing by the whole parent estimate midpoint (8.5)
-        # would give 0.2353 and make the learned roll-up worse than cold start.
-        self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
-                                  story_estimates=[3.0, 4.0])
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNotNone(s, reason)
-        self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 / 1.5)
-
-    def test_applied_closure_ratio_is_divided_back_out(self):
-        # a parent estimate written with an active ratio carries it on the block;
-        # the sample must remove it, or the loop settles on a geometric mean
-        self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 8.0, "man_hours_high": 9.0,
-                                   "closure_ratios": {"man_hours": 2.0}},
-                                  story_estimates=[3.0, 4.0])
-        s, _ = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 * 2.0 / 1.5)
-
-    def test_parent_actual_equal_to_children_sum_is_skipped_not_sampled_as_zero(self):
-        """C2: the pre-fix closure step files instructed an EXACT sum of children,
-        which makes the residual identically zero. `residual < 0` was guarded;
-        `residual == 0` was not, so a 0.0 landed in the sample list as if it were
-        a measurement. Exercise the number those step files actually produced."""
-        self._sprint_with_stories([3.0, 4.0], 7.0,
-                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
-                                  story_estimates=[3.0, 4.0])
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNone(s, f"a bare-sum actual must produce NO sample, got {s}")
-        self.assertIn("zero residual", reason)
-        _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(pm._component_samples(cal, "closure", "epic", "man_hours"), [])
-
-    def test_bare_sum_of_unrepresentable_decimals_is_still_skipped(self):
-        """The zero-residual guard must not be exact float equality.
-
-        `residual = pv - total` is unrounded float arithmetic. Every other test in
-        this file uses exactly-representable values (3.0 + 4.0 = 7.0), so an
-        `== 0` check passes all of them while missing every real project that
-        records hours in tenths. Both directions are exercised because a bare sum
-        over decimals lands on either side of zero depending on the values, and
-        the negative one used to be reported as a "miscount" that did not happen.
-        """
-        for children, parent, drift in (([0.3, 0.6], 0.9, "positive"),
-                                        ([1.1, 2.2], 3.3, "negative")):
-            with self.subTest(drift=drift):
-                # the premise: these do NOT sum exactly, in either direction
-                self.assertNotEqual(sum(children), parent)
-                self._sprint_with_stories(
-                    children, parent,
-                    {"man_hours_low": parent + 1.0, "man_hours_high": parent + 3.0},
-                    story_estimates=list(children))
-                s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-                self.assertIsNone(s, f"{drift} float drift produced a sample: {s}")
-                self.assertIn("zero residual", reason)
-                self.assertNotIn("miscounted", reason)
-                _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-                _, cal = pm.load_calibration(self.root)
-                self.assertEqual(
-                    pm._component_samples(cal, "closure", "epic", "man_hours"), [])
-                _, snode = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-                self.assertNotIn(pm.CALIBRATION_MARKER, snode)
-
-    def test_tolerance_does_not_swallow_a_genuine_small_residual(self):
-        """The other half of the guard: a real closure overhead, however small,
-        must still record. A tolerance wide enough to eat one is the same defect
-        with a different sign."""
-        self._sprint_with_stories([0.3, 0.6], 0.9001,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0},
-                                  story_estimates=[0.3, 0.6])
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNotNone(s, reason)
-        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 0.0001, places=7)
-
-    def test_three_bare_sum_closes_never_train_the_ratio_to_zero(self):
-        """The composite failure, not the single sample: three sprints closed with
-        `actual == Σ children` used to leave `closure.sprint.man_hours` holding
-        [0.0, 0.0, 0.0]. `weighted_ratio` returns 0.0 for that, 0.0 is not None,
-        and `cmd_estimate_rollup` accepts it — so the closure band contributed
-        nothing to every later estimate, permanently. The component must stay
-        cold-start (None) instead."""
-        for n in range(1, 4):
-            skey = f"S{n:02d}"
-            sd = os.path.join(self.root, "active", "epic-001", f"sprint-{n:02d}")
-            os.makedirs(sd, exist_ok=True)
-            for i in (1, 2):
-                self._write(os.path.join(sd, f"E001-{skey}-{i:03d}.yaml"),
-                            {"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
-                             "status": "done", "estimate": {"man_hours": 5.0},
-                             "actual": {"man_hours": 5.0}})
-            self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
-                        {"key": skey, "epic": "E001", "status": "done",
-                         "estimate": {"man_hours_low": 11.0, "man_hours_high": 13.0},
-                         "actual": {"man_hours": 10.0}})   # the BARE SUM
-            _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(pm._component_samples(cal, "closure", "epic", "man_hours"), [])
-        self.assertIsNone(pm.active_closure_ratio(cal, "epic", "man_hours"))
-
-    def test_zero_estimated_overhead_skips_the_metric(self):
-        # parent estimated exactly its children -> nothing to measure against
-        self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 7.0, "man_hours_high": 7.0},
-                                  story_estimates=[3.0, 4.0])
-        s, _ = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertNotIn("man_hours", s["ratios"])
-        self.assertIn("man_hours", s["skipped"])
-
-    def test_cost_is_never_closure_sampled(self):
-        # Task 10: cost is now derived from the rolled-up tokens_k range at
-        # estimate-rollup time, so it must never accumulate its own closure
-        # ratio — CLOSURE_RANGE_KEYS drops "cost" entirely (previously
-        # test_dollar_prefixed_cost_contributes_to_closure_sample asserted the
-        # opposite; a lingering cost closure sample would band a value the
-        # estimate no longer bands). man_hours is present alongside the
-        # dollar-prefixed cost actuals so the sample still succeeds overall —
-        # this proves cost is skipped by design, not because nothing else
-        # produced a residual.
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        for f in os.listdir(sd):
-            if f.endswith(".yaml") and f != "sprint.yaml":
-                os.remove(os.path.join(sd, f))
-        self._write(os.path.join(sd, "E001-S01-001.yaml"),
-                    {"key": "E001-S01-001", "epic": "E001", "sprint": "S01",
-                     "status": "done", "actual": {"man_hours": 3.0, "cost": "$3.00"}})
-        self._write(os.path.join(sd, "E001-S01-002.yaml"),
-                    {"key": "E001-S01-002", "epic": "E001", "sprint": "S01",
-                     "status": "done", "actual": {"man_hours": 4.0, "cost": "$4.00"}})
-        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
-                    {"key": "E001", "status": "done",
-                     "actual": {"man_hours": 9.0, "cost": "$9.00"},
-                     "estimate": {"man_hours_low": 8.0, "man_hours_high": 9.0,
-                                  "cost_low": 1.0, "cost_high": 3.0}})
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNotNone(s, reason)
-        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
-        self.assertNotIn("cost", s["closure_actual"])
-        self.assertNotIn("cost", s["ratios"])
-        self.assertNotIn("cost", s["skipped"])
-        self.assertNotIn("cost", pm.CLOSURE_RANGE_KEYS)
-
-    def test_v1_file_is_migrated_not_corrupted_on_closure_record(self):
-        # RULING B: record_closure_sample is a write path — a stale v1
-        # calibration file must be migrated before a sample is appended, or
-        # the sample lands in a "closure" structure v1 doesn't have.
-        self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
-                                  story_estimates=[3.0, 4.0])
-        p = pm.calibration_path(self.root)
-        with open(p, "w") as f:
-            f.write("version: 1\nratio: 1.3\n")
-        with redirect_stderr(io.StringIO()):    # migration announces its steps on stderr
-            _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
-        self.assertTrue(os.path.exists(p + ".v1"))
-        self.assertEqual(len(pm._component_samples(cal, "closure", "epic", "man_hours")), 1)
-
-    def test_a_stored_zero_closure_sample_is_ignored_on_read(self):
-        """A file written before the write-side guard existed still holds zeros.
-
-        A migration only repairs files someone remembers to migrate. The read
-        side is what every estimate goes through, so it is where the rule has
-        to hold for a file that already exists.
-        """
-        _, cal = pm.load_calibration(self.root)
-        cal.setdefault("closure", {})["epic"] = {
-            "tokens_k": {"samples": [3.7378, 0.0, 132.8062, 48.2812]},
-        }
-        # 0.0 must not be averaged in, and must not count toward MIN_SAMPLES.
-        got = pm.active_closure_ratio(cal, "epic", "tokens_k")
-        self.assertIsNotNone(got)
-        self.assertAlmostEqual(
-            got, pm.weighted_ratio([3.7378, 132.8062, 48.2812]), places=6)
-
-    def test_zeros_do_not_count_toward_the_activation_threshold(self):
-        _, cal = pm.load_calibration(self.root)
-        cal.setdefault("closure", {})["epic"] = {
-            "man_hours": {"samples": [0.0, 0.0, 0.0, 1.5]},
-        }
-        # Three zeros plus one real sample is one sample, not four.
-        self.assertIsNone(pm.active_closure_ratio(cal, "epic", "man_hours"))
-
-    def test_malformed_samples_are_handled_the_same_way_by_count_and_average(self):
-        """bool subclasses int; a numeric string is a number everywhere else in
-        this file. Whatever the filter decides, len() and the average must agree."""
-        _, cal = pm.load_calibration(self.root)
-        cal.setdefault("closure", {})["epic"] = {
-            "man_hours": {"samples": [True, "2.0", 3.0]},
-        }
-        got = pm.active_closure_ratio(cal, "epic", "man_hours")
-        # True is not a number; "2.0" is. Two real samples -> below MIN_SAMPLES.
-        self.assertIsNone(got)
-
-
-class TestClosureComposedWithOrchestration(TestLayoutResolution):
-    """C1: the closure and orchestration components COMPOSED, which no test did.
-
-    Each component was correct alone. Together they were not: since the
-    orchestration band joined the roll-up, `pmid - Σ children estimate` is the
-    closure band PLUS the orchestration band, while the residual it divides
-    (`parent actual - Σ children actual`) is closure-only — orchestration lives
-    in its own block. Every test of closure ran with the orchestration
-    component inactive (fraction 0, band contributing nothing), so the extra
-    term was always zero and the defect was invisible across 648 green tests.
-
-    The numbers here are the reviewer's, measured on the shipped code: children
-    summing to 20, an ACTIVE orchestration fraction of 0.5, a true closure
-    overhead of 5. The sample must be 1.4286; the pre-fix code recorded 0.3704.
-    """
-
-    CHILD = 10.0          # each of two children, estimated and actualed at 10
-    TRUE_CLOSURE = 5.0    # the closing level's own closure-phase spend
-    ORCH_FRACTION = 0.5
-
-    def run_main(self, argv):
-        buf, err = io.StringIO(), io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(err):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 0, buf.getvalue() + err.getvalue())
-        return buf.getvalue()
-
-    def _write(self, path, mapping):
-        y = pm._yaml()
-        with open(path, "w") as f:
-            y.dump(mapping, f)
-
-    def _children(self, skey="S01", n=2):
-        sd = os.path.join(self.root, "active", "epic-001",
-                          "sprint-" + skey.lstrip("S").zfill(2))
-        os.makedirs(sd, exist_ok=True)
-        for f in os.listdir(sd):
-            if f.endswith(".yaml") and f != "sprint.yaml":
-                os.remove(os.path.join(sd, f))
-        for i in range(1, n + 1):
-            self._write(os.path.join(sd, f"E001-{skey}-{i:03d}.yaml"),
-                        {"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
-                         "status": "done", "estimate": {"man_hours": self.CHILD},
-                         "actual": {"man_hours": self.CHILD}})
-        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
-                    {"key": skey, "epic": "E001", "status": "in-progress"})
-
-    def _seed(self, orchestration=None, closure=None):
-        with pm.calibration_lock(self.root):
-            y, cal = pm.load_calibration(self.root)
-            if orchestration is not None:
-                cal["orchestration"]["epic"]["man_hours"] = {"samples": [orchestration] * 3}
-            if closure is not None:
-                cal["closure"]["epic"]["man_hours"] = {"samples": [closure] * 3}
-            # an ongoing project's file always carries this after its first write;
-            # without it the next set-actual would quarantine the seed as pre-rework
-            cal[pm.CALIBRATION_METRICS_MARKER] = pm._now_iso()
-            pm.save_calibration(y, cal, self.root)
-
-    def _rollup_mid(self, skey="S01"):
-        self.run_main(["estimate-rollup", "--state-root", self.root,
-                       "--epic", "E001"])
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        est = node["estimate"]
-        return (float(est["man_hours_low"]) + float(est["man_hours_high"])) / 2.0
-
-    def test_active_orchestration_band_is_not_counted_as_closure_overhead(self):
-        self._children()
-        self._seed(orchestration=self.ORCH_FRACTION)
-        mid = self._rollup_mid()
-        # 20 x (1 + 1.0x0.10 + 0.5x0.8) = 30 ... 20 x (1 + 1.0x0.25 + 0.5x1.2) = 37
-        self.assertAlmostEqual(mid, 33.5, places=4)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertAlmostEqual(
-            float(node["estimate"]["orchestration_ratios"]["man_hours"]), 0.5, places=4)
-
-        parent_actual = 2 * self.CHILD + self.TRUE_CLOSURE      # 25
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
-                       "--epic", "E001",
-                       "--man-hours", str(parent_actual)])
-        _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
-        self.assertEqual(len(samples), 1)
-        # expected closure overhead = 33.5 - 20 - 20x0.5x1.0 = 3.5  ->  5 / 3.5
-        self.assertAlmostEqual(float(samples[0]), 1.4286, places=4)
-        # the pre-fix denominator (33.5 - 20 = 13.5) gave 5/13.5 = 0.3704
-        self.assertNotAlmostEqual(float(samples[0]), 0.3704, places=3)
-
-    def test_learned_closure_ratio_reconciles_children_plus_closure_plus_orchestration(self):
-        """Design §6.1's central claim: the roll-up IS Σ children + closure +
-        orchestration. With both components active at their observed values the
-        midpoint must land on 20 + 5 + 10 = 35 exactly."""
-        self._children()
-        self._seed(orchestration=self.ORCH_FRACTION, closure=1.4286)
-        mid = self._rollup_mid()
-        expected = (2 * self.CHILD) + self.TRUE_CLOSURE + (2 * self.CHILD * self.ORCH_FRACTION)
-        self.assertAlmostEqual(mid, expected, places=2)
-
-    def test_sample_is_stable_once_the_ratio_is_active(self):
-        """A correct denominator makes the loop a fixed point: re-observing the
-        same 5.0 of overhead against an estimate built with ratio 1.4286
-        reproduces 1.4286. With the orchestration band left in the denominator
-        it did not — it shrank on every generation."""
-        self._children()
-        self._seed(orchestration=self.ORCH_FRACTION, closure=1.4286)
-        self._rollup_mid()
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
-                       "--epic", "E001",
-                       "--man-hours", str(2 * self.CHILD + self.TRUE_CLOSURE)])
-        _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
-        self.assertAlmostEqual(float(samples[-1]), 1.4286, places=3)
-
-    def test_inactive_orchestration_leaves_the_denominator_untouched(self):
-        """The guard must be a no-op when the component is cold-start, or it
-        would silently change every existing closure sample."""
-        self._children()
-        self._seed()
-        mid = self._rollup_mid()
-        self.assertAlmostEqual(mid, 20 * 1.175, places=4)     # closure band only
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
-                       "--epic", "E001",
-                       "--man-hours", str(2 * self.CHILD + self.TRUE_CLOSURE)])
-        _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "closure", "epic", "man_hours")
-        self.assertAlmostEqual(float(samples[0]), round(5.0 / (20 * 0.175), 4), places=4)
-
-    def test_orch_mid_tracks_the_spread_it_is_derived_from(self):
-        self.assertAlmostEqual(pm.ORCH_MID,
-                               (pm.ORCH_SPREAD[0] + pm.ORCH_SPREAD[1]) / 2.0)
-
-
-class TestSetActualCalibrates(TestLayoutResolution):
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def _estimated_story(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
-                    "status: review\nclassification: complex\n"
-                    "completion_evidence:\n  fix_iterations: 0\n"
-                    "estimate:\n  man_hours: 6\n  elapsed_hours: 1.5\n"
-                    "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
-                    "  scope_ratio: 1.0\n")
-
-    def test_actual_write_emits_a_sample(self):
-        self._estimated_story()
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--elapsed-hours", "1.8",
-             "--man-hours", "7", "--tokens-input", "355", "--model", "claude-sonnet-5"])
-        self.assertEqual(code, 0, out)
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
-
-    def test_no_calibrate_suppresses_the_sample(self):
-        self._estimated_story()
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--man-hours", "7", "--no-calibrate"])
-        self.assertEqual(code, 0, out)
-        self.assertFalse(os.path.exists(pm.calibration_path(self.root)))
-
-    def test_story_without_estimate_writes_actual_and_no_sample(self):
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--man-hours", "7"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["actual"]["man_hours"], 7)
-
-    def test_calibration_failure_does_not_fail_the_actual_write(self):
-        self._estimated_story()
-        # make the calibration path unwritable by putting a directory there
-        os.makedirs(pm.calibration_path(self.root))
-        out_buf, err = io.StringIO(), io.StringIO()
-        try:
-            with redirect_stdout(out_buf), redirect_stderr(err):
-                code = pm.main(
-                    ["set-actual", "--state-root", self.root, "--node", "story",
-                     "--story", "E001-S01-003", "--man-hours", "7"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 0, out_buf.getvalue())          # actuals are primary
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["actual"]["man_hours"], 7)
-        self.assertIn("actual written, but calibration sample failed", err.getvalue())
-
-    def test_claude_runtime_still_rejects_na(self):
-        self._estimated_story()
-        code, _ = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--tokens-na", "--runtime", "claude"])
-        self.assertEqual(code, 2)
-
-    def test_estimate_story_tokens_k_produces_a_real_scope_sample(self):
-        """RULING (Task 10 fix round 1): `_estimated_story` above hand-writes
-        estimate.tokens_k as a bare int — the same blind spot `_child_estimate_value`
-        had before Task 10 fixed it, and it can only ever confirm the shape its
-        author had in mind. `estimate-story` actually writes tokens_k as a
-        `tokens_block` MAPPING (Tasks 6/7); `derive_story_sample` read it with
-        `_num_or_none(est.get("tokens_k"))` directly, which returns None for a
-        mapping, so the tokens_k scope component silently received zero samples
-        in production. This drives the real CLI end to end — estimate-story then
-        set-actual — the same style Task 10's own roll-up tests used to catch the
-        first instance, and confirms a sample with the expected magnitude, not
-        just a nonzero count."""
-        code, out = self.run_main(["estimate-story", "--state-root", self.root,
-                                   "--story", "E001-S01-003", "--classification", "standard",
-                                   "--model", "claude-opus-5"])
-        self.assertEqual(code, 0, out)
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--tokens-input", "20", "--tokens-output", "8",
-             "--tokens-cache-write", "30", "--tokens-cache-read", "50",
-             "--model", "claude-opus-5", "--runtime", "claude"])
-        self.assertEqual(code, 0, out)
-        _, cal = pm.load_calibration(self.root)
-        samples = pm._component_samples(cal, "scope", "standard", "tokens_k")
-        self.assertEqual(len(samples), 1, cal)
-        # Both sides are FRESH (input + output + cache_write), never the total.
-        # estimate fresh 88 (band mid 70 x cold-start ratio 1.0 x fix 1.25);
-        # actual fresh 20+8+30 = 58 -- the 50 cache_read is excluded, because it
-        # measures corpus x agent count rather than the size of this story.
-        # No completion_evidence -> provenance "backout":
-        #   sample = actual_fresh x applied(1.0) / estimate_fresh = 58/88
-        self.assertAlmostEqual(float(samples[0]), 58.0 / 88.0, places=4)
-        self.assertLess(float(samples[0]), 108.0 / 88.0,
-                        "the old total-based basis is what this replaced")
-
-
 class TestEstimateStory(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -2696,7 +1974,7 @@ class TestEstimateStory(TestLayoutResolution):
             ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
              "--classification", "complex"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         est = node["estimate"]
         mid = (pm.BASE_BANDS["complex"]["man_hours"][0] +
                pm.BASE_BANDS["complex"]["man_hours"][1]) / 2
@@ -2719,7 +1997,7 @@ class TestEstimateStory(TestLayoutResolution):
         pm.save_calibration(y, cal, self.root)
         self.run_main(["estimate-story", "--state-root", self.root,
                        "--story", "E001-S01-003", "--classification", "complex"])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         ratios = node["estimate"]["scope_ratios"]
         self.assertAlmostEqual(float(ratios["man_hours"]), 1.5)
         # only man_hours had samples — the other three stay cold-start, which is
@@ -2735,7 +2013,7 @@ class TestEstimateStory(TestLayoutResolution):
     def test_classification_is_written_to_the_node(self):
         self.run_main(["estimate-story", "--state-root", self.root,
                        "--story", "E001-S01-003", "--classification", "simple"])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertEqual(node["classification"], "simple")
 
 
@@ -2744,7 +2022,7 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -2765,7 +2043,7 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
                                    "--story", "E001-S01-003", "--classification", "standard",
                                    "--model", "claude-opus-5"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         est = node["estimate"]
         tk = est["tokens_k"]
         # standard band 40-100, midpoint 70, x scope 1.0 x fix 1.25 = 88 FRESH tokens.
@@ -2793,8 +2071,8 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
         err = io.StringIO()
         try:
             with redirect_stderr(err):
-                code = pm.main(["set-estimate", "--state-root", self.root,
-                                "--epic", "E001", "--sprint", "S01"] + list(extra))
+                code = pm.main(self._v7(["set-estimate", "--story", self.STORY]
+                                         + list(extra)))
         except SystemExit as e:
             code = e.code
         return code, err.getvalue()
@@ -2856,7 +2134,7 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
             ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
              "--classification", "standard", "--model", "claude-opus-5"])
         self.assertEqual(base_code, 0, base_out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         base_cost = float(node["estimate"]["cost"])
 
         override = '{"claude-opus-5": {"input": 50.0, "output": 250.0, ' \
@@ -2866,7 +2144,7 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
              "--classification", "standard", "--model", "claude-opus-5",
              "--token-rates", override])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         overridden_cost = float(node["estimate"]["cost"])
         # rates 10x'd -> cost must actually move, proving --token-rates
         # reaches cost_from_tokens rather than being parsed and dropped
@@ -2881,92 +2159,40 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
         self.assertEqual(code, 2, out)
 
 
-class TestEstimateRollup(TestLayoutResolution):
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
+class TestEstimateRollup(unittest.TestCase):
+    """`rollup_values`, the epic roll-up `estimate-entries` writes as `[epic].estimate`: the
+    entries' sum plus the closure band, in range form, with no sprint between them
+    (ADR-0016)."""
 
-    def _story_estimates(self, values):
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        for f in os.listdir(sd):
-            if f.endswith(".yaml") and f != "sprint.yaml":
-                os.remove(os.path.join(sd, f))
-        for i, v in enumerate(values, start=1):
-            with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
-                f.write(f"key: 'E001-S01-{i:03d}'\nepic: 'E001'\nsprint: 'S01'\n"
-                        f"estimate:\n  man_hours: {v}\n  elapsed_hours: 1\n"
-                        f"  tokens_k: 10\n  cost: 0.5\n")
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        _, self.cal = pm.load_calibration(self.root)
 
-    def test_epic_rollup_sums_stories_plus_closure(self):
-        """No sprint level between them (ADR-0016): the epic sums its stories directly."""
-        self._story_estimates([4, 6])
-        code, out = self.run_main(
-            ["estimate-rollup", "--state-root", self.root, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        est = node["estimate"]
+    def _rollup(self, values):
+        children = [{"estimate": {"man_hours": v, "elapsed_hours": 1, "tokens_k": 10}}
+                    for v in values]
+        est, counted, _ = pm.metrics.estimates.rollup_values(
+            self.cal, "epic", children, pm.DEFAULT_ESTIMATE_MODEL, None)
+        return est, counted
+
+    def test_epic_rollup_sums_entries_plus_closure(self):
+        est, counted = self._rollup([4, 6])
+        self.assertEqual(counted, 2)
         self.assertGreaterEqual(float(est["man_hours_high"]), 10.0)
+        self.assertGreater(float(est["man_hours_low"]), 10.0, "the closure band adds on top")
         self.assertLessEqual(float(est["man_hours_low"]), float(est["man_hours_high"]))
 
     def test_rollup_writes_range_form_not_single_values(self):
-        self._story_estimates([4, 6])
-        self.run_main(["estimate-rollup", "--state-root", self.root,
-                       "--epic", "E001"])
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertIn("man_hours_low", node["estimate"])
-        self.assertNotIn("man_hours", node["estimate"])
+        est, _ = self._rollup([4, 6])
+        self.assertIn("man_hours_low", est)
+        self.assertNotIn("man_hours", est)
 
-    def test_unknown_epic_exits_3(self):
-        code, _ = self.run_main(
-            ["estimate-rollup", "--state-root", self.root, "--epic", "E999"])
-        self.assertEqual(code, 3)
-
-    def test_estimate_rollup_takes_no_sprint(self):
-        self._story_estimates([4, 6])
-        code, _ = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                 "--epic", "E001", "--sprint", "S01"])
-        self.assertEqual(code, 2)
-
-    def test_epic_missed_by_the_pre_check_exits_3_and_writes_nothing(self):
-        # Final review M1. find_epic_dir scans active -> planned -> archived, so a directory move
-        # the other way can land mid-scan: the pre-check reads None while the epic exists.
-        # That fell through to the body WITHOUT the epic lock; the body re-resolved the moved
-        # epic, reached save_node, and the write guard raised a RuntimeError traceback. The
-        # pre-check's answer must be final: exit 3, no traceback, nothing written.
-        self._story_estimates([4, 6])
-        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        real_epic_file, calls = pm.nodes.epic_file, []
-        self.assertIsNotNone(real_epic_file(self.root, "E001"))       # the epic does exist
-        lock = pm.epic_lock_path(self.root, "E001")
-        lock_before = os.path.exists(lock)
-        before = _tree_snapshot(self.root)
-
-        def pre_check_misses(state_root, epic):
-            calls.append(epic)
-            return None if len(calls) == 1 else real_epic_file(state_root, epic)
-
-        err = io.StringIO()
-        with mock.patch.object(pm.nodes, "epic_file", pre_check_misses):
-            try:
-                with redirect_stdout(io.StringIO()), redirect_stderr(err):
-                    code = pm.main(["estimate-rollup", "--state-root", self.root,
-                                    "--epic", "E001"])
-            except SystemExit as e:
-                code = e.code
-            except Exception as e:                      # what the CLI shows as a traceback
-                self.fail(f"estimate-rollup raised {type(e).__name__}: {e}")
-        self.assertEqual(code, 3, err.getvalue())
-        self.assertNotIn("Traceback", err.getvalue())
-        self.assertEqual(calls, ["E001"], "only the pre-check may resolve the epic")
-        self.assertEqual(_tree_snapshot(self.root), before)
-        self.assertEqual(os.path.exists(lock), lock_before, "no lock file for a missed epic")
+    def test_a_child_without_an_estimate_is_not_counted(self):
+        children = [{"estimate": {"man_hours": 4}}, {"estimate": {}}]
+        _, counted, _ = pm.metrics.estimates.rollup_values(
+            self.cal, "epic", children, pm.DEFAULT_ESTIMATE_MODEL, None)
+        self.assertEqual(counted, 1)
 
 
 class TestRollupOrchestrationBand(TestLayoutResolution):
@@ -2974,7 +2200,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
@@ -2984,15 +2210,19 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
                        "--story", "E001-S01-003", "--classification", "standard",
                        "--model", "claude-opus-5"])
 
+    @staticmethod
+    def _epic_line(out):
+        return [json.loads(ln) for ln in out.splitlines() if '"epic"' in ln][-1]
+
     def test_warns_and_omits_band_while_unseeded(self):
         self._story_estimate()
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        with redirect_stderr(io.StringIO()):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
                                        "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        self.assertIn("orchestration is unestimated", buf.getvalue())
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        self.assertEqual(sorted(self._epic_line(out)["orchestration_unestimated"]),
+                         ["elapsed_hours", "hitl_hours", "man_hours", "tokens_k"])
+        _, node = (None, self.epic_node())
         self.assertEqual(node["estimate"]["orchestration_ratios"]["tokens_k"], 0)
 
     def test_band_applied_once_active(self):
@@ -3005,7 +2235,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
                                    "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        _, node = (None, self.epic_node())
         est = node["estimate"]
         self.assertAlmostEqual(float(est["orchestration_ratios"]["tokens_k"]), 2.0, places=2)
         # story total 176 (88 fresh + 88 projected cache_read, see
@@ -3021,7 +2251,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
                                        "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        _, node = (None, self.epic_node())
         est = node["estimate"]
         _, cal = pm.load_calibration(self.root)
         mix = pm.observed_mix(cal)
@@ -3040,7 +2270,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
                                        "--epic", "E001",
                                        "--model", "claude-haiku-4-5"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        _, node = (None, self.epic_node())
         est = node["estimate"]
         self.assertEqual(est["model"], "claude-haiku-4-5")
         _, cal = pm.load_calibration(self.root)
@@ -3051,7 +2281,8 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
 
     def test_partial_seed_still_warns_and_names_only_inactive_metrics(self):
         """RULING (Task 10 fix round 1): `not any(orch_applied.values())` only
-        fires when EVERY metric is inactive. Orchestration calibrates per
+        fires when EVERY metric is inactive. (The warning is now the roll-up line's
+        `orchestration_unestimated` list in estimate-entries' output.) Orchestration calibrates per
         metric, and a metric is sampled only when every child carries a numeric
         actual for it, so a mixed runtime can activate man_hours while
         tokens_k never does — `any()` is then True and the warning would stay
@@ -3064,18 +2295,16 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
             y, cal = pm.load_calibration(self.root)
             cal["orchestration"]["epic"]["man_hours"] = {"samples": [2.0, 2.0, 2.0]}
             pm.save_calibration(y, cal, self.root)
-        buf = io.StringIO()
-        with redirect_stderr(buf):
+        with redirect_stderr(io.StringIO()):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
                                        "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        msg = buf.getvalue()
-        self.assertIn("orchestration is unestimated", msg)
-        self.assertIn("tokens_k", msg)
-        self.assertIn("hitl_hours", msg)
-        self.assertIn("elapsed_hours", msg)
-        self.assertNotIn("man_hours", msg)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        inactive = self._epic_line(out)["orchestration_unestimated"]
+        self.assertIn("tokens_k", inactive)
+        self.assertIn("hitl_hours", inactive)
+        self.assertIn("elapsed_hours", inactive)
+        self.assertNotIn("man_hours", inactive)
+        _, node = (None, self.epic_node())
         est = node["estimate"]
         self.assertGreater(float(est["orchestration_ratios"]["man_hours"]), 0)
         self.assertEqual(est["orchestration_ratios"]["tokens_k"], 0)
@@ -3089,7 +2318,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
             code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
                                        "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        _, node = (None, self.epic_node())
         baseline_cost = float(node["estimate"]["cost_low"])
 
         overrides = json.dumps({"claude-opus-5": {"input": 500.0}})
@@ -3098,7 +2327,7 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
                                        "--epic", "E001",
                                        "--token-rates", overrides])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
+        _, node = (None, self.epic_node())
         overridden_cost = float(node["estimate"]["cost_low"])
         self.assertGreater(overridden_cost, baseline_cost)
 
@@ -3111,181 +2340,6 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
                                        "--model", "not-a-real-model"])
         self.assertEqual(code, 2, out)
         self.assertIn("unknown model", err.getvalue().lower())
-
-
-class TestParallelClosureResidual(TestLayoutResolution):
-    """A negative residual must skip THAT METRIC, never the whole sample — and
-    wall-clock going negative is the expected topology under parallel execution,
-    not a miscount."""
-
-    def _write(self, path, mapping):
-        y = pm._yaml()
-        with open(path, "w") as f:
-            y.dump(mapping, f)
-
-    def _parallel_epic(self):
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        for f in os.listdir(sd):
-            if f.endswith(".yaml") and f != "sprint.yaml":
-                os.remove(os.path.join(sd, f))
-        for i, (mh, eh) in enumerate([(12.0, 4.0), (12.0, 4.0)], start=1):
-            self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"),
-                        {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
-                         "status": "done",
-                         "estimate": {"man_hours": 12.0, "elapsed_hours": 4.0},
-                         "actual": {"man_hours": mh, "elapsed_hours": eh}})
-        # two stories ran concurrently: sprint wall-clock 3.0 < children's 8.0,
-        # while man-hours still add up (26 vs 24 -> 2.0 of closure overhead)
-        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
-                    {"key": "E001", "status": "done",
-                     "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0,
-                                  "elapsed_hours_low": 9.0, "elapsed_hours_high": 11.0},
-                     "actual": {"man_hours": 26.0, "elapsed_hours": 3.0}})
-
-    def test_parallel_wall_clock_does_not_discard_the_man_hours_sample(self):
-        self._parallel_epic()
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNotNone(s, reason)
-        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
-        self.assertIn("man_hours", s["ratios"])
-        self.assertNotIn("elapsed_hours", s["ratios"])
-
-    def test_negative_wall_clock_is_not_reported_as_a_miscount(self):
-        self._parallel_epic()
-        s, _ = pm.derive_closure_sample(self.root, "epic", "E001")
-        reason = s["skipped"]["elapsed_hours"]
-        self.assertIn("parallel", reason.lower())
-        self.assertNotIn("miscounted", reason.lower())
-
-    def test_negative_man_hours_residual_still_warns_of_a_miscount(self):
-        self._parallel_epic()
-        self._write(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
-                    {"key": "E001", "status": "done",
-                     "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0},
-                     "actual": {"man_hours": 20.0, "elapsed_hours": 3.0}})
-        s, reason = pm.derive_closure_sample(self.root, "epic", "E001")
-        self.assertIsNone(s)
-        self.assertIn("miscounted", reason.lower())
-
-    def test_parallel_epic_records_the_man_hours_closure_sample(self):
-        self._parallel_epic()
-        note = _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "closure", "epic", "man_hours")), 1)
-        self.assertIn("parallel", note.lower())
-
-
-class TestSampleIdempotency(TestLayoutResolution):
-    """A second set-actual on the same node must not append a second sample set.
-    --no-calibrate exists, but relying on the caller to remember it is exactly
-    the failure mode the mechanization was built to end."""
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def _estimated_story(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
-                    "status: review\nclassification: complex\n"
-                    "completion_evidence:\n  fix_iterations: 0\n"
-                    "estimate:\n  man_hours: 6\n  elapsed_hours: 1.5\n"
-                    "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
-                    "  scope_ratios:\n    man_hours: 1.0\n    elapsed_hours: 1.0\n"
-                    "    tokens_k: 1.0\n    cost: 1.0\n")
-
-    def _set_actual(self):
-        return self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--man-hours", "7"])
-
-    def test_replayed_set_actual_appends_nothing(self):
-        self._estimated_story()
-        self._set_actual()
-        code, out = self._set_actual()
-        self.assertEqual(code, 0, out)
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
-        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
-
-    def test_replay_is_reported_not_silent(self):
-        self._estimated_story()
-        self._set_actual()
-        _, out = self._set_actual()
-        self.assertIn("replay", out.lower())
-
-    def test_first_write_stamps_the_marker(self):
-        self._estimated_story()
-        self._set_actual()
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertIn(pm.CALIBRATION_MARKER, node)
-
-    def test_closure_sample_is_idempotent_too(self):
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        y = pm._yaml()
-        for f in os.listdir(sd):
-            if f.endswith(".yaml") and f != "sprint.yaml":
-                os.remove(os.path.join(sd, f))
-        for i, v in enumerate([3.0, 4.0], start=1):
-            with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
-                y.dump({"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
-                        "estimate": {"man_hours": v}, "actual": {"man_hours": v}}, f)
-        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
-            y.dump({"key": "E001", "status": "done",
-                    "estimate": {"man_hours_low": 8.0, "man_hours_high": 9.0},
-                    "actual": {"man_hours": 9.0}}, f)
-        _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        note = _epic_locked(self.root, pm.record_closure_sample, self.root, "epic", "E001")
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "closure", "epic", "man_hours")), 1)
-        self.assertIn("replay", note.lower())
-
-
-class TestConcurrentSampling(unittest.TestCase):
-    """load->modify->save must run under ONE lock. Locking only the save let
-    parallel appends read the same pre-append state and clobber each other —
-    silently, at the DEFAULT max_parallel_subagents of 4."""
-
-    N = 12
-
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.root = os.path.join(self.d, "state")
-        self.sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        os.makedirs(self.sd)
-        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
-            f.write("key: 'E001'\nstatus: in-progress\n")
-        with open(os.path.join(self.sd, "sprint.yaml"), "w") as f:
-            f.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
-        for i in range(1, self.N + 1):
-            with open(os.path.join(self.sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
-                f.write(f"key: 'E001-S01-{i:03d}'\nepic: 'E001'\nsprint: 'S01'\n"
-                        f"status: review\nclassification: complex\n"
-                        f"completion_evidence:\n  fix_iterations: 0\n"
-                        f"estimate:\n  man_hours: 6\n  fix_factor: 1.25\n"
-                        f"  scope_ratios:\n    man_hours: 1.0\n")
-
-    def test_concurrent_appends_lose_no_samples(self):
-        import subprocess
-        procs = [subprocess.Popen(
-            [sys.executable, SCRIPT, "set-actual", "--state-root", self.root,
-             "--node", "story", "--story", f"E001-S01-{i:03d}", "--man-hours", str(6 + i)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            for i in range(1, self.N + 1)]
-        for p in procs:
-            out, err = p.communicate(timeout=120)
-            self.assertEqual(p.returncode, 0, err.decode())
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")),
-                         self.N)
-        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), self.N)
 
 
 class TestConcurrentAdrReservation(unittest.TestCase):
@@ -3327,7 +2381,7 @@ class TestConcurrentAdrReservation(unittest.TestCase):
         self.assertEqual(len(numbers), self.N, "a process printed more/fewer than one line")
 
 
-class TestConvergence(TestLayoutResolution):
+class TestConvergence(unittest.TestCase):
     """Multi-generation convergence — the property every single-sample test
     misses. Each case drives the real loop (estimate -> actual -> re-estimate)
     against a FIXED ground truth for enough generations that a ratio activates
@@ -3338,38 +2392,34 @@ class TestConvergence(TestLayoutResolution):
     against here directly.
     """
 
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
     TRUTH_MAN_HOURS = 24.0                     # stable ground truth, well above
     BAND_MID = 12.0                            # the complex band midpoint (8-16)
 
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 0, buf.getvalue())
-        return buf.getvalue()
-
     # --- scope ------------------------------------------------------------ #
-    def _new_story(self, i):
-        key = f"E001-S01-{i:03d}"
-        with open(os.path.join(self.root, "active", "epic-001", "sprint-01",
-                               f"{key}.yaml"), "w") as f:
-            f.write(f"key: '{key}'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
-        return key
+    # The loop v7 runs: estimate-entries estimates a ticket (`compute_story_estimate`),
+    # build-close takes its sample (`record_story_sample` over the ticket's estimate,
+    # actual and fix iterations).
+    def _estimate(self, cls="complex"):
+        node = {}
+        pm.metrics.estimates.compute_story_estimate(self.root, node, cls,
+                                                    pm.DEFAULT_ESTIMATE_MODEL, None)
+        return node
+
+    def _close(self, key, node, man_hours):
+        node = dict(node, key=key, actual={"man_hours": man_hours},
+                    completion_evidence={"fix_iterations": 0})
+        with redirect_stderr(io.StringIO()):
+            pm.record_story_sample(self.root, node)
 
     def _scope_generation(self, i):
-        """One full turn of the loop, in the order a story's dev loop ran it:
-        estimate -> fix_iterations -> actual (which samples)."""
-        key = self._new_story(i)
-        self.run_main(["estimate-story", "--state-root", self.root, "--story", key,
-                       "--classification", "complex"])
-        _, node = pm.load_node(pm.story_file(self.root, key))
+        """One full turn of the loop: estimate -> fix_iterations -> actual (which samples)."""
+        node = self._estimate()
         est = node["estimate"]
-        _fx_set_field(self.root, "completion_evidence.fix_iterations", 0, story=key)
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
-                       "--story", key, "--man-hours", str(self.TRUTH_MAN_HOURS)])
+        self._close(f"E001-S01-{i:03d}", node, self.TRUTH_MAN_HOURS)
         return float(est["man_hours"]) / float(est["fix_factor"])
 
     def test_scope_estimate_converges_toward_the_ground_truth(self):
@@ -3407,17 +2457,12 @@ class TestConvergence(TestLayoutResolution):
         cal[pm.CALIBRATION_METRICS_MARKER] = pm._now_iso()
         pm.save_calibration(y, cal, self.root)
         for i in range(20, 26):
-            key = self._new_story(i)
-            self.run_main(["estimate-story", "--state-root", self.root, "--story", key,
-                           "--classification", "complex"])
-            _, node = pm.load_node(pm.story_file(self.root, key))
+            node = self._estimate()
             est = node["estimate"]
             # the estimate is exactly right: its scope half equals the truth it
             # was built from, and the story consumed no fix reserve
             actual = float(est["man_hours"]) / float(est["fix_factor"])
-            _fx_set_field(self.root, "completion_evidence.fix_iterations", 0, story=key)
-            self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
-                           "--story", key, "--man-hours", str(actual)])
+            self._close(f"E001-S01-{i:03d}", node, actual)
             _, cal2 = pm.load_calibration(self.root)
             self.assertAlmostEqual(pm.active_scope_ratio(cal2, "complex", "man_hours"),
                                    2.0, delta=1e-6)
@@ -3436,46 +2481,36 @@ class TestConvergence(TestLayoutResolution):
     CHILDREN = 4
     TRUE_CLOSURE_OVERHEAD = 8.0
 
-    def _make_epic(self, n):
-        """An epic whose 4 stories were each estimated exactly right, plus a closure
-        overhead that is the same 8.0 every single time."""
-        ekey = f"E{n:03d}"
-        ed = os.path.join(self.root, "active", f"epic-{n:03d}")
-        sd = os.path.join(ed, "sprint-01")
-        os.makedirs(sd, exist_ok=True)
-        y = pm._yaml()
-        for i in range(1, self.CHILDREN + 1):
-            with open(os.path.join(sd, f"{ekey}-S01-{i:03d}.yaml"), "w") as f:
-                y.dump({"key": f"{ekey}-S01-{i:03d}", "epic": ekey, "sprint": "S01",
-                        "status": "done",
-                        "estimate": {"man_hours": self.CHILD_ESTIMATE},
-                        "actual": {"man_hours": self.CHILD_ESTIMATE}}, f)
-        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
-            y.dump({"key": "S01", "epic": ekey, "status": "in-progress"}, f)
-        with open(os.path.join(ed, "epic.yaml"), "w") as f:
-            y.dump({"key": ekey, "status": "in-progress"}, f)
-        return ekey
+    # The loop v7 runs: estimate-entries rolls the entries up (`rollup_values`), epic-close
+    # measures the closure and appends its ratio (`closure_ratio`, `append_closure_ratios`).
+    def _children(self):
+        return [{"estimate": {"man_hours": self.CHILD_ESTIMATE},
+                 "actual": {"man_hours": self.CHILD_ESTIMATE}} for _ in range(self.CHILDREN)]
 
-    def _rollup_mid(self, ekey):
-        self.run_main(["estimate-rollup", "--state-root", self.root, "--epic", ekey])
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, ekey))
-        est = node["estimate"]
+    def _rollup(self):
+        _, cal = pm.load_calibration(self.root)
+        est, _, _ = pm.metrics.estimates.rollup_values(cal, "epic", self._children(),
+                                                       pm.DEFAULT_ESTIMATE_MODEL, None)
+        return est
+
+    @staticmethod
+    def _mid(est):
         return (float(est["man_hours_low"]) + float(est["man_hours_high"])) / 2.0
 
     def _closure_generation(self, n):
-        ekey = self._make_epic(n)
-        mid = self._rollup_mid(ekey)
-        total_actual = self.CHILDREN * self.CHILD_ESTIMATE + self.TRUE_CLOSURE_OVERHEAD
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
-                       "--epic", ekey, "--man-hours", str(total_actual)])
-        return mid
+        est = self._rollup()
+        ratio, why = pm.metrics.calibration.closure_ratio(
+            "epic", "man_hours", self.TRUE_CLOSURE_OVERHEAD, est, self._children())
+        self.assertEqual(why, "")
+        pm.metrics.calibration.append_closure_ratios(self.root, "epic", {"man_hours": ratio})
+        return self._mid(est)
 
     def test_learned_closure_rollup_is_closer_to_truth_than_cold_start(self):
         truth = self.CHILDREN * self.CHILD_ESTIMATE + self.TRUE_CLOSURE_OVERHEAD  # 48
         cold_start = self._closure_generation(2)
         for n in range(3, 9):
             self._closure_generation(n)
-        learned = self._rollup_mid(self._make_epic(9))
+        learned = self._mid(self._rollup())
         self.assertLess(abs(learned - truth), abs(cold_start - truth))
         self.assertAlmostEqual(learned, truth, delta=0.01 * truth)
 
@@ -3492,20 +2527,17 @@ class TestConvergence(TestLayoutResolution):
             self.assertAlmostEqual(s, samples[0], delta=0.01)
 
 
-class TestEvents(Base):
-    """events.jsonl — the append-only transition log that supplies dwell time."""
+class TestEvents(TestLayoutResolution):
+    """events.jsonl — the append-only log the progress report and dwell time read."""
 
-    def setUp(self):
-        super().setUp()
-        self.root = os.path.join(self.d, "state")
-        d = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        os.makedirs(d)
-        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as fh:
-            fh.write("key: 'E001'\ntitle: 'Foundation'\nstatus: in-progress\n")
-        with open(os.path.join(d, "sprint.yaml"), "w") as fh:
-            fh.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
-        with open(os.path.join(d, "E001-S01-001.yaml"), "w") as fh:
-            fh.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: in-progress\n")
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(self._v7(argv))
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, buf.getvalue()
 
     def read_events(self):
         p = pm.events_path(self.root)
@@ -3514,23 +2546,23 @@ class TestEvents(Base):
         with open(p, encoding="utf-8") as fh:
             return [json.loads(l) for l in fh if l.strip()]
 
-    def test_import_node_appends_event_with_kind_and_keys(self):
-        code, _ = self.run_main(["import-node", "--state-root", self.root,
-                                 "--story", "E001-S01-002", "--status", "review",
-                                 "--session-id", "sess-abc"])
-        self.assertEqual(code, 0)
-        evs = self.read_events()
+    def _set_actual(self, *extra):
+        return self.run_main(["set-actual", "--story", self.STORY, "--elapsed-hours", "2",
+                              "--man-hours", "3", "--tokens-input", "10",
+                              "--model", "claude-sonnet-5", *extra])
+
+    def test_set_actual_appends_actual_event(self):
+        code, out = self._set_actual("--session-id", "sess-abc")
+        self.assertEqual(code, 0, out)
+        evs = [e for e in self.read_events() if e["event"] == "actual"]
         self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]["event"], "import")
-        self.assertEqual(evs[0]["node"], "story")
-        self.assertEqual(evs[0]["key"], "E001-S01-002")
-        self.assertEqual(evs[0]["to"], "review")
-        self.assertEqual((evs[0]["epic"], evs[0]["sprint"]), ("E001", "S01"))
+        self.assertEqual(evs[0]["node"], "ticket")
+        self.assertEqual(evs[0]["key"], "3")
         self.assertEqual(evs[0]["session"], "sess-abc")
 
     def test_no_events_flag_suppresses(self):
-        self.run_main(["import-node", "--state-root", self.root,
-                       "--story", "E001-S01-002", "--status", "review", "--no-events"])
+        code, out = self._set_actual("--no-events")
+        self.assertEqual(code, 0, out)
         self.assertEqual(self.read_events(), [])
 
     def test_append_failure_warns_but_write_succeeds(self):
@@ -3538,21 +2570,11 @@ class TestEvents(Base):
         os.makedirs(pm.events_path(self.root))
         buf = io.StringIO()
         with redirect_stderr(buf):
-            code, _ = self.run_main(["import-node", "--state-root", self.root,
-                                     "--story", "E001-S01-002", "--status", "review"])
-        self.assertEqual(code, 0)
+            code, out = self._set_actual()
+        self.assertEqual(code, 0, out)
         self.assertIn("could not append event", buf.getvalue())
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-002"))
-        self.assertEqual(node["status"], "review")
-
-    def test_set_actual_appends_actual_event(self):
-        self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
-                       "--story", "E001-S01-001", "--elapsed-hours", "2",
-                       "--man-hours", "3", "--tokens-input", "10",
-                       "--model", "claude-sonnet-5", "--no-calibrate"])
-        evs = [e for e in self.read_events() if e["event"] == "actual"]
-        self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]["key"], "E001-S01-001")
+        _, node = self.load_node(self.story_file(self.STORY))
+        self.assertEqual(node["actual"]["man_hours"], 3)
 
     def test_concurrent_appends_lose_no_lines(self):
         import threading
@@ -3683,7 +2705,7 @@ class TestPartialTokenClasses(TestLayoutResolution):
         buf, err = io.StringIO(), io.StringIO()
         try:
             with redirect_stdout(buf), redirect_stderr(err):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue() + err.getvalue()
@@ -3712,7 +2734,7 @@ class TestPartialTokenClasses(TestLayoutResolution):
                                "--tokens-output", "0", "--tokens-cache-write", "0",
                                "--tokens-cache-read", "0"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertEqual(int(node["actual"]["tokens_k"]["total"]), 10)
 
     def test_runtime_other_still_accepts_a_partial_set(self):
@@ -3723,7 +2745,7 @@ class TestPartialTokenClasses(TestLayoutResolution):
 
     def test_nothing_is_written_when_the_partial_set_is_rejected(self):
         self._set(["--runtime", "claude", "--tokens-output", "10"])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertNotIn("actual", node)
 
 
@@ -3737,19 +2759,19 @@ class TestVerifyRejectsScalarTokens(TestLayoutResolution):
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
 
     def _scalar_node(self, cost=9999.99):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
                           "tokens_k": 500, "cost": cost, "model": "claude-opus-5"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
 
     def test_scalar_tokens_fail_under_runtime_claude(self):
         self._scalar_node()
@@ -3773,13 +2795,13 @@ class TestVerifyRejectsScalarTokens(TestLayoutResolution):
         self.assertEqual(code, 0, out)
 
     def test_na_tokens_are_not_reported_as_a_scalar(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
+        p = self.story_file("E001-S01-003")
+        y, node = self.load_node(p)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
                           "tokens_k": "N/A", "cost": "N/A"}
-        pm.nodes.save_node(y, node, p)
+        self.save_node(y, node, p)
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003", "--runtime", "claude"])
         self.assertEqual(code, 4, out)
@@ -3880,194 +2902,6 @@ class TestRates(Base):
         with self.assertRaises(KeyError) as ctx:
             pm.cost_from_tokens({"input": 1, "cache_read": 1}, "partial-model", over)
         self.assertIn("cache_read", ctx.exception.args[0])
-
-
-class TestOrchestrationBlock(TestLayoutResolution):
-    """The orchestration component: a FRACTION of children's actuals, not a
-    ratio against an estimate — see pm.record_orchestration_sample's docstring
-    for why. Sprint/epic only; a story's orchestration is its parent sprint's.
-    """
-
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
-
-    def _story_actual(self, tokens_total):
-        p = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(p)
-        node["status"] = "done"
-        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
-                          "tokens_k": {"total": tokens_total, "input": tokens_total,
-                                       "output": 0, "cache_write": 0, "cache_read": 0},
-                          "cost": pm.cost_from_tokens({"input": tokens_total},
-                                                      "claude-opus-5"),
-                          "model": "claude-opus-5"}
-        pm.nodes.save_node(y, node, p)
-
-    def test_orchestration_writes_to_its_own_block(self):
-        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "epic",
-                                   "--epic", "E001",
-                                   "--block", "orchestration",
-                                   "--tokens-input", "1000", "--model", "claude-opus-5",
-                                   "--elapsed-hours", "2", "--no-calibrate"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
-        self.assertIn("orchestration", node)
-        self.assertNotIn("orchestration", node.get("actual") or {})
-        self.assertEqual(int(node["orchestration"]["tokens_k"]["total"]), 1000)
-
-    def test_orchestration_block_rejected_on_a_story(self):
-        err = io.StringIO()
-        try:
-            with redirect_stderr(err):
-                code = pm.main(["set-actual", "--state-root", self.root, "--node", "story",
-                                "--story", "E001-S01-003", "--block", "orchestration",
-                                "--elapsed-hours", "1"])
-        except SystemExit as e:
-            code = e.code
-        self.assertEqual(code, 2, err.getvalue())
-        self.assertIn("orchestration", err.getvalue().lower())
-        self.assertIn("epic", err.getvalue().lower())
-
-    def test_fraction_sample_is_orchestration_over_children(self):
-        self._story_actual(1000)
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "epic",
-             "--epic", "E001", "--block", "orchestration",
-             "--tokens-input", "3000", "--model", "claude-opus-5"])
-        self.assertEqual(code, 0, out)
-        _, cal = pm.load_calibration(self.root)
-        samples = cal["orchestration"]["epic"]["tokens_k"]["samples"]
-        self.assertAlmostEqual(float(samples[-1]), 3.0, places=3)
-
-    def test_fraction_inactive_below_three_samples(self):
-        cal = pm.new_calibration()
-        self.assertIsNone(pm.active_orchestration_fraction(cal, "epic", "tokens_k"))
-
-    def test_fraction_active_at_three_samples(self):
-        cal = pm.new_calibration()
-        cal["orchestration"]["epic"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
-        self.assertAlmostEqual(
-            pm.active_orchestration_fraction(cal, "epic", "tokens_k"), 2.0, places=3)
-
-    def test_fraction_still_inactive_at_two_samples_boundary(self):
-        # Proves activation is a strict >= MIN_SAMPLES (3), not off-by-one at 2.
-        cal = pm.new_calibration()
-        cal["orchestration"]["epic"]["tokens_k"] = {"samples": [2.0, 2.0]}
-        self.assertIsNone(pm.active_orchestration_fraction(cal, "epic", "tokens_k"))
-
-    def test_orchestration_never_calibrates_cost(self):
-        # cost is derived from tokens x rates — a second, drift-capable
-        # fraction for it would be redundant with the token fraction.
-        self._story_actual(1000)
-        self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "epic",
-             "--epic", "E001", "--block", "orchestration",
-             "--tokens-input", "3000", "--model", "claude-opus-5"])
-        _, cal = pm.load_calibration(self.root)
-        self.assertNotIn("cost", cal["orchestration"]["epic"])
-
-    def test_denominator_requires_every_child_not_just_some(self):
-        # A second story in the same sprint, WITHOUT an actual. A naive
-        # partial-sum denominator (sum whatever children happen to have)
-        # would still produce a tokens_k sample from the one story that does
-        # have an actual — silently understating the true children total and
-        # permanently inflating the fraction. record_orchestration_sample
-        # must treat that as no sample for the metric, not a smaller one.
-        self._story_actual(1000)
-        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
-        with open(os.path.join(sd, "E001-S01-004.yaml"), "w") as f:
-            f.write("key: 'E001-S01-004'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "epic",
-             "--epic", "E001", "--block", "orchestration",
-             "--tokens-input", "3000", "--model", "claude-opus-5"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("no orchestration sample", out.lower())
-        self.assertIn("missing this metric's actual", out.lower())
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(cal["orchestration"]["epic"]), 0)
-
-    def test_second_orchestration_call_does_not_double_count(self):
-        # Assert on the calibration file's sample COUNT, not the command's
-        # exit code — a replay that is silently accepted (exit 0, no new
-        # sample) must read as success to the caller while still recording
-        # nothing extra in the shared file.
-        self._story_actual(1000)
-        argv = ["set-actual", "--state-root", self.root, "--node", "epic",
-                "--epic", "E001", "--block", "orchestration",
-                "--tokens-input", "3000", "--model", "claude-opus-5"]
-        code1, out1 = self.run_main(argv)
-        self.assertEqual(code1, 0, out1)
-        code2, out2 = self.run_main(list(argv))
-        self.assertEqual(code2, 0, out2)
-        self.assertIn("replay", out2.lower())
-        _, cal = pm.load_calibration(self.root)
-        samples = cal["orchestration"]["epic"]["tokens_k"]["samples"]
-        self.assertEqual(len(samples), 1)
-
-    def test_orchestration_marker_is_distinct_from_closure_marker(self):
-        # The whole reason for a SEPARATE marker: an epic node carries both
-        # a closure/actual sample and an orchestration sample. If they shared
-        # CALIBRATION_MARKER, whichever ran first would silently suppress
-        # the other. Record a closure sample first, then confirm the
-        # orchestration sample still records.
-        self._story_actual(1000)
-        story_path = pm.story_file(self.root, "E001-S01-003")
-        _, story_node = pm.load_node(story_path)
-        story_node["estimate"] = {"man_hours_low": 3, "man_hours_high": 3}
-        pm.nodes.save_node(pm._yaml(), story_node, story_path)
-        sprint_path = pm.nodes.epic_file(self.root, "E001")
-        _, sprint_node = pm.load_node(sprint_path)
-        sprint_node["estimate"] = {"man_hours_low": 12, "man_hours_high": 12}
-        _epic_locked(self.root, pm.nodes.save_node, pm._yaml(), sprint_node, sprint_path)
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "epic",
-             "--epic", "E001", "--man-hours", "9"])
-        self.assertEqual(code, 0, out)
-        _, node_after_closure = pm.load_node(sprint_path)
-        self.assertIn(pm.CALIBRATION_MARKER, node_after_closure)
-        self.assertNotIn(pm.ORCHESTRATION_MARKER, node_after_closure)
-
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "epic",
-             "--epic", "E001", "--block", "orchestration",
-             "--tokens-input", "3000", "--model", "claude-opus-5"])
-        self.assertEqual(code, 0, out)
-        self.assertNotIn("replay", out.lower())
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(cal["orchestration"]["epic"]["tokens_k"]["samples"]), 1)
-        _, node_after_both = pm.load_node(sprint_path)
-        self.assertIn(pm.ORCHESTRATION_MARKER, node_after_both)
-
-    def test_epic_level_replay_guard_does_not_double_count(self):
-        # A second orchestration write on the same epic must not append a second sample.
-        self._story_actual(1000)
-        argv = ["set-actual", "--state-root", self.root, "--node", "epic",
-                "--epic", "E001", "--block", "orchestration",
-                "--tokens-input", "3000", "--model", "claude-opus-5"]
-        code1, out1 = self.run_main(argv)
-        self.assertEqual(code1, 0, out1)
-        code2, out2 = self.run_main(list(argv))
-        self.assertEqual(code2, 0, out2)
-        self.assertIn("replay", out2.lower())
-        _, cal = pm.load_calibration(self.root)
-        samples = cal["orchestration"]["epic"]["tokens_k"]["samples"]
-        self.assertEqual(len(samples), 1)
-
-    def test_calibration_show_lists_orchestration_component(self):
-        y, cal = pm.load_calibration(self.root)
-        cal["orchestration"]["epic"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
-        pm.save_calibration(y, cal, self.root)
-        code, out = self.run_main(["calibration", "show", "--state-root", self.root])
-        self.assertEqual(code, 0, out)
-        self.assertIn("orchestration", out)
-        self.assertIn("epic/tokens_k", out)
 
 
 class TestFreshTokenScopeBasis(Base):
@@ -4609,7 +3443,7 @@ class TestTestRunEvidence(TestLayoutResolution):
         code = 0
         try:
             with redirect_stdout(buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1
         return code, buf.getvalue()
@@ -4617,7 +3451,7 @@ class TestTestRunEvidence(TestLayoutResolution):
     def test_a_recorded_run_appends_and_derives_the_boolean(self):
         self.run_main(["add-test-run", "--state-root", self.root, "--story", "E001-S01-003",
                        "--command", "npm test", "--exit-code", "0"])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         runs = node["completion_evidence"]["test_runs"]
         self.assertEqual(runs[0]["command"], "npm test")
         self.assertEqual(runs[0]["exit_code"], 0)
@@ -4627,29 +3461,29 @@ class TestTestRunEvidence(TestLayoutResolution):
         for cmd, rc in (("npm test", "0"), ("pytest", "1")):
             self.run_main(["add-test-run", "--state-root", self.root, "--story", "E001-S01-003",
                            "--command", cmd, "--exit-code", rc])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertIs(node["completion_evidence"]["tests_passing"], False)
 
     def test_a_malformed_stored_exit_code_fails_rather_than_crashes(self):
         """test_runs is hand-editable YAML; a non-numeric exit_code must derive False,
         never raise and never derive True."""
-        path = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(path)
+        path = self.story_file("E001-S01-003")
+        y, node = self.load_node(path)
         ce = node.setdefault("completion_evidence", {})
         ce["test_runs"] = [{"command": "old flaky run", "exit_code": "flaky"}]
-        pm.nodes.save_node(y, node, path)
+        self.save_node(y, node, path)
 
         code, out = self.run_main(["add-test-run", "--state-root", self.root,
                                    "--story", "E001-S01-003",
                                    "--command", "npm test", "--exit-code", "0"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(path)
+        _, node = self.load_node(path)
         self.assertIs(node["completion_evidence"]["tests_passing"], False)
 
     def test_no_recorded_runs_leaves_tests_passing_absent(self):
         """The exact regression all(()) == True would reintroduce: a story that never
         called add-test-run must never read as tests_passing: true."""
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         ce = node.get("completion_evidence") or {}
         self.assertNotIn("tests_passing", ce)
 
@@ -4662,7 +3496,7 @@ class TestTestRunEvidence(TestLayoutResolution):
             self.run_main(["add-test-run", "--state-root", self.root,
                            "--story", "E001-S01-003",
                            "--command", "pytest", "--exit-code", rc])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         ce = node["completion_evidence"]
         self.assertIs(ce["tests_passing"], True)
         self.assertEqual([(r["command"], r["exit_code"]) for r in ce["test_runs"]],
@@ -4675,7 +3509,7 @@ class TestTestRunEvidence(TestLayoutResolution):
             self.run_main(["add-test-run", "--state-root", self.root,
                            "--story", "E001-S01-003",
                            "--command", cmd, "--exit-code", rc])
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         ce = node["completion_evidence"]
         self.assertIs(ce["tests_passing"], False)
         self.assertEqual(len(ce["test_runs"]), 3)
@@ -4689,156 +3523,13 @@ class TestTestRunEvidence(TestLayoutResolution):
         self.assertEqual(code, 2)
 
 
-class TestCalibrationRedrive(TestLayoutResolution):
-    def _close_story(self, iters, key="E001-S01-003", actual=9.0, ts="2026-01-01T00:00:00Z"):
-        p = pm.story_file(self.root, key)
-        y, node = pm.load_node(p)
-        node["classification"] = "standard"
-        node["estimate"] = {"fix_factor": 1.25, "scope_ratios": {"man_hours": 1.0},
-                            "man_hours": 8.75}
-        node["actual"] = {"man_hours": actual}
-        node["completion_evidence"] = {"fix_iterations": iters}
-        pm.nodes.save_node(y, node, p)
-        # `set-actual` appends this alongside the node write; redrive reads it back to
-        # recover closure order, so a hand-built node must carry it too or the rebuild
-        # correctly refuses.
-        if ts is not None:
-            self._actual_event(key, ts)
-
-    def _actual_event(self, key, ts):
-        epic, sprint, _ = pm.parse_story_key(key)
-        pm.append_event(self.root, {"ts": ts, "event": "actual", "node": "story",
-                                    "key": key, "epic": epic, "sprint": sprint})
-
-    def _story(self, key, status="active"):
-        """A second story node, in whichever status folder the test needs."""
-        epic, sprint, _ = pm.parse_story_key(key)
-        d = os.path.join(self.root, status, pm.epic_dirname(epic), pm.sprint_dirname(sprint))
-        os.makedirs(d, exist_ok=True)
-        ep = os.path.join(self.root, status, pm.epic_dirname(epic), "epic.yaml")
-        if not os.path.exists(ep):
-            with open(ep, "w") as fh:
-                fh.write(f"key: '{epic}'\nstatus: in-progress\n")
-        sp = os.path.join(d, "sprint.yaml")
-        if not os.path.exists(sp):
-            with open(sp, "w") as fh:
-                fh.write(f"key: '{sprint}'\nepic: '{epic}'\nstatus: in-progress\n")
-        with open(os.path.join(d, f"{key}.yaml"), "w") as fh:
-            fh.write(f"key: '{key}'\nepic: '{epic}'\nsprint: '{sprint}'\nstatus: review\n")
-
-    def test_redrive_repairs_a_sample_poisoned_by_the_string_bug(self):
-        # A node closed under the bug: text that does not parse, read as backout.
-        self._close_story("{fix_iterations}")
-        poisoned = pm.derive_story_sample(pm.load_node(pm.story_file(self.root, "E001-S01-003"))[1])
-        self.assertEqual(poisoned["provenance"], "backout", "premise: the bug's reading")
-
-        # The node is corrected (as a run would now write it), then redriven.
-        self._close_story(0)
-        rep = pm.redrive_story_samples(self.root)
-        self.assertEqual(rep["provenance"], {"exact": 1})
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(cal["fix"]["standard"]["clean"]["samples"], 1,
-                         "the clean cohort fills, so fix can eventually activate")
-
-    def test_redrive_rebuilds_rather_than_appends(self):
-        self._close_story(0)
-        pm.redrive_story_samples(self.root)
-        rep = pm.redrive_story_samples(self.root)
-        self.assertEqual(rep["sampled"], 1)
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(cal["scope"]["standard"]["man_hours"]["samples"]), 1,
-                         "a second redrive must replace, never double-count")
-
-    def test_redrive_appends_in_closure_order_not_directory_order(self):
-        """The defect: samples were re-appended in tree-walk order, and weighted_ratio
-        weights the LAST entry most, so a rebuild that repaired nothing re-priced every
-        unstarted story. Story ...-004 sorts after ...-003 by key but closed BEFORE it,
-        so closure order and directory order disagree and only one can be right."""
-        self._story("E001-S01-004")
-        self._close_story(0, key="E001-S01-003", actual=9.0, ts="2026-02-01T00:00:00Z")
-        self._close_story(0, key="E001-S01-004", actual=18.0, ts="2026-01-01T00:00:00Z")
-        pm.redrive_story_samples(self.root)
-        _, cal = pm.load_calibration(self.root)
-        got = cal["scope"]["standard"]["man_hours"]["samples"]
-        # ...-004 closed first, so its ratio (18.0-derived) must come FIRST and weigh least.
-        self.assertEqual([float(x) for x in got],
-                         sorted([float(x) for x in got], reverse=True),
-                         "the earlier-closed, larger-ratio sample must lead the list")
-        self.assertGreater(float(got[0]), float(got[1]))
-
-    def test_redrive_puts_an_archived_epic_before_a_later_active_one(self):
-        """STATUS_DIRS is ("active", "planned", "archived"), so a tree walk visits
-        archived LAST and it collects the HIGHEST recency weight — inverting the
-        weighting on every project with archived work, which is the common case."""
-        self._story("E013-S01-001", status="archived")
-        self._close_story(0, key="E013-S01-001", actual=18.0, ts="2026-01-01T00:00:00Z")
-        self._close_story(0, key="E001-S01-003", actual=9.0, ts="2026-03-01T00:00:00Z")
-        pm.redrive_story_samples(self.root)
-        _, cal = pm.load_calibration(self.root)
-        got = [float(x) for x in cal["scope"]["standard"]["man_hours"]["samples"]]
-        self.assertGreater(got[0], got[1],
-                           "archived E013 closed first, so it must lead and weigh least")
-
-    def test_redrive_refuses_when_the_event_log_is_absent(self):
-        self._close_story(0, ts=None)
-        with self.assertRaises(pm.PMError) as cm:
-            pm.redrive_story_samples(self.root)
-        self.assertEqual(cm.exception.code, 2)
-        self.assertIn("cannot establish closure order", cm.exception.msg)
-
-    def test_redrive_refuses_on_a_partially_covered_log(self):
-        """The dangerous middle state: a log exists and looks orderable, but
-        `set-actual --no-events` left one story out of it."""
-        self._story("E001-S01-004")
-        self._close_story(0, key="E001-S01-003", ts="2026-01-01T00:00:00Z")
-        self._close_story(0, key="E001-S01-004", ts=None)
-        with self.assertRaises(pm.PMError) as cm:
-            pm.redrive_story_samples(self.root)
-        self.assertEqual(cm.exception.code, 2)
-        self.assertIn("E001-S01-004", cm.exception.msg)
-        self.assertIn("1 of 2", cm.exception.msg)
-
-    def test_a_refusal_writes_nothing_at_all(self):
-        """A refusal must leave the file AND the backup untouched, or the operator loses
-        the very ordering the refusal exists to protect."""
-        self._close_story(0, ts="2026-01-01T00:00:00Z")
-        pm.redrive_story_samples(self.root)                      # a good run first
-        before = open(pm.calibration_path(self.root), encoding="utf-8").read()
-        backup = pm.calibration_path(self.root) + ".pre-redrive"
-        self._story("E001-S01-004")
-        self._close_story(0, key="E001-S01-004", ts=None)        # now uncoverable
-        had_backup = os.path.exists(backup)
-        bak_before = open(backup, encoding="utf-8").read() if had_backup else None
-        with self.assertRaises(pm.PMError):
-            pm.redrive_story_samples(self.root)
-        self.assertEqual(open(pm.calibration_path(self.root), encoding="utf-8").read(),
-                         before, "calibration file must be byte-identical after a refusal")
-        self.assertEqual(os.path.exists(backup), had_backup)
-        if had_backup:
-            self.assertEqual(open(backup, encoding="utf-8").read(), bak_before)
-
-    def test_redrive_leaves_untouched_components_alone(self):
-        self._close_story(0)
-        with pm.calibration_lock(self.root):
-            y, cal = pm.load_calibration(self.root)
-            cal["token_mix"] = {"samples": [{"input": 0.1, "output": 0.1,
-                                             "cache_write": 0.3, "cache_read": 0.5}]}
-            cal["closure"] = {"sprint": {"man_hours": {"samples": [1.1]}}}
-            pm.save_calibration(y, cal, self.root)
-        pm.redrive_story_samples(self.root)
-        _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(cal["token_mix"]["samples"]), 1)
-        self.assertEqual(cal["closure"]["sprint"]["man_hours"]["samples"], [1.1])
-
-
 class TestAdrRegister(TestLayoutResolution):
-    # TestLayoutResolution supplies the node tree but NOT run_main -- every class
-    # extending it defines its own (see TestSetFieldTyping above).
+    # TestLayoutResolution supplies a project and its state root but NOT run_main.
     def run_main(self, argv):
         buf, err = io.StringIO(), io.StringIO()
         code = 0
         if argv and argv[0] == "adr-reserve" and "--adr-dir" not in argv:
-            argv = [*argv, "--adr-dir", os.path.join(self.d, "no-adr-dir")]
+            argv = [*argv, "--adr-dir", os.path.join(self.project, "no-adr-dir")]
         try:
             with redirect_stdout(buf), redirect_stderr(err):
                 code = pm.main(argv)
@@ -4892,7 +3583,7 @@ class TestRuntimeChoices(TestLayoutResolution):
         err_buf = io.StringIO()
         try:
             with redirect_stdout(out_buf), redirect_stderr(err_buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, out_buf.getvalue() + err_buf.getvalue()
@@ -4952,7 +3643,8 @@ class TestRuntimeChoices(TestLayoutResolution):
 
 
 class TestModelMismatch(TestLayoutResolution):
-    """T-MM: model mismatch annotation in set-actual, verify, and calibration show."""
+    """T-MM: model mismatch annotation in calibration show. (The set-actual and verify notes
+    compared a 3.x node's estimate with its actual; a v7 ticket keeps them in two sidecars.)"""
 
     def run_main(self, argv):
         import io
@@ -4961,65 +3653,10 @@ class TestModelMismatch(TestLayoutResolution):
         err_buf = io.StringIO()
         try:
             with redirect_stdout(out_buf), redirect_stderr(err_buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, out_buf.getvalue() + err_buf.getvalue()
-
-    def _write_story_with_estimate_model(self, model: str):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write(
-                f"key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n"
-                f"estimate:\n  model: {model}\n"
-            )
-
-    def test_set_actual_notes_model_mismatch(self):
-        self._write_story_with_estimate_model("claude-opus-5")
-        code, out = self.run_main([
-            "set-actual", "--state-root", self.root, "--node", "story",
-            "--story", "E001-S01-003", "--runtime", "codex", "--no-calibrate",
-            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
-            "--tokens-input", "100", "--tokens-output", "20", "--tokens-cache-read", "300",
-            "--model", "gpt-5.6-terra",
-        ])
-        self.assertEqual(code, 0)
-        self.assertIn("model mismatch", out)
-        self.assertIn("claude-opus-5", out)
-        self.assertIn("gpt-5.6-terra", out)
-
-    def test_set_actual_no_mismatch_note_when_models_match(self):
-        self._write_story_with_estimate_model("gpt-5.6-terra")
-        code, out = self.run_main([
-            "set-actual", "--state-root", self.root, "--node", "story",
-            "--story", "E001-S01-003", "--runtime", "codex", "--no-calibrate",
-            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
-            "--tokens-input", "100", "--tokens-output", "20", "--tokens-cache-read", "300",
-            "--model", "gpt-5.6-terra",
-        ])
-        self.assertEqual(code, 0)
-        self.assertNotIn("model mismatch", out)
-
-    def test_verify_warns_on_model_mismatch(self):
-        p = pm.story_file(self.root, "E001-S01-003")
-        with open(p, "w") as f:
-            f.write(
-                "key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: done\n"
-                "estimate:\n  model: claude-opus-5\n"
-                "actual:\n"
-                "  elapsed_hours: 2.0\n  man_hours: 8.0\n  hitl_hours: 0.5\n"
-                "  tokens_k:\n    input: 100\n    output: 20\n"
-                "    cache_write: 0\n    cache_read: 300\n    total: 420\n"
-                "  cost: 0.16\n  model: gpt-5.6-terra\n"
-                "completion_evidence:\n  tests_passing: true\n"
-            )
-        code, out = self.run_main([
-            "verify", "--state-root", self.root, "--scope", "story",
-            "--story", "E001-S01-003", "--runtime", "codex",
-        ])
-        self.assertIn("WARN", out)
-        self.assertIn("claude-opus-5", out)
-        self.assertIn("gpt-5.6-terra", out)
 
     def test_calibration_show_warns_on_mixed_models(self):
         from ruamel.yaml import YAML as _YAML
@@ -5054,7 +3691,7 @@ class TestCodexRuntime(TestLayoutResolution):
         err_buf = io.StringIO()
         try:
             with redirect_stdout(out_buf), redirect_stderr(err_buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, out_buf.getvalue() + err_buf.getvalue()
@@ -5092,7 +3729,7 @@ class TestCodexRuntime(TestLayoutResolution):
             "--tokens-cache-read", "300", "--model", "codex-1",
         )
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         tk = node["actual"]["tokens_k"]
         self.assertEqual(int(tk["cache_write"]), 0)
         self.assertEqual(int(tk["total"]), 420)  # 100+20+0+300
@@ -5103,37 +3740,37 @@ class TestCodexRuntime(TestLayoutResolution):
             "--tokens-cache-read", "300", "--model", "codex-1",
         )
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         # cost = (100*5 + 20*30 + 0*6.25 + 300*2.5) / 1000 = (500+600+0+750)/1000 = 1.85
         self.assertAlmostEqual(float(node["actual"]["cost"]), 1.85, places=2)
 
     def test_verify_fails_on_scalar_tokens_under_codex(self):
         # Write a node with scalar tokens_k (like TestVerifyRejectsScalarTokens does),
         # then verify under codex — scalar form must fail for codex just as for claude.
-        f = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(f)
+        f = self.story_file("E001-S01-003")
+        y, node = self.load_node(f)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {
             "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
             "tokens_k": 420, "cost": "N/A", "model": "codex-1",
         }
-        pm.nodes.save_node(y, node, f)
+        self.save_node(y, node, f)
         code, out = self._verify()
         self.assertEqual(code, 4)
         self.assertIn("not the per-class mapping", out)
 
     def test_verify_na_tokens_fails_under_codex(self):
         # Write tokens_k=N/A to a done node, then verify — N/A is forbidden under codex.
-        f = pm.story_file(self.root, "E001-S01-003")
-        y, node = pm.load_node(f)
+        f = self.story_file("E001-S01-003")
+        y, node = self.load_node(f)
         node["status"] = "done"
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {
             "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
             "tokens_k": "N/A", "cost": "N/A", "model": "codex-1",
         }
-        pm.nodes.save_node(y, node, f)
+        self.save_node(y, node, f)
         code, out = self._verify()
         self.assertEqual(code, 4)
         self.assertIn("N/A", out)
@@ -5147,7 +3784,7 @@ class TestCopilotRuntime(TestLayoutResolution):
         err_buf = io.StringIO()
         try:
             with redirect_stdout(out_buf), redirect_stderr(err_buf):
-                code = pm.main(argv)
+                code = pm.main(self._v7(argv))
         except SystemExit as e:
             code = e.code
         return code, out_buf.getvalue() + err_buf.getvalue()
@@ -5179,7 +3816,7 @@ class TestCopilotRuntime(TestLayoutResolution):
     def test_copilot_stores_scalar_total(self):
         code, out = self._set("--tokens-input", "150", "--tokens-output", "50")
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         tk = node["actual"]["tokens_k"]
         # scalar, not a mapping
         self.assertFalse(hasattr(tk, "get"), f"expected scalar, got mapping: {tk}")
@@ -5188,7 +3825,7 @@ class TestCopilotRuntime(TestLayoutResolution):
     def test_copilot_stores_cost_na(self):
         code, out = self._set("--tokens-input", "150", "--tokens-output", "50")
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        _, node = self.load_node(self.story_file("E001-S01-003"))
         self.assertTrue(pm._is_na(node["actual"]["cost"]))
 
     def test_copilot_model_not_required(self):
@@ -5198,8 +3835,8 @@ class TestCopilotRuntime(TestLayoutResolution):
 
     def test_verify_passes_with_scalar_tokens_and_na_cost_under_copilot(self):
         # Write a complete done node with scalar tokens_k and cost=N/A, then verify
-        f = pm.story_file(self.root, "E001-S01-003")
-        y, n = pm.load_node(f)
+        f = self.story_file("E001-S01-003")
+        y, n = self.load_node(f)
         n.setdefault("actual", {})
         n["actual"].update({
             "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
@@ -5207,13 +3844,13 @@ class TestCopilotRuntime(TestLayoutResolution):
         })
         n["status"] = "done"
         n.setdefault("completion_evidence", {})
-        pm.nodes.save_node(y, n, f)
+        self.save_node(y, n, f)
         code, out = self._verify()
         self.assertEqual(code, 0, out)
 
     def test_verify_rejects_na_tokens_k_under_copilot(self):
-        f = pm.story_file(self.root, "E001-S01-003")
-        y, n = pm.load_node(f)
+        f = self.story_file("E001-S01-003")
+        y, n = self.load_node(f)
         n.setdefault("actual", {})
         n["actual"].update({
             "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
@@ -5221,122 +3858,64 @@ class TestCopilotRuntime(TestLayoutResolution):
         })
         n["status"] = "done"
         n.setdefault("completion_evidence", {})
-        pm.nodes.save_node(y, n, f)
+        self.save_node(y, n, f)
         code, _ = self._verify()
         self.assertEqual(code, 4)
 
 
-class TestEstimateCores(TestLayoutResolution):
-    def run_main(self, argv):
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code
-        return code, buf.getvalue()
+class TestEstimateCores(unittest.TestCase):
+    """The estimate engine's two cores, which `estimate-entries` calls: they never save and
+    never exit, and a failure leaves the node it was given as it was."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
 
     def test_compute_story_estimate_raises_instead_of_exiting(self):
-        path = pm.story_file(self.root, "E001-S01-003")
-        with open(path, encoding="utf-8") as fh:
-            before = fh.read()
-        _, node = pm.load_node(path)
+        node = {}
         with self.assertRaises(pm.PMError) as cm:
-            pm.metrics.estimates.compute_story_estimate(self.root, node, "standard", "no-such-model", None)
+            pm.metrics.estimates.compute_story_estimate(self.root, node, "standard",
+                                                        "no-such-model", None)
         self.assertEqual(cm.exception.code, 2)
-        with open(path, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), before, "core must never save")
+        self.assertEqual(node, {}, "core must never half-write")
 
     def test_compute_story_estimate_fills_node_in_memory(self):
-        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        applied = pm.metrics.estimates.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
+        node = {}
+        applied = pm.metrics.estimates.compute_story_estimate(
+            self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
         self.assertIn("man_hours", applied)
         self.assertIn("cost", node["estimate"])
         self.assertEqual(node["classification"], "simple")
+        self.assertEqual(os.listdir(self.root), [], "core must never save")
 
-    def test_rollup_parent_estimate_raises_for_missing_epic(self):
+    def test_rollup_values_raises_when_nothing_to_roll_up(self):
+        _, cal = pm.load_calibration(self.root)
         with self.assertRaises(pm.PMError) as cm:
-            pm.metrics.estimates.rollup_parent_estimate(self.root, "E009", pm.DEFAULT_ESTIMATE_MODEL, None)
-        self.assertEqual(cm.exception.code, 3)
+            pm.metrics.estimates.rollup_values(cal, "epic", [{"estimate": {}}],
+                                               pm.DEFAULT_ESTIMATE_MODEL, None)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertEqual(cm.exception.msg, pm.metrics.estimates.NO_CHILD_ESTIMATES)
 
-    def test_rollup_parent_estimate_raises_when_nothing_to_roll_up(self):
+    def test_rollup_values_raises_for_an_unknown_model(self):
+        _, cal = pm.load_calibration(self.root)
         with self.assertRaises(pm.PMError) as cm:
-            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", pm.DEFAULT_ESTIMATE_MODEL, None)
+            pm.metrics.estimates.rollup_values(cal, "epic",
+                                               [{"estimate": {"man_hours": 4, "tokens_k": 10}}],
+                                               "no-such-model", None)
         self.assertEqual(cm.exception.code, 2)
 
-    def test_cli_unknown_model_still_exits_2_and_writes_nothing(self):
-        path = pm.story_file(self.root, "E001-S01-003")
-        with open(path, encoding="utf-8") as fh:
-            before = fh.read()
-        code, _ = self.run_main(["estimate-story", "--state-root", self.root, "--story",
-                                 "E001-S01-003", "--classification", "simple",
-                                 "--model", "no-such-model"])
-        self.assertEqual(code, 2)
-        with open(path, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), before)
-
     def test_compute_story_estimate_leaves_node_untouched_when_it_raises(self):
-        path = pm.story_file(self.root, "E001-S01-003")
-        _, node = pm.load_node(path)
-        pm.metrics.estimates.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
+        node = {}
+        pm.metrics.estimates.compute_story_estimate(self.root, node, "simple",
+                                                    pm.DEFAULT_ESTIMATE_MODEL, None)
         before_est = json.dumps(node["estimate"], sort_keys=True, default=str)
         before_cls = node["classification"]
         with self.assertRaises(pm.PMError):
-            pm.metrics.estimates.compute_story_estimate(self.root, node, "complex", "no-such-model", None)
+            pm.metrics.estimates.compute_story_estimate(self.root, node, "complex",
+                                                        "no-such-model", None)
         self.assertEqual(json.dumps(node["estimate"], sort_keys=True, default=str), before_est,
                          "a failed estimate must not half-overwrite the previous one")
         self.assertEqual(node["classification"], before_cls)
-
-
-def _tree_snapshot(top):
-    snap = {}
-    for dp, _, files in os.walk(top):
-        for f in files:
-            if f.endswith(".lock"):
-                continue
-            p = os.path.join(dp, f)
-            with open(p, "rb") as fh:
-                snap[os.path.relpath(p, top)] = fh.read()
-    return snap
-
-
-def _wait_until_blocked_on(proc, lock_path, what="child", hang_guard=30.0):
-    """Return once `proc` is SEEN blocked on `lock_path`'s flock; fail if it exits first.
-
-    The verdict comes from one of two positive events, never from elapsed time:
-    - `proc` appears in /proc/locks as a blocked waiter -- a `->` line carrying its pid on
-      `lock_path`'s inode -- so it is honoring the lock, and this returns;
-    - `proc` exits first, so it never waited and the lock was not honored: AssertionError.
-    A fixed sleep can only fail when an unlocked writer happens to finish inside the window,
-    so on a loaded runner it passes having checked nothing. `hang_guard` only stops a wedged
-    child from hanging the suite: tripping it kills the child and fails loudly; it never
-    passes a test.
-
-    Linux-only -- decorate callers with
-    `@unittest.skipUnless(os.path.exists("/proc/locks"), ...)`. A waiter's line reads
-    `25: -> FLOCK  ADVISORY  WRITE <pid> <maj>:<min>:<inode> 0 EOF`; the inode is matched,
-    not the device, whose numbering is filesystem-specific. Start `proc` directly (no shell
-    or wrapper), so `proc.pid` is the process that takes the lock."""
-    import time
-    ino, pid = str(os.stat(lock_path).st_ino), str(proc.pid)
-    deadline = time.monotonic() + hang_guard
-    while True:
-        if proc.poll() is not None:
-            out, err = proc.communicate()
-            raise AssertionError(f"{what} (pid {pid}) exited {proc.returncode} without waiting "
-                                 f"on {lock_path} -- the lock was not honored\n"
-                                 f"stdout: {out!r}\nstderr: {err!r}")
-        with open("/proc/locks", encoding="ascii", errors="replace") as fh:
-            for line in fh:
-                f = line.split()
-                if len(f) > 6 and f[1] == "->" and f[5] == pid and f[6].rsplit(":", 1)[-1] == ino:
-                    return
-        if time.monotonic() > deadline:
-            proc.kill()
-            proc.communicate()
-            raise AssertionError(f"hang guard: {what} (pid {pid}) neither exited nor blocked on "
-                                 f"{lock_path} within {hang_guard}s")
-        time.sleep(0.01)
 
 
 class TestEventReadersTolerateMalformedFields(Base):
@@ -5371,17 +3950,6 @@ class TestEventReadersTolerateMalformedFields(Base):
     # A list and a dict are the two unhashable JSON types; a nested object is what a
     # hand-edit or a half-flushed write most plausibly produces.
     BAD = ([1, 2], {"a": 1})
-
-    def test_actual_event_times_survives_an_unhashable_key(self):
-        """`if k not in idx` raises on an unhashable k just as a subscript does -- a
-        membership test is not the safe alternative to indexing."""
-        for bad in self.BAD:
-            with self.subTest(bad=bad):
-                self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "actual",
-                            "node": "story", "key": bad},
-                           {"ts": "2026-01-02T00:00:00+00:00", "event": "actual",
-                            "node": "story", "key": "E001-S01-001"})
-                self.assertIn("E001-S01-001", pm.actual_event_times(self.root))
 
     def test_pending_dispatches_survives_unhashable_node_keys(self):
         """Fixed when the read-side canonicalisation landed; kept here so the whole
@@ -5435,164 +4003,6 @@ class TestEventReadersTolerateMalformedFields(Base):
         self.assertEqual(pm.open_dispatches(self.root, 0), [])
 
 
-class TestEpicWritersHoldTheEpicLock(StateTreeBase):
-    """Every epic.yaml read-modify-write holds epic_node_lock (batch D1).
-
-    While this test holds E001's lock, every writer of E001's epic.yaml must wait. Each one
-    runs as a real subprocess, because the lock's re-entrancy counter is per process. A
-    directory move that lands while they wait must not strand them: each re-resolves the epic
-    under the lock and writes into the moved directory, never into a recreated ghost of the
-    old one. The lock file lives outside the epic directory, which is why a move cannot
-    carry it away from a waiter."""
-
-    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
-    def test_every_epic_writer_waits_and_follows_a_move(self):
-        import subprocess
-        sr = self.root
-        for argv in (["set-estimate", "--state-root", sr, "--epic", "E001",
-                      "--man-hours-low", "1", "--man-hours-high", "2"],
-                     ["import-node", "--state-root", sr, "--story", "E001-S01-001",
-                      "--status", "done"],
-                     ["set-estimate", "--state-root", sr, "--story", "E001-S01-001",
-                      "--man-hours", "2"]):
-            code, _, err = self.run_all(argv)
-            self.assertEqual(code, 0, err)
-        writers = {
-            "set-estimate": ["set-estimate", "--state-root", sr, "--epic", "001",
-                             "--man-hours-low", "4", "--man-hours-high", "5"],
-            "set-actual": ["set-actual", "--state-root", sr, "--node", "epic", "--epic", "001",
-                           "--man-hours", "3"],
-            "estimate-rollup": ["estimate-rollup", "--state-root", sr, "--epic", "001"],
-        }
-        epic_yaml = pm.nodes.epic_file(sr, "E001")
-        with open(epic_yaml, "rb") as fh:
-            before = fh.read()
-        procs = {}
-        lock = pm.epic_lock_path(sr, "E001")
-        with pm.epic_node_lock(sr, "E001"):
-            for name, argv in writers.items():
-                procs[name] = subprocess.Popen([sys.executable, SCRIPT, *argv],
-                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                self.addCleanup(procs[name].kill)            # reaps on failure; no-op once done
-            for name, p in procs.items():   # deterministic: each seen blocked, or it exited first
-                _wait_until_blocked_on(p, lock, name)
-            with open(epic_yaml, "rb") as fh:
-                during = fh.read()
-            _fx_move_epic(sr, "E001", "planned")             # while every writer waits
-        results = {n: (p.communicate(timeout=60), p.returncode) for n, p in procs.items()}
-        self.assertEqual(during, before)
-        for name, ((out, err), rc) in results.items():
-            self.assertEqual(rc, 0, f"{name}: {out.decode()} {err.decode()}")
-        self.assertFalse(os.path.exists(os.path.join(sr, "active", "epic-001")),
-                         "a writer recreated the epic's old directory after the move")
-        path = pm.nodes.epic_file(sr, "E001")
-        self.assertTrue(path.endswith(os.path.join("planned", "epic-001", "epic.yaml")), path)
-        node = pm.load_node(path)[1]
-        self.assertEqual(float(node["actual"]["man_hours"]), 3.0)
-        self.assertIn("estimate", node)
-
-
-class TestEpicNodeLockScope(unittest.TestCase):
-    """The epic lock's reach, attacked directly (batch D1): the rule is enforced at the one
-    write chokepoint (`_atomic_dump`), so these plant writes by routes the verbs never
-    take, rather than trusting the verb inventory to be complete."""
-
-    # TestLayoutResolution's tree, without inheriting (and so re-running) its tests.
-    setUp = TestLayoutResolution.setUp
-    tearDown = TestLayoutResolution.tearDown
-
-    def _touch(self, path):
-        y, node = pm.load_node(path)
-        node["touched"] = True
-        pm.nodes.save_node(y, node, path)
-
-    def test_an_epic_yaml_write_without_the_lock_is_refused_on_every_route(self):
-        path = pm.nodes.epic_file(self.root, "E001")
-        with open(path, "rb") as fh:
-            before = fh.read()
-        y, node = pm.load_node(path)
-        routes = {"save_node": lambda: pm.nodes.save_node(y, node, path),
-                  "save_node(use_flock)": lambda: pm.nodes.save_node(y, node, path, use_flock=True),
-                  "_atomic_dump": lambda: pm.core._atomic_dump(y, node, path),
-                  "_mark_sampled": lambda: pm._mark_sampled(node, path, y)}
-        for name, route in routes.items():
-            with self.assertRaises(RuntimeError, msg=name):
-                route()
-        with open(path, "rb") as fh:
-            self.assertEqual(fh.read(), before)
-
-    def test_another_epics_lock_does_not_cover_the_write(self):
-        with pm.epic_node_lock(self.root, "E005"), self.assertRaises(RuntimeError):
-            self._touch(pm.nodes.epic_file(self.root, "E001"))
-
-    def test_the_same_epic_under_any_spelling_covers_the_write(self):
-        with pm.epic_node_lock(os.path.relpath(self.root), "1"):    # relative root, bare key
-            self._touch(pm.nodes.epic_file(self.root, "E001"))
-        self.assertTrue(pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]["touched"])
-
-    def test_sprint_and_story_nodes_are_not_gated(self):
-        self._touch(pm.sprint_file(self.root, "E001", "S01"))
-        self._touch(pm.story_file(self.root, "E001-S01-003"))
-
-    def test_reentry_on_the_same_epic_nests_without_a_second_flock(self):
-        with pm.epic_node_lock(self.root, "E001"):
-            fh = pm._EPIC_NODE_LOCK["fh"]
-            with pm.epic_node_lock(self.root, "001"):
-                self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 2)
-                self.assertIs(pm._EPIC_NODE_LOCK["fh"], fh)
-                self._touch(pm.nodes.epic_file(self.root, "E001"))
-            self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 1)
-        self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
-
-    def test_a_second_epics_lock_cannot_nest(self):
-        # The re-entrancy counter is per lock family, so a nested second epic's lock would
-        # silently skip its flock -- refused outright instead.
-        with pm.epic_node_lock(self.root, "E001"):
-            with self.assertRaises(RuntimeError), pm.epic_node_lock(self.root, "E005"):
-                pass
-            self._touch(pm.nodes.epic_file(self.root, "E001"))     # the outer hold survives
-        self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
-
-    def test_the_lock_file_is_outside_the_epic_directory_and_survives_a_move(self):
-        lock = pm.epic_lock_path(self.root, "E001")
-        with pm.epic_node_lock(self.root, "E001"):
-            pass
-        self.assertTrue(os.path.exists(lock))
-        self.assertFalse(os.path.realpath(lock).startswith(
-            os.path.realpath(pm.find_epic_dir(self.root, "E001")) + os.sep))
-        _fx_move_epic(self.root, "E001", "archived")
-        self.assertEqual(pm.epic_lock_path(self.root, "E001"), lock)
-        self.assertTrue(os.path.exists(lock))
-
-    def test_a_fresh_epic_lock_under_calibration_lock_is_refused(self):
-        # Lock order: epic_node_lock is taken first, never under calibration_lock -- the
-        # reverse of set-actual's epic -> calibration is a deadlock.
-        with pm.calibration_lock(self.root):
-            with self.assertRaises(RuntimeError) as cm:
-                with pm.epic_node_lock(self.root, "E001"):
-                    pass
-            self.assertIn("lock order", str(cm.exception))
-        self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
-        self.assertIsNone(pm._EPIC_NODE_LOCK["path"])
-
-    def test_set_actual_cost_is_refused_before_the_epic_lock(self):
-        # --cost is a usage error on any node, so it is refused before the epic lock: it
-        # neither waits behind a holder nor creates the lock file.
-        path = pm.nodes.epic_file(self.root, "E001")
-        with open(path, "rb") as fh:
-            before = fh.read()
-        err = io.StringIO()
-        with redirect_stdout(io.StringIO()), redirect_stderr(err):
-            with self.assertRaises(SystemExit) as cm:
-                pm.main(["set-actual", "--state-root", self.root, "--node", "epic",
-                         "--epic", "E001", "--man-hours", "1", "--cost", "5"])
-        self.assertEqual(cm.exception.code, 2)
-        self.assertIn("--cost is not accepted", err.getvalue())
-        self.assertFalse(os.path.exists(pm.epic_lock_path(self.root, "E001")))
-        with open(path, "rb") as fh:
-            self.assertEqual(fh.read(), before)
-
-
 class TestLockFilesIgnored(StateTreeBase):
     """Lock files, and the notices ledger, must never be committed. Every lock acquisition
     inside a state root ensures {state_root}/.gitignore carries BOTH `*.lock` and
@@ -5600,8 +4010,6 @@ class TestLockFilesIgnored(StateTreeBase):
     acquisition, not only when a pattern's file is first created, so a project whose lock
     files already exist is covered on its next lock. Best-effort: a failure warns on stderr
     and never fails the verb."""
-
-    STORY = "E001-S01-001"
 
     def setUp(self):
         super().setUp()
@@ -5617,12 +4025,6 @@ class TestLockFilesIgnored(StateTreeBase):
     def gi_lines(self):
         return self.gi_bytes().decode("utf-8").splitlines()
 
-    def write_story(self):
-        p = os.path.join(self.root, "active", "epic-001", "sprint-01", f"{self.STORY}.yaml")
-        with open(p, "w", encoding="utf-8") as fh:
-            fh.write(f"key: '{self.STORY}'\nepic: 'E001'\nsprint: 'S01'\nstatus: in-progress\n")
-        return p
-
     def append(self, title, root=None):
         """One locked write under the state root: `adr-reserve` holds the register's lock."""
         adr_dir = os.path.join(self.d, "adr")
@@ -5634,10 +4036,6 @@ class TestLockFilesIgnored(StateTreeBase):
     def lock(self):
         return pm.adr_register_path(self.root) + ".lock"
 
-    def add_test_run(self):
-        return self.run_all(["add-test-run", "--state-root", self.root, "--story", self.STORY,
-                             "--command", "pytest -q", "--exit-code", "0"])
-
     def test_first_lock_creates_gitignore(self):
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
@@ -5646,21 +4044,10 @@ class TestLockFilesIgnored(StateTreeBase):
         self.assertIn("*.lock", lines)
         self.assertIn(".notices.yaml", lines)
 
-    def test_epic_lock_creates_gitignore(self):
-        code, _, err = self.run_all(["set-estimate", "--state-root", self.root, "--epic", "E001",
-                                     "--man-hours-low", "1", "--man-hours-high", "2"])
-        self.assertEqual(code, 0, err)
-        lines = self.gi_lines()
-        self.assertIn("*.lock", lines)
-        self.assertIn(".notices.yaml", lines)
-
     def test_second_lock_leaves_bytes_unchanged(self):
         self.append("A")
         before = self.gi_bytes()
         pm._LOCK_IGNORE_CHECKED.clear()          # as a second process would see it
-        code, _, err = self.run_all(["set-estimate", "--state-root", self.root, "--epic", "E001",
-                                     "--man-hours-low", "1", "--man-hours-high", "2"])
-        self.assertEqual(code, 0, err)
         self.append("B")
         self.assertEqual(self.gi_bytes(), before)
 
@@ -5713,19 +4100,6 @@ class TestLockFilesIgnored(StateTreeBase):
             err)
         self.assertEqual(self.gi_bytes(), original)
         self.assertTrue(os.path.exists(pm.adr_register_path(self.root)))
-
-    def test_add_test_run_sidecar_ignores_at_the_state_root_only(self):
-        story = self.write_story()
-        code, _, err = self.add_test_run()
-        self.assertEqual(code, 0, err)
-        self.assertTrue(os.path.exists(story + ".lock"), "premise: the sidecar was taken")
-        lines = self.gi_lines()
-        self.assertIn("*.lock", lines)
-        self.assertIn(".notices.yaml", lines)
-        for d in (os.path.dirname(story), os.path.join(self.root, "active", "epic-001"),
-                  os.path.join(self.root, "active")):
-            self.assertFalse(os.path.exists(os.path.join(d, ".gitignore")),
-                             f"a .gitignore was created inside {d}")
 
     def test_read_only_commands_create_nothing(self):
         for argv in (["calibration", "show", "--state-root", self.root, "--format", "json"],):
@@ -5849,9 +4223,7 @@ class TestLockFilesIgnored(StateTreeBase):
 
     def test_git_sees_the_gitignore_and_no_lock_files_and_the_gate_still_passes(self):
         self.init_repo()
-        self.write_story()
         self.assertEqual(self.append("A")[0], 0)
-        self.assertEqual(self.add_test_run()[0], 0)
         porcelain = self.git("status", "--porcelain", "--untracked-files=all").stdout
         paths = [line[3:] for line in porcelain.splitlines()]
         self.assertIn("impl/state/.gitignore", paths)
@@ -6074,328 +4446,6 @@ class TestAdrReserveScansDisk(unittest.TestCase):
         self.assertEqual(sorted(numbers), [f"{n:04d}" for n in range(4, 12)])
 
 
-class TestEnsureNodePath(Base):
-    class _Args:
-        def __init__(self, **kw):
-            self.epic = kw.get("epic")
-            self.sprint = kw.get("sprint")
-            self.story = kw.get("story")
-            self.state_root = kw.get("state_root")
-
-    def test_dir_for_status_is_the_inverse_of_status_for_dir(self):
-        for folder, status in pm.STATUS_FOR_DIR.items():
-            self.assertEqual(pm.DIR_FOR_STATUS[status], folder)
-        self.assertEqual(len(pm.DIR_FOR_STATUS), len(pm.STATUS_FOR_DIR))
-
-    def test_new_epic_lands_in_the_folder_named_for_its_status(self):
-        a = self._Args(epic="E001", state_root=self.d)
-        path, label = pm.ensure_node_path(self.d, a, "epic", "in-progress")
-        self.assertEqual(path, os.path.join(self.d, "active", "epic-001", "epic.yaml"))
-        self.assertTrue(os.path.isdir(os.path.dirname(path)))
-        self.assertEqual(label, "epic E001")
-
-    def test_backlog_epic_lands_in_planned(self):
-        a = self._Args(epic="E002", state_root=self.d)
-        path, _ = pm.ensure_node_path(self.d, a, "epic", "backlog")
-        self.assertEqual(path, os.path.join(self.d, "planned", "epic-002", "epic.yaml"))
-
-    def test_done_epic_lands_in_archived(self):
-        a = self._Args(epic="E003", state_root=self.d)
-        path, _ = pm.ensure_node_path(self.d, a, "epic", "done")
-        self.assertEqual(path, os.path.join(self.d, "archived", "epic-003", "epic.yaml"))
-
-    def test_existing_epic_dir_is_reused_not_relocated(self):
-        a = self._Args(epic="E001", state_root=self.d)
-        pm.ensure_node_path(self.d, a, "epic", "backlog")          # creates planned/
-        path, _ = pm.ensure_node_path(self.d, a, "epic", "done")   # must NOT create archived/
-        self.assertEqual(path, os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
-        self.assertFalse(os.path.isdir(os.path.join(self.d, "archived", "epic-001")))
-
-    def test_sprint_dir_is_created_under_its_epic(self):
-        a = self._Args(epic="E001", sprint="S02", state_root=self.d)
-        pm.ensure_node_path(self.d, a, "epic", "backlog")
-        path, label = pm.ensure_node_path(self.d, a, "sprint", "in-progress")
-        self.assertEqual(
-            path, os.path.join(self.d, "planned", "epic-001", "sprint-02", "sprint.yaml"))
-        self.assertTrue(os.path.isdir(os.path.dirname(path)))
-        self.assertEqual(label, "epic E001 sprint S02")
-
-    def test_story_path_is_created_under_its_sprint(self):
-        a = self._Args(epic="E001", story="E001-S02-003", state_root=self.d)
-        pm.ensure_node_path(self.d, a, "epic", "backlog")
-        path, _ = pm.ensure_node_path(self.d, a, "story", "ready-for-dev")
-        self.assertEqual(
-            path,
-            os.path.join(self.d, "planned", "epic-001", "sprint-02", "E001-S02-003.yaml"))
-
-    def test_sprint_without_an_epic_dir_exits_3(self):
-        a = self._Args(epic="E404", sprint="S01", state_root=self.d)
-        with self.assertRaises(SystemExit) as cm:
-            pm.ensure_node_path(self.d, a, "sprint", "backlog")
-        self.assertEqual(cm.exception.code, 3)
-
-    def test_unknown_status_exits_2(self):
-        a = self._Args(epic="E001", state_root=self.d)
-        with self.assertRaises(SystemExit) as cm:
-            pm.ensure_node_path(self.d, a, "epic", "nonsense")
-        self.assertEqual(cm.exception.code, 2)
-
-
-class TestImportActual(Base):
-    """`import-actual` is set-actual with the migration contract baked into its defaults.
-
-    A migrated actual needs exactly three things that are easy to forget and dangerous to
-    forget: runtime=other (it has no Claude provenance to claim), tokens=N/A (legacy data
-    carries no four-class split, and 0 would be consumed by calibration as a real
-    measurement), and no calibration sample (a bulk import must not append hundreds in one
-    pass). set-actual can express all three, but only if the caller passes all three -- and a
-    caller who forgets --tokens-na on runtime=claude gets a refusal, while one who forgets
-    --no-calibrate silently poisons the ratios. This verb cannot be called wrongly.
-    """
-
-    def _story(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-001",
-                       "--status", "done", "--title", "S"])
-
-    def _node(self):
-        return pm.load_node(pm.story_file(self.d, "E001-S01-001"))[1]
-
-    def test_lands_an_actual_with_the_N_A_sentinel(self):
-        self._story()
-        code, out = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
-                                   "--story", "E001-S01-001", "--man-hours", "6",
-                                   "--hitl-hours", "0", "--elapsed-hours", "0"])
-        self.assertEqual(code, 0, out)
-        actual = self._node()["actual"]
-        self.assertEqual(str(actual["man_hours"]), "6")
-        self.assertEqual(str(actual["tokens_k"]), "N/A",
-                         "0 would claim a measurement nobody took")
-
-    def test_appends_no_calibration_sample(self):
-        self._story()
-        self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
-                       "--story", "E001-S01-001", "--man-hours", "6",
-                       "--hitl-hours", "0", "--elapsed-hours", "0"])
-        self.assertFalse(os.path.exists(pm.calibration_path(self.d)),
-                         "a bulk import must not append calibration samples")
-
-    def test_it_cannot_be_told_to_claim_claude_provenance(self):
-        """The point of the verb: the dangerous options are not reachable."""
-        self._story()
-        code, _ = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
-                                 "--story", "E001-S01-001", "--runtime", "claude",
-                                 "--man-hours", "6"])
-        self.assertEqual(code, 2, "--runtime must not be accepted")
-
-    def test_it_cannot_be_told_to_calibrate(self):
-        self._story()
-        code, _ = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
-                                 "--story", "E001-S01-001", "--calibrate",
-                                 "--man-hours", "6"])
-        self.assertEqual(code, 2, "--calibrate must not be accepted")
-
-    def test_a_missing_node_exits_3(self):
-        code, _ = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
-                                 "--story", "E404-S01-001", "--man-hours", "6"])
-        self.assertEqual(code, 3)
-
-    def test_set_actual_is_unchanged_and_still_refuses_claude_without_tokens(self):
-        """import-actual must not have loosened set-actual."""
-        self._story()
-        code, _ = self.run_main(["set-actual", "--state-root", self.d, "--node", "story",
-                                 "--story", "E001-S01-001", "--runtime", "claude",
-                                 "--man-hours", "6", "--tokens-na"])
-        self.assertEqual(code, 2)
-
-
-class TestImportNode(Base):
-
-
-    def _events(self):
-        p = os.path.join(self.d, "events.jsonl")
-        if not os.path.exists(p):
-            return []
-        with open(p, encoding="utf-8") as fh:
-            return [json.loads(line) for line in fh if line.strip()]
-
-    def test_creates_an_epic_and_its_directory(self):
-        code, out = self.run_main([
-            "import-node", "--state-root", self.d, "--epic", "E001",
-            "--status", "backlog", "--title", "First epic"])
-        self.assertEqual(code, 0, out)
-        path = os.path.join(self.d, "planned", "epic-001", "epic.yaml")
-        self.assertTrue(os.path.exists(path))
-        _, node = pm.load_node(path)
-        self.assertEqual(node["key"], "E001")
-        self.assertEqual(node["status"], "backlog")
-        self.assertEqual(node["title"], "First epic")
-
-    def test_creates_a_sprint_with_its_epic_backreference(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        code, out = self.run_main([
-            "import-node", "--state-root", self.d, "--epic", "E001", "--sprint", "S01",
-            "--status", "in-progress", "--title", "Sprint one"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(
-            os.path.join(self.d, "planned", "epic-001", "sprint-01", "sprint.yaml"))
-        self.assertEqual(node["epic"], "E001")
-        self.assertEqual(node["key"], "S01")
-
-    def test_creates_a_story_with_both_backreferences(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        code, out = self.run_main([
-            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
-            "--status", "done", "--title", "A story", "--classification", "feature"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(
-            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
-        self.assertEqual(node["epic"], "E001")
-        self.assertEqual(node["sprint"], "S01")
-        self.assertEqual(node["classification"], "feature")
-
-    def test_the_new_node_passes_check_backrefs(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-002",
-                       "--status", "done", "--title", "S"])
-        code, out = self.run_main([
-            "set-estimate", "--state-root", self.d, "--story", "E001-S01-002",
-            "--man-hours", "1"])
-        self.assertEqual(code, 0, out)
-
-    def test_origin_is_written_when_given_and_absent_otherwise(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E002",
-                       "--status", "backlog", "--title", "E2",
-                       "--origin", "inferred", "--origin-note", "from transitions"])
-        _, plain = pm.load_node(os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
-        _, marked = pm.load_node(os.path.join(self.d, "planned", "epic-002", "epic.yaml"))
-        self.assertNotIn("origin", plain)
-        self.assertEqual(marked["origin"], "inferred")
-        self.assertEqual(marked["origin_note"], "from transitions")
-
-    def test_invalid_status_for_kind_exits_2(self):
-        code, _ = self.run_main([
-            "import-node", "--state-root", self.d, "--epic", "E001",
-            "--status", "ready-for-dev", "--title", "E"])
-        self.assertEqual(code, 2)
-
-    def test_sprint_without_its_epic_exits_3(self):
-        code, _ = self.run_main([
-            "import-node", "--state-root", self.d, "--epic", "E404", "--sprint", "S01",
-            "--status", "backlog", "--title", "orphan"])
-        self.assertEqual(code, 3)
-
-    def test_existing_node_is_skipped_not_overwritten(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "Original"])
-        code, out = self.run_main([
-            "import-node", "--state-root", self.d, "--epic", "E001",
-            "--status", "done", "--title", "Clobber"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("SKIP", out)
-        _, node = pm.load_node(os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
-        self.assertEqual(node["title"], "Original")
-        self.assertEqual(node["status"], "backlog")
-
-    def test_an_event_is_appended(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        evs = [e for e in self._events() if e.get("event") == "import"]
-        self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]["to"], "backlog")
-        self.assertIsNone(evs[0]["from"])
-
-    def test_no_events_flag_suppresses_the_append(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E", "--no-events"])
-        self.assertEqual([e for e in self._events() if e.get("event") == "import"], [])
-
-    def test_a_skip_appends_no_event(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.assertEqual(len([e for e in self._events() if e.get("event") == "import"]), 1)
-
-    def test_import_node_story_blocked_without_reason_exits_2(self):
-        """A migration source that reports a story at status: blocked without a reason
-        is a broken source shape -- name it at the boundary rather than land silent."""
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main([
-                "import-node", "--state-root", self.d, "--story", "E001-S01-002",
-                "--status", "blocked", "--title", "S"])
-        self.assertEqual(code, 2)
-        self.assertIn("--status blocked requires --reason", buf.getvalue())
-
-    def test_import_node_story_blocked_writes_blocked_reason(self):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        code, out = self.run_main([
-            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
-            "--status", "blocked", "--title", "S", "--reason", "external decision X"])
-        self.assertEqual(code, 0, out)
-        _, node = pm.load_node(
-            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
-        self.assertEqual(node.get("blocked_reason"), "external decision X")
-
-    def test_import_node_story_blocked_emits_a_block_open_event(self):
-        """A paired block_open is emitted, so the event log carries the block the way a
-        block recorded live would."""
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.run_main([
-            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
-            "--status", "blocked", "--title", "S", "--reason", "wait"])
-        opens = [e for e in self._events() if e.get("event") == "block_open"]
-        self.assertEqual(len(opens), 1)
-        self.assertEqual(opens[0]["story"], "E001-S01-002")
-        self.assertEqual(opens[0]["reason"], "wait")
-
-    def test_import_node_reason_on_non_blocked_status_exits_2(self):
-        """--reason is only valid with --status blocked on a story import."""
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main([
-                "import-node", "--state-root", self.d, "--story", "E001-S01-002",
-                "--status", "done", "--title", "S", "--reason", "why"])
-        self.assertEqual(code, 2)
-        self.assertIn("--reason is only valid with --status blocked", buf.getvalue())
-
-    def test_import_node_reason_on_sprint_or_epic_exits_2(self):
-        """--reason is a story-only flag; sprint/epic status sets have no blocked."""
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main([
-                "import-node", "--state-root", self.d, "--epic", "E001",
-                "--status", "backlog", "--title", "E", "--reason", "spurious"])
-        self.assertEqual(code, 2)
-        self.assertIn("story-only", buf.getvalue())
-
-    def test_import_node_blocked_does_not_bump_blocks_seen(self):
-        """The counter records OUR events, not the source's history. import-node
-        predates our history for a migrated node -- the counter starts at 0."""
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "E"])
-        self.run_main([
-            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
-            "--status", "blocked", "--title", "S", "--reason", "wait"])
-        _, node = pm.load_node(
-            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
-        ce = node.get("completion_evidence") or {}
-        self.assertNotIn("blocks_seen", ce)
-
-
 class TestBlockedCalibration(Base):
     """Stage 2: a story that spent any time blocked excludes elapsed_hours from
     its calibration sample and emits WARN naming the {N.N}h in blocked. Other
@@ -6405,36 +4455,22 @@ class TestBlockedCalibration(Base):
     Design: docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §5.
     """
 
-    def _seed(self, status="in-progress"):
-        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
-                       "--status", "backlog", "--title", "e"])
-        self.run_main(["import-node", "--state-root", self.d,
-                       "--story", "E001-S01-002",
-                       "--status", status, "--title", "s"])
-
-    def _add_estimate(self, story="E001-S01-002"):
-        # A story sample requires estimate + actual. estimate-story with a
-        # classification is enough to seed both estimate and the fix_factor.
-        self.run_main(["estimate-story", "--state-root", self.d,
-                       "--story", story, "--classification", "standard"])
-
-    def _run_capturing_stderr(self, argv):
+    def _sample(self):
+        """One story sample, as build-close takes it: an estimate made by the estimate
+        engine, the build's actual, and the ticket's key. Returns stderr."""
+        node = {"key": "E001-S01-002"}
+        pm.metrics.estimates.compute_story_estimate(self.d, node, "standard",
+                                                    pm.DEFAULT_ESTIMATE_MODEL, None)
+        node["actual"] = {"elapsed_hours": 1.8, "man_hours": 7, "hitl_hours": 0.5,
+                          "tokens_k": {"total": 375, "input": 300, "output": 55,
+                                       "cache_write": 10, "cache_read": 10}}
+        node["completion_evidence"] = {"fix_iterations": 0}
         err = io.StringIO()
-        out = io.StringIO()
-        code = 0
-        try:
-            with redirect_stdout(out), redirect_stderr(err):
-                code = pm.main(argv)
-        except SystemExit as e:
-            code = e.code if isinstance(e.code, int) else 1
-        return code, out.getvalue(), err.getvalue()
+        with redirect_stderr(err):
+            pm.record_story_sample(self.d, node)
+        return err.getvalue()
 
     # ---- blocks_seen counter -------------------------------------------------------
-
-    def test_blocks_seen_absent_by_default(self):
-        self._seed()
-        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
-        self.assertNotIn("blocks_seen", (node.get("completion_evidence") or {}))
 
     def test_total_blocked_hours_is_zero_when_no_events(self):
         self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 0.0)
@@ -6560,23 +4596,14 @@ class TestBlockedCalibration(Base):
     def test_record_story_sample_warns_with_inline_duration(self):
         """WARN message shape checked verbatim -- operators eyeball the exclusion
         without cross-referencing the event log."""
-        self._seed()
-        self._add_estimate()
-        # Simulate: block, resume, set-actual. The block_close duration lands
+        # Simulate: block, resume, build-close. The block_close duration lands
         # via _block_duration_since_last_open; here we plant events by hand for
         # a known duration so the WARN wording is deterministic.
         events = os.path.join(self.d, "events.jsonl")
         with open(events, "a") as fh:
             fh.write(json.dumps({"event": "block_close", "story": "E001-S01-002",
                                  "duration_hours": 6.5}) + "\n")
-        code, _out, err = self._run_capturing_stderr([
-            "set-actual", "--state-root", self.d, "--node", "story",
-            "--story", "E001-S01-002",
-            "--elapsed-hours", "1.8", "--man-hours", "7", "--hitl-hours", "0.5",
-            "--tokens-input", "300", "--tokens-output", "55",
-            "--tokens-cache-write", "10", "--tokens-cache-read", "10",
-            "--model", "claude-sonnet-5", "--runtime", "claude"])
-        self.assertEqual(code, 0, err)
+        err = self._sample()
         self.assertIn("WARN blocked story E001-S01-002", err)
         self.assertIn("6.5h in blocked", err)
         self.assertIn("elapsed_hours sample deferred", err)
@@ -6584,16 +4611,7 @@ class TestBlockedCalibration(Base):
 
     def test_record_story_sample_no_warn_when_never_blocked(self):
         """A story with no blocked history writes its sample cleanly -- no WARN."""
-        self._seed()
-        self._add_estimate()
-        code, _out, err = self._run_capturing_stderr([
-            "set-actual", "--state-root", self.d, "--node", "story",
-            "--story", "E001-S01-002",
-            "--elapsed-hours", "1.8", "--man-hours", "7", "--hitl-hours", "0.5",
-            "--tokens-input", "300", "--tokens-output", "55",
-            "--tokens-cache-write", "10", "--tokens-cache-read", "10",
-            "--model", "claude-sonnet-5", "--runtime", "claude"])
-        self.assertEqual(code, 0, err)
+        err = self._sample()
         self.assertNotIn("WARN blocked story", err)
 
 

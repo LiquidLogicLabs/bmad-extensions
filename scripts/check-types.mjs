@@ -13,10 +13,11 @@
 // large unrelated cleanup first, and until that landed there would be no gate at all. A
 // scoped gate that works today beats a total one that is always one refactor away.
 //
-// WHY NOT "fail on any [operator] finding", which is the obvious narrow cut. That class is
-// NOT clean: the package carries 4 pre-existing `[operator]` errors (`Unsupported operand types
-// for + ("object" and "int")`), so gating on the code fails on an unmodified tree. The cut
-// has to be the MESSAGE -- "not callable".
+// WHY NOT "fail on any [operator] finding", which is the obvious narrow cut. That class was
+// NOT clean: the package carried 4 `[operator]` errors (`Unsupported operand types for +
+// ("object" and "int")`) until the 3.x code they sat in retired in Phase 6, so gating on the
+// code failed on an unmodified tree -- and an error code is a class any later edit can
+// reintroduce harmlessly. The cut has to be the MESSAGE -- "not callable".
 //
 // THE SECOND CLASS, [name-defined], IS WHAT MAKES THE FIRST ONE REAL. The package imports
 // ruamel lazily, inside each function, so a missing dependency prints a readable message

@@ -1081,7 +1081,7 @@ test("check 17: word boundary holds and an unrelated uv run line passes", async 
 test("check 17: a same-line uv-unavailable qualifier exempts a real invocation", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm/l3io-execute/steps/same-line-fallback.md",
-    "If `uv` is unavailable, run `python3 {pm_status} verify --state-root x` instead.\n");
+    "If `uv` is unavailable, run `python3 {pm_status} verify --project-root x --plan-file y` instead.\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -1117,7 +1117,7 @@ test("check 17 scope attack: a violation in a new file under docs/ is caught", a
 
 test("check 17 scope attack: a violation in README.md is caught", async (t) => {
   const root = fixture(t);
-  write(root, "README.md", "\n```bash\npython3 {pm_status} verify --state-root x\n```\n", true);
+  write(root, "README.md", "\n```bash\npython3 {pm_status} verify --project-root x --plan-file y\n```\n", true);
   const r = await run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /README\.md:\d+: invokes a PEP-723 script with python3/);
@@ -1303,7 +1303,7 @@ test("check 17 N-3: a `# fallback` comment in a workflow run: line does not exem
 test("check 17 N-3: the documented python3 fallback in markdown prose still passes", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm/l3io-execute/steps/fallback-still-allowed.md",
-    "If `uv` is unavailable, use `python3 {pm_status} verify --state-root x` instead.\n");
+    "If `uv` is unavailable, use `python3 {pm_status} verify --project-root x --plan-file y` instead.\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -2270,78 +2270,14 @@ test("check 4/skills: a correct invocation does not fire", async (t) => {
   assert.equal(r.status, 0, r.stderr);
 });
 
-// ---- required companion flags per --status value ---------------------------
-// Rule: `import-node --status blocked` (a story) requires `--reason "R"`. The runtime already
-// enforces this (exit 2), but a step file that ships the wrong shape has already
-// failed by the time an operator runs it -- this check catches it at land time.
-
-test("check 4/skills: import-node --status blocked without --reason is caught", async (t) => {
-  const root = fixture(t);
-  plantInvocation(root,
-    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 --status blocked");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr,
-    /planted\.md:\d+: invokes 'import-node --status blocked' without --reason/);
-});
-
-test("check 4/skills: import-node --status blocked WITH --reason passes", async (t) => {
-  const root = fixture(t);
-  plantInvocation(root,
-    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
-    "--status blocked --reason \"waiting on decision X\"");
-  const r = await run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-test("check 4/skills: import-node --status blocked --reason=<placeholder> passes", async (t) => {
-  // Step files use `{binding}`s for values the run supplies; the check must treat a
-  // present-but-templated --reason as satisfying the requirement.
-  const root = fixture(t);
-  plantInvocation(root,
-    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
-    "--status blocked --reason \"{block_reason}\"");
-  const r = await run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-test("check 4/skills: import-node --status blocked --reason='' (empty) is caught", async (t) => {
-  const root = fixture(t);
-  plantInvocation(root,
-    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
-    "--status blocked --reason \"\"");
-  const r = await run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'import-node --status blocked' without --reason/);
-});
-
-test("check 4/skills: import-node --status in-progress does not require --reason", async (t) => {
-  // The rule is scoped: it fires only on --status blocked. Other statuses transitioning
-  // imported through import-node are unaffected.
-  const root = fixture(t);
-  plantInvocation(root,
-    "uv run {pm_status} import-node --state-root {r} --story E001-S01-002 " +
-    "--status in-progress");
-  const r = await run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
-test("check 4/skills: other subcommands are unaffected by the import-node rule", async (t) => {
-  // The map is scoped by subcommand too. report's --status-json is a file, not a node
-  // status, so it must not demand a --reason even though it shares the rule's flag prefix.
-  const root = fixture(t);
-  plantInvocation(root,
-    "uv run {pm_status} report --project-root {r} --initiative-dir {d} --status-json {f}");
-  const r = await run(root);
-  assert.equal(r.status, 0, r.stderr);
-});
-
 // The option union is read from add_argument(...) calls, which may register several spellings
 // in ONE call: `se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours")`.
 // A regex that captured only the first spelling missed three real flags (--time-hours,
 // --time-hours-low, --time-hours-high) -- measured against the parser object itself, built
 // under uv from build_parser(), before this check shipped. This pins the alias case, so that
-// simplification fails loudly instead of inventing three phantom violations.
+// simplification fails loudly instead of inventing three phantom violations. The package has
+// registered no alias since the 3.x `--time-hours` spellings retired in Phase 6, so the alias
+// is planted into the fixture's copy of the package.
 // This one plants under l3io-pm rather than at PLANT_FILE, because it is the only
 // expect-GREEN plant that names a subcommand l3io-doctor does not really run: check 4's
 // module-reference arm would rightly demand a docs/l3io-util-reference.md row for it, and this
@@ -2350,16 +2286,19 @@ test("check 4/skills: other subcommands are unaffected by the import-node rule",
 // in a brand-new directory, so it still attacks the scope.
 test("check 4/skills: a second spelling registered in the same add_argument() is accepted", async (t) => {
   const root = fixture(t);
-  // Read the WHOLE PACKAGE, not __main__.py. Registration is distributed across the modules
-  // (design §3.2), so `set-estimate` and its --time-hours alias live in verbs/ now. Anchored
-  // on the entry file alone this died with "no longer registers --time-hours" — an error on
-  // the anchor, dressed as a finding about the CLI, when the alias had simply moved file.
+  // Read the WHOLE PACKAGE, not __main__.py: registration is distributed across the modules
+  // (design §3.2), and `set-estimate` lives in sidecar/verbs.py.
+  const verbsPy = path.join(root, "skills", "_shared", "pm_status", "sidecar", "verbs.py");
+  const before = fs.readFileSync(verbsPy, "utf8");
+  const planted = before.replace('se.add_argument("--elapsed-hours", dest=',
+    'se.add_argument("--elapsed-hours", "--time-hours", dest=');
+  assert.notEqual(planted, before, "set-estimate's --elapsed-hours registration moved; re-anchor the plant");
+  fs.writeFileSync(verbsPy, planted);
   const cli = pmStatusSource(root);
-  assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/,
-    "pm-status.py no longer registers --time-hours as an alias; this test needs a new one");
+  assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/);
   write(root, path.join("skills", "l3io-pm", "l3io-execute", "steps", "brand-new-alias-dir", "planted.md"),
     ["# Planted", "", "```bash",
-     "uv run {pm_status} set-estimate --state-root {r} --story {s} --time-hours 2",
+     "uv run {pm_status} set-estimate --project-root {r} --ticket-dir {d} --entry 1 --time-hours 2",
      "```", ""].join("\n"));
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
@@ -2390,11 +2329,11 @@ test("check 4/modules: a subcommand a module runs but its reference doc omits is
   // matching routing row would trigger check 15's mode-count mismatch first, masking the
   // subcommand-coverage check the assertion targets.
   write(root, "skills/l3io-util/l3io-doctor/steps/stats.md",
-    "\nRun `uv run {pm_status} estimate-story --state-root x --story E001-S01-001`.\n", true);
+    "\nRun `uv run {pm_status} set-lane --project-root x --initiative-dir y --epic e --lane 1`.\n", true);
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'estimate-story' as a table row, but l3io-util's own skills invoke it/);
+    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'set-lane' as a table row, but l3io-util's own skills invoke it/);
 });
 
 // Scope attack on module MEMBERSHIP: a brand-new skill directory is bound to its module by the
@@ -2404,11 +2343,11 @@ test("check 4/modules scope attack: a brand-new skill in a module is covered on 
   const root = fixture(t);
   write(root, "skills/l3io-util/l3io-util-newskill/SKILL.md", "");
   write(root, "skills/l3io-util/l3io-util-newskill/steps/x.md",
-    "Run `uv run {pm_status} estimate-rollup --state-root x --epic E001`.\n");
+    "Run `uv run {pm_status} set-lane --project-root x --initiative-dir y --epic e --lane 1`.\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'estimate-rollup' as a table row/);
+    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'set-lane' as a table row/);
 });
 
 // A per-skill file whose bytes match a skills/_shared/ file is a GENERATED copy of shared
@@ -2417,7 +2356,7 @@ test("check 4/modules scope attack: a brand-new skill in a module is covered on 
 // quotes. The exclusion is derived from content, so this plants the same bytes in both places.
 test("check 4/modules: a synced copy of a shared reference demands no row", async (t) => {
   const root = fixture(t);
-  const body = "# Shared\n\nRun `uv run {pm_status} estimate-story --state-root x --story S`.\n";
+  const body = "# Shared\n\nRun `uv run {pm_status} set-lane --project-root x --initiative-dir y --epic e --lane 1`.\n";
   write(root, "skills/_shared/planted-shared.md", body);
   write(root, "skills/l3io-util/l3io-doctor/references/planted-shared.md", body);
   const r = await run(root);
@@ -2429,13 +2368,13 @@ test("check 4/modules: a synced copy of a shared reference demands no row", asyn
 // stopped looking at l3io-doctor entirely.
 test("check 4/modules: a NEAR-copy of a shared reference is not exempt", async (t) => {
   const root = fixture(t);
-  const body = "# Shared\n\nRun `uv run {pm_status} estimate-story --state-root x --story S`.\n";
+  const body = "# Shared\n\nRun `uv run {pm_status} set-lane --project-root x --initiative-dir y --epic e --lane 1`.\n";
   write(root, "skills/_shared/planted-shared.md", body);
   write(root, "skills/l3io-util/l3io-doctor/references/planted-shared.md", body + "\nLocal note.\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'estimate-story'/);
+    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'set-lane'/);
 });
 
 // Both directions of the DOC set, so neither side can silently shrink. A module whose
@@ -2852,7 +2791,7 @@ test("the static per-subcommand option surface matches the real argparse, both w
   const fromArgparse = JSON.parse(real.stdout);
   const fromSource = JSON.parse(staticDump.stdout);
 
-  assert.ok(Object.keys(fromArgparse).length > 20,
+  assert.ok(Object.keys(fromArgparse).length >= 15,
     `only ${Object.keys(fromArgparse).length} subcommand(s) found — the dump looks empty`);
   assert.deepEqual(Object.keys(fromSource).sort(), Object.keys(fromArgparse).sort(),
     "the set of subcommands differs between build_parser() and the source extraction");
@@ -3156,21 +3095,22 @@ test("check 4: a short option on a pm-status.py invocation is caught", async (t)
 test("check 4: a flag value outside argparse's choices is caught", async (t) => {
   const root = fixture(t);
   write(root, PROBE_MD,
-    DIRECTIVE("uv run {pm_status} verify --state-root S --scope story --story K --runtime martian"));
+    DIRECTIVE("uv run {pm_status} verify --project-root P --plan-file F --runtime martian"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /invokes 'verify --runtime martian', but pm-status\.py accepts only/);
 });
 
-// The choices came from `choices=list(calibration.CLASSIFICATIONS)`, a module constant -- not a literal list
-// -- so this also pins the constant resolution.
-test("check 4: a flag value from a choices=list(CONST) set is judged too", async (t) => {
+// The choices come from `choices=AGENTS`, a module constant -- not a literal list -- so this also
+// pins the constant resolution. (It was `choices=list(calibration.CLASSIFICATIONS)` on the
+// retired estimate-story until Phase 6.)
+test("check 4: a flag value from a choices=CONST set is judged too", async (t) => {
   const root = fixture(t);
   write(root, PROBE_MD,
-    DIRECTIVE("uv run {pm_status} estimate-story --state-root S --story K --classification maybe"));
+    DIRECTIVE("uv run {pm_status} build-open --project-root P --agent maybe"));
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /invokes 'estimate-story --classification maybe', but pm-status\.py accepts only/);
+  assert.match(r.stderr, /invokes 'build-open --agent maybe', but pm-status\.py accepts only/);
 });
 
 test("check 4: a value-taking flag given no value is caught", async (t) => {
@@ -3204,7 +3144,7 @@ test("check 4: an optional positional and placeholder values stay green", async 
   const root = fixture(t);
   write(root, PROBE_MD,
     DIRECTIVE("uv run {pm_status} usage --state-root S --story {story_key} --model {model}\n" +
-              "uv run {pm_status} verify --state-root S --scope {scope} --story {story_key} " +
+              "uv run {pm_status} verify --project-root P --plan-file {plan_file} --scope {scope} " +
               "--runtime {runtime}"));
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);

@@ -27,54 +27,29 @@ ModuleNotFoundError anywhere ruamel.yaml is not already installed globally.
 
 Subcommands
 -----------
-  import-node   --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
-                [--title T] [--classification C] [--origin {inferred}] [--origin-note N]
-                [--reason R]   (REQUIRED when --story ... --status blocked; stored as
-                                blocked_reason and in the paired block_open event; rejected
-                                on any other kind or status)
-                [--no-events] [--session-id ID]
-                [--goal G] [--superseded-by K] [--depends-on KEY ...]
-                (creates a missing 3.x state node from a migration record, with the
-                record's goal, superseded_by and depends_on in the same write; idempotent
-                by SKIP -- an existing node is left untouched and no event is appended;
-                exit 3 when a sprint or story's parent epic is absent. Retires with the
-                migration in Phase 6)
-  set-actual    --state-root S   --node {story,epic}  (--story KEY | --epic ID)
+  set-actual    --project-root P  --plan-file PATH
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
                 (any --tokens-* requires --model M; under --runtime claude ALL FOUR are
                 required once any is given — an explicit 0 counts; [--token-rates JSON]
-                overrides its rate card;
-                cost is DERIVED from tokens x rates — --cost is declared but always rejected)
+                overrides its rate card; [--tokens-by-model JSON] for a run on more than
+                one model; cost is DERIVED from tokens x rates — --cost is declared but
+                always rejected)
                 [--tokens-na]   (in place of --tokens-*; runtime=other only, forbidden under runtime=claude)
-                [--runtime {claude,codex,copilot,other}] [--flock] [--no-events] [--session-id ID]
-                [--no-calibrate]
-                (derives the node's calibration sample inline — write
-                completion_evidence.fix_iterations BEFORE this call, or the scope/fix
-                split cannot see it; the sample is emitted at most once per node,
-                guarded by a `calibration_sampled_at` marker)
-  set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
-                [--man-hours-low H] [--man-hours-high H] [--hitl-hours-low H] [--hitl-hours-high H]
-                [--elapsed-hours-low H] [--elapsed-hours-high H]
-                [--tokens-k-min K] [--tokens-k-max K]
-                (sprint/epic ranges; kind is inferred from --story vs --epic[/--sprint] —
-                a story node instead takes the single-value aliases --man-hours H,
-                --hitl-hours H, --elapsed-hours H, --tokens-k K;
-                --time-hours* accepted as a deprecated alias for --elapsed-hours*;
-                cost is DERIVED from tokens x rates — --cost/--cost-low/--cost-high are
-                declared but always rejected; use estimate-story/estimate-rollup instead)
-                [--confidence {low,medium,high}] [--flock]
-  import-actual --state-root S  --node story|sprint|epic  (--story KEY | --epic ID [--sprint ID])
-                [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
-                (an actual OBSERVED ELSEWHERE, for a migration. runtime=other, tokens=N/A and
-                no calibration sample are FIXED, not flags: --runtime, --tokens-*, --model and
-                --calibrate are absent from its surface, so a call that would claim Claude
-                provenance or poison the learned ratios is a usage error rather than a silent
-                one. Delegates to set-actual, which is unchanged)
-  add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
-                (appends {command, exit_code} to completion_evidence.test_runs and
-                derives completion_evidence.tests_passing as all(exit_code == 0) over
-                the LAST run of each distinct command -- record failures too, a
+                [--runtime {claude,codex,copilot,other}] [--no-events] [--session-id ID]
+                (writes [actual] in the ticket sidecar <plan-stem>.l3io.toml beside the
+                plan and one `actual` event; records NO calibration sample -- build-close
+                pairs an actual with the estimate made before the build)
+  set-estimate  --project-root P  --ticket-dir DIR  --entry ID
+                [--man-hours H] [--hitl-hours H] [--elapsed-hours H] [--tokens-k K]
+                [--confidence {low,medium,high}] [--fix-factor F] [--scope-ratio R]
+                (writes [entry.<id>].estimate in the epic's tickets/l3io.toml; cost is
+                DERIVED — --cost/--cost-low/--cost-high are declared but always rejected;
+                estimate-entries computes an estimate from the calibrated bands instead)
+  add-test-run  --project-root P  --plan-file PATH  --command CMD  --exit-code N
+                (appends {command, exit_code} to completion_evidence.test_runs in the ticket
+                sidecar and derives completion_evidence.tests_passing as all(exit_code == 0)
+                over the LAST run of each distinct command -- record failures too, a
                 re-run of the same command supersedes them for the boolean only)
   usage         [TRANSCRIPT ...]  [--claude-session ID] [--state-root S]
                 [--agent NAME] [--epic ID] [--sprint ID] [--story KEY]
@@ -87,10 +62,10 @@ Subcommands
                 $CLAUDE_CODE_SESSION_ID or --claude-session; --state-root plus
                 node keys derive a --since/--until window from that node's
                 dispatch bracket instead of passing one explicitly)
-  verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-                [--require-tokens] [--runtime {claude,other}]
-                (--scope epic checks structural/back-reference integrity across the
-                epic's whole subtree; --scope story/sprint check completion of one node)
+  verify        --project-root P  --plan-file PATH  [--scope story]
+                [--require-tokens] [--runtime {claude,codex,copilot,other}] [--token-rates JSON]
+                (judges a ticket sidecar's actuals and completion evidence as complete;
+                the status is the plan's and v7's, so it is not judged)
   report        --project-root P  --initiative-dir D  [--status-json F]
                 [--format tree|json|md] [--out F] [--watch SECS] [--stall-minutes M]
                 (tickets.py status -- from F, else v7's installed tickets.py -- plus each
@@ -102,22 +77,9 @@ Subcommands
                 (appends a dispatch_open/dispatch_close event to events.jsonl;
                 feeds report's stall detection and marks the child/orchestration
                 spend boundary -- records timestamps only, never a token count)
-  calibration   show  --state-root S  [--format {text,json}]
-                (inspects pm-calibration.yaml; a missing file is a normal
-                cold-start state, not an error)
-  estimate-story --state-root S  --story KEY  --classification C
-                [--confidence {low,medium,high}] [--model M] [--token-rates JSON]
-                (writes estimate = band_mid x scope_ratio x fix_factor, per
-                metric, using whichever calibrated scope ratio is active per
-                metric; cost is priced from the banded tokens_k total rather
-                than banded/calibrated on its own; --model falls back to
-                DEFAULT_ESTIMATE_MODEL)
-  estimate-rollup --state-root S  --epic ID
-                [--model M] [--token-rates JSON]
-                (rolls every story estimate under a 3.x epic up to the epic as
-                sum(stories) + a calibrated closure band + a calibrated
-                orchestration band, always in range form; no sprint level
-                between them, ADR-0016)
+  calibration   {show,migrate-metrics}  --state-root S  [--format {text,json}]
+                (show inspects pm-calibration.yaml -- a missing file is a normal cold-start
+                state, not an error; migrate-metrics applies the file's schema migrations)
   rates         [--model M] [--token-rates JSON]
                 (prints the effective per-class token rate table -- shipped
                 defaults merged with any --token-rates/modules.l3io-pm
@@ -149,7 +111,7 @@ Subcommands
                 [--token-rates JSON]
                 (v7 estimation, run by Sofia's slice/refine/replan hooks and `l3io-plan
                 estimate`: writes [entry.<id>] in D's l3io.toml -- class, fingerprint,
-                estimated_at, and the estimate estimate-story would compute -- for each
+                estimated_at, and the band x calibration estimate (compute_story_estimate) -- for each
                 entry that is new, whose description/verify/covers changed, whose --class
                 differs, that --entry names, or every one under --force; never an entry
                 with a hand-set estimate in tickets.toml. Then rolls [epic].estimate up
@@ -212,15 +174,16 @@ Subcommands
                 ambiguous markers, exit 3 = --check found another harness's file holding a
                 stale copy)
 
-v7 addressing (status-files.md §12). set-estimate, set-actual, add-test-run and verify
-also take --project-root P IN PLACE OF --state-root S, with a v7 address IN PLACE OF the
-node keys: set-estimate --ticket-dir DIR --entry ID writes [entry.<id>].estimate in that
-epic's tickets/l3io.toml; set-actual, add-test-run and verify --plan-file PATH address the
-ticket sidecar <plan-stem>.l3io.toml beside the plan. Project-wide state (events.jsonl,
+Addressing (status-files.md §12). Every verb that writes our sidecars takes --project-root P
+and a v7 address: --ticket-dir DIR --entry ID for an entry's estimate, --plan-file PATH for a
+ticket's actuals, test runs and verify. Project-wide state (events.jsonl,
 pm-calibration.yaml) lives at the main checkout's {output_folder}/l3io/ from any worktree.
-Mixing the two schemes is a usage error. No v7 file (tickets.toml, leaf, plan) is ever
-written; a hand-set `estimate` or `l3io_<name>` on a tickets.toml entry is read as an
-override. set-actual on a ticket records no calibration sample.
+No v7 file (tickets.toml, leaf, plan) is ever written; a hand-set `estimate` or
+`l3io_<name>` on a tickets.toml entry is read as an override. The 3.x node addressing
+(--state-root with --story/--epic/--sprint), and the migration-only import-node,
+import-actual, estimate-story, estimate-rollup and `calibration redrive`, retired with the
+3.x tree in Phase 6: migrate-engine.py reads that tree and writes these sidecars, and
+estimate-entries is the v7 address of estimate-story and estimate-rollup.
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
@@ -275,23 +238,23 @@ if not __package__ and __name__ == "__main__":
 # The dependency root (`core`, see pm_status/core/__init__.py) and the node layer
 # (`nodes`, see pm_status/nodes/__init__.py). Two import styles, and the difference is
 # load-bearing. The names the suite mock.patches are reached through the MODULE OBJECT
-# (`core._load(...)`, `core._atomic_dump(...)`, `nodes.save_node(...)`,
-# `nodes.epic_file(...)`): a `from .core import _load` binding here would be a private
+# (`core._load(...)`, `core._atomic_dump(...)`): a `from .core import _load` binding here
+# would be a private
 # copy that a patch on core could not reach, so the test would pass while guarding
 # nothing. Everything else is re-exported by name, because `pm_status.<name>` is this
 # module's globals and the suite reads several hundred of them directly through the
 # __init__.py facade.
 #
 # The split is per patch target, not per module, and a patched name is left OUT of the
-# re-export lists below: a `pm.save_node` binding beside `pm.nodes.save_node` is a second
-# thing to patch, and the wrong one passes silently. TestPatchTargetsAreDefinedInMain is
+# re-export lists below: a `pm._load` binding beside `pm.core._load` is a second thing to
+# patch, and the wrong one passes silently. TestPatchTargetsAreDefinedInMain is
 # the standing guard. `nodes` also carries check 26's resolver-section markers, so it is
 # the one file in this package allowed to assemble a state path; nothing here does.
 #
 # `metrics` is a DIRECTORY of modules (events, rates, calibration, estimates, spend, report,
 # actuals_usage -- see its __init__.py), so its patch targets are two levels down.
-# `metrics.estimates.compute_story_estimate`, `metrics.estimates.rollup_parent_estimate` and
-# `metrics.actuals_usage.dispatch_window` are reached module-qualified and none is
+# `metrics.estimates.compute_story_estimate` and `metrics.actuals_usage.dispatch_window` are
+# reached module-qualified and none is
 # re-exported, here or by `metrics/__init__.py`. `adr` is the ADR number allocator, one verb.
 # FOUR of the modules are imported for a LIVE caller: `build_parser` calls
 # `<module>.register(sub)` on each of adr, instructions, metrics and verbs, so none
@@ -307,12 +270,12 @@ if not __package__ and __name__ == "__main__":
 # module later loses its caller that is reported separately rather than absorbed.
 #
 # `sidecar` is the package's eighth module (4.x sidecars beside v7's ticket tree). Its
-# `__init__` is a low layer -- `verbs` and `metrics` import its CLI helpers -- so it owns no
+# `__init__` is a low layer -- `metrics` and `sidecar.verbs` import from it -- so it owns no
 # `register` and is bound here as `pm.sidecar` for the suite. Its verbs live one level down
 # in `sidecar.verbs`, which sits above `verbs` and `metrics` and is imported by name: its
-# `register` adds `sidecar-reconcile` and, from `sidecar.estimate` and `sidecar.lanes`,
-# `estimate-entries` and `set-lane`; and
-# `main` asks its `route` which handler a parsed command line runs.
+# `register` adds `set-estimate`, `set-actual`, `add-test-run`, `verify`,
+# `sidecar-reconcile` and, from `sidecar.estimate` and `sidecar.lanes`, `estimate-entries`
+# and `set-lane`.
 #
 # `bracket` is the ninth: `build-open` and `build-close`, the measurement bracket v7's
 # `bmad-build` and `bmad-build-auto` run through their hooks. It sits above `sidecar.verbs`
@@ -340,15 +303,9 @@ from .adr import (
     load_adr_register,  # noqa: F401 -- re-export only
 )
 from .core import (
-    _EPIC_NODE_LOCK,  # noqa: F401 -- re-export only
     _LOCK_IGNORE_CHECKED,  # noqa: F401 -- re-export only
-    # Facade-only, and PINNED: test_dir_for_status_is_the_inverse_of_status_for_dir
-    # reads pm.DIR_FOR_STATUS. `nodes` imports it from core directly, so dropping it
-    # here would error that test rather than go quiet.
-    DIR_FOR_STATUS,  # noqa: F401 -- re-export only
     METRIC_FIELDS,  # noqa: F401 -- re-export only
     PM_STATUS_VERSION,
-    STATUS_FOR_DIR,  # noqa: F401 -- re-export only
     PMError,  # noqa: F401 -- re-export only
     _hashable_field,  # noqa: F401 -- re-export only
     _indexable_key,  # noqa: F401 -- re-export only
@@ -361,12 +318,7 @@ from .core import (
     append_event,  # noqa: F401 -- re-export only
     calibration_lock,  # noqa: F401 -- re-export only
     calibration_path,  # noqa: F401 -- re-export only
-    epic_dirname,  # noqa: F401 -- re-export only
-    epic_lock_path,  # noqa: F401 -- re-export only
-    epic_node_lock,  # noqa: F401 -- re-export only
     events_path,  # noqa: F401 -- re-export only
-    parse_story_key,  # noqa: F401 -- re-export only
-    sprint_dirname,  # noqa: F401 -- re-export only
 )
 from .instructions import (
     BlockError,  # noqa: F401 -- re-export only
@@ -381,35 +333,25 @@ from .metrics.actuals_usage import (
     resolve_session_transcript,  # noqa: F401 -- re-export only
 )
 from .metrics.calibration import (
-    CALIBRATION_MARKER,  # noqa: F401 -- re-export only
     CALIBRATION_METRICS_MARKER,  # noqa: F401 -- re-export only
     CALIBRATION_SCHEMA_VERSION,  # noqa: F401 -- re-export only
     CLASSIFICATIONS,  # noqa: F401 -- re-export only
-    CLOSURE_RANGE_KEYS,  # noqa: F401 -- re-export only
     COLD_START_FIX_FACTOR,  # noqa: F401 -- re-export only
     COLD_START_SCOPE_RATIO,  # noqa: F401 -- re-export only
-    ORCH_MID,  # noqa: F401 -- re-export only
-    ORCH_SPREAD,  # noqa: F401 -- re-export only
-    ORCHESTRATION_MARKER,  # noqa: F401 -- re-export only
     TOKEN_BASIS_MARKER,  # noqa: F401 -- re-export only
     WALL_CLOCK_METRICS,  # noqa: F401 -- re-export only
     _component_samples,  # noqa: F401 -- re-export only
-    _mark_sampled,  # noqa: F401 -- re-export only
     active_closure_ratio,  # noqa: F401 -- re-export only
     active_fix_factor,  # noqa: F401 -- re-export only
     active_orchestration_fraction,  # noqa: F401 -- re-export only
     active_scope_ratio,  # noqa: F401 -- re-export only
-    actual_event_times,  # noqa: F401 -- re-export only
-    derive_closure_sample,  # noqa: F401 -- re-export only
     derive_story_sample,  # noqa: F401 -- re-export only
     load_calibration,  # noqa: F401 -- re-export only
     migrate_calibration,  # noqa: F401 -- re-export only
     migrate_calibration_metrics,  # noqa: F401 -- re-export only
     migrate_calibration_token_basis,  # noqa: F401 -- re-export only
     new_calibration,  # noqa: F401 -- re-export only
-    record_closure_sample,  # noqa: F401 -- re-export only
     record_story_sample,  # noqa: F401 -- re-export only
-    redrive_story_samples,  # noqa: F401 -- re-export only
     save_calibration,  # noqa: F401 -- re-export only
     weighted_ratio,  # noqa: F401 -- re-export only
 )
@@ -435,17 +377,6 @@ from .metrics.rates import (
     TOKEN_CLASSES,  # noqa: F401 -- re-export only
     TOKEN_RATES,  # noqa: F401 -- re-export only
     cost_from_tokens,  # noqa: F401 -- re-export only
-)
-
-# The node layer's exports, by name. `save_node` and `epic_file` are deliberately absent
-# -- the suite patches them, so they are reached as `nodes.<name>` (see above).
-from .nodes import (
-    check_backrefs,  # noqa: F401 -- re-export only
-    ensure_node_path,  # noqa: F401 -- re-export only
-    find_epic_dir,  # noqa: F401 -- re-export only
-    load_node,  # noqa: F401 -- re-export only
-    sprint_file,  # noqa: F401 -- re-export only
-    story_file,  # noqa: F401 -- re-export only
 )
 from .sidecar import closure as sidecar_closure
 from .sidecar import verbs as sidecar_verbs
@@ -495,9 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    # A verb with both 3.x node addressing and v7 addressing runs the handler its flags
-    # name; every other verb runs its own `func` (sidecar/verbs.py, `route`).
-    return sidecar_verbs.route(args)(args)
+    return args.func(args)
 
 
 if __name__ == "__main__":

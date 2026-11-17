@@ -1,17 +1,14 @@
 """pm_status.metrics.actuals_usage -- writing actuals, and reading the transcript they come from.
 
-`set-actual`/`import-actual` (which also drive the calibration append), the Claude
-session-transcript discovery and `usage` reading that make token and cost actuals
-EXACT under Claude rather than guessed, and `dispatch_window`.
+`actual_values` (the validated actual block set-actual, build-close and epic-close
+write), the Claude session-transcript discovery and `usage` reading that make token and
+cost actuals EXACT under Claude rather than guessed, and `dispatch_window`.
 
-It sits above `calibration` and `rates`: an actuals write prices through the rate
-table and then appends a calibration sample, so it depends on both and neither
-depends on it.
+It sits above `rates`: an actuals write prices through the rate table.
 
 `dispatch_window` is a mock.patch target (`pm.metrics.actuals_usage.dispatch_window`)
 and so is NOT re-exported. `cmd_usage` calls it as a plain global in this module,
-which is exactly the binding `patch.object` rebinds. `nodes.save_node` is
-module-qualified for the same reason.
+which is exactly the binding `patch.object` rebinds.
 """
 
 from __future__ import annotations
@@ -22,25 +19,12 @@ import os
 import sys
 from datetime import UTC, datetime
 
-from .. import nodes
 from ..core import (
     _coerce,
     _die_usage,
-    _event_keys,
-    _now_iso,
     _num_or_none,
     _parse_iso,
-    append_event,
     events_path,
-)
-from ..nodes import (
-    _epic_write_lock,
-    _load_checked,
-)
-from .calibration import (
-    record_closure_sample,
-    record_orchestration_sample,
-    record_story_sample,
 )
 from .rates import (
     TOKEN_CLASSES,
@@ -50,36 +34,6 @@ from .rates import (
     resolve_rates,
     tokens_block,
 )
-
-
-def cmd_import_actual(args) -> int:
-    """set-actual with the migration contract baked into defaults that cannot be overridden.
-
-    A migrated actual needs three things, each easy to forget and dangerous to forget:
-
-      runtime = other   it has no Claude provenance to claim
-      tokens  = N/A     legacy data carries no four-class split, and 0 would be consumed by
-                        calibration as a real measurement, dragging the learned ratio to zero
-      no calibration    a bulk import must not append hundreds of samples in one pass;
-                        `calibration redrive` rebuilds from the nodes afterwards if wanted
-
-    set-actual can express all three -- that is why this verb delegates rather than
-    reimplements, and why set-actual is left exactly as it is. What it cannot do is stop a
-    caller omitting one: forget --tokens-na under runtime=claude and you get a refusal, but
-    forget --no-calibrate and the ratios are quietly poisoned with unmeasured data. This verb
-    removes that choice. --runtime, --tokens-*, --model and --calibrate are not in its surface
-    at all, so a wrong call is a usage error rather than a silent one.
-    """
-    args.runtime = "other"
-    args.tokens_na = True
-    args.no_calibrate = True
-    args.block = "actual"
-    args.model = ""
-    args.token_rates = ""
-    args.cost = None
-    for f in ("tokens_input", "tokens_output", "tokens_cache_write", "tokens_cache_read"):
-        setattr(args, f, None)
-    return cmd_set_actual(args)
 
 
 def _parse_tokens_by_model(raw: str, overrides) -> dict:
@@ -116,27 +70,10 @@ def _parse_tokens_by_model(raw: str, overrides) -> dict:
     return out
 
 
-def cmd_set_actual(args) -> int:
-
-    kind = args.node
-    block = getattr(args, "block", "actual")
-    if block == "orchestration" and kind == "story":
-        _die_usage("--block orchestration is only valid on an epic — a story's "
-                   "orchestration belongs to its epic")
-    if args.cost is not None:   # a usage error on any node: refused before the epic lock
-        _die_usage("--cost is not accepted: cost is derived from tokens x rates. "
-                   "Fix the token counts or modules.l3io-pm.token_rates instead.")
-    # Both the node save and, for an epic, the calibration sample's replay marker
-    # (_mark_sampled) write the node, so an epic's whole cycle runs under its lock. Lock
-    # order: epic_node_lock, then calibration_lock inside the record_* helpers.
-    with _epic_write_lock(args, kind):
-        return _set_actual(args, kind, block)
-
-
 def actual_values(args) -> dict:
     """The validated actual block set-actual's flags describe: {metric: value}, with `cost`
     derived from tokens x rates and never taken from the caller. Exits 2 on any usage error.
-    Shared by the 3.x node write below and the v7 ticket-sidecar write (sidecar.verbs)."""
+    Shared by set-actual (sidecar.verbs), build-close and epic-close."""
     provided = {
         "elapsed_hours": args.elapsed_hours,
         "man_hours": args.man_hours,
@@ -252,62 +189,6 @@ def actual_values(args) -> dict:
         _die_usage("set-actual needs at least one of --elapsed-hours/--man-hours/"
                    "--hitl-hours/--tokens-* /--tokens-na")
     return {k: v if not isinstance(v, str) else _coerce(k, v) for k, v in provided.items()}
-
-
-def _set_actual(args, kind, block) -> int:
-    """cmd_set_actual's body; the caller holds the epic lock for an epic node."""
-    y, node, path, label = _load_checked(args.state_root, args, kind)
-    provided = actual_values(args)
-
-    block_data = node.get(block)
-    if block_data is None:
-        from ruamel.yaml.comments import CommentedMap
-
-        block_data = CommentedMap()
-        node[block] = block_data
-    for k, v in provided.items():
-        block_data[k] = v
-    # A re-capture that is not split per model must not leave an earlier split behind:
-    # verify would sum it against tokens_k it no longer describes.
-    if "tokens_k" in provided and "by_model" not in provided and "by_model" in block_data:
-        del block_data["by_model"]
-
-    nodes.save_node(y, node, path, getattr(args, "flock", False))
-
-    calib_note = ""
-    if not getattr(args, "no_calibrate", False):
-        # Calibration is DERIVED data. A failure here must never fail the
-        # actuals write, which is the primary record — but it must be visible,
-        # not silent.
-        try:
-            if block == "orchestration":
-                # kind is "epic" here — a story was already rejected above.
-                calib_note = record_orchestration_sample(args.state_root, kind, args.epic)
-            elif kind == "story":
-                # path + y so the sample can stamp its replay marker on the node
-                calib_note = record_story_sample(args.state_root, node, path, y)
-            elif kind == "epic":
-                calib_note = record_closure_sample(args.state_root, "epic", args.epic)
-        except Exception as e:                      # noqa: BLE001 - deliberate isolation
-            sys.stderr.write(f"pm-status.py: warning — actual written, but calibration "
-                             f"sample failed: {e}\n")
-            calib_note = "calibration skipped (see stderr)"
-
-    if not getattr(args, "no_events", False):
-        payload = {"ts": _now_iso(), "event": "actual",
-                   "from": None, "to": None,
-                   "session": getattr(args, "session_id", None)}
-        payload.update(_event_keys(kind, args))
-        append_event(args.state_root, payload)
-
-    suffix = f" [{calib_note}]" if calib_note else ""
-    est_model = (node.get("estimate") or {}).get("model")
-    act_model = provided.get("model")
-    if est_model and act_model and est_model != act_model:
-        suffix += (f" [model mismatch: estimated at {est_model!r},"
-                   f" executed at {act_model!r} — costs not comparable]")
-    sys.stdout.write(f"OK set-actual {label} {sorted(provided)}{suffix}\n")
-    return 0
 
 
 CLAUDE_SESSION_ENV = "CLAUDE_CODE_SESSION_ID"

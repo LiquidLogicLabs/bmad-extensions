@@ -1,42 +1,22 @@
 """pm_status.metrics.estimates -- the estimate engine (references/metrics-contract.md).
 
 `compute_story_estimate` (band midpoint x scope ratio x fix factor, per metric)
-and `rollup_parent_estimate` (sum of children + a calibrated closure band + a
-calibrated orchestration band), plus the cold-start bands and the token-mix split
-the roll-up prices through.
+and `rollup_values` (sum of children + a calibrated closure band + a calibrated
+orchestration band), plus the cold-start bands and the token-mix split the
+roll-up prices through. `estimate-entries` (sidecar.estimate) is their one
+caller: it is the v7 address of the retired 3.x `estimate-story` and
+`estimate-rollup` verbs, writing one entry's estimate and the epic roll-up.
 
-TWO OF THIS MODULE'S EXPORTS ARE mock.patch TARGETS -- `compute_story_estimate`
-and `rollup_parent_estimate` -- so they are reached as
-`metrics.estimates.<name>(...)` from every caller outside this file and are NOT
-re-exported anywhere. Inside this file they are plain global lookups, which is
-what `patch.object(pm.metrics.estimates, ...)` rebinds, so same-module callers
-see the patch too. `_promote_issue` (in `issues/promote.py`) is the one external
-caller of each: it must keep calling them module-qualified or the patch stops
-biting, silently. It reaches this module as `from .. import metrics` at depth 2,
-which keeps the call text character-for-character what it was in `__main__.py`.
-
-`nodes.epic_file` and `nodes.save_node` are module-qualified for the same reason.
+`compute_story_estimate` is reached as `metrics.estimates.<name>(...)` from
+outside this file and is NOT re-exported anywhere, so a patch of it bites.
 """
 
 from __future__ import annotations
 
-import sys
-
-from .. import nodes
 from ..core import (
     PMError,
-    _die_notfound,
-    _die_usage,
     _now_iso,
     _num_or_none,
-    epic_node_lock,
-)
-from ..nodes import (
-    _sprint_key_from_dir,
-    list_sprint_dirs,
-    list_story_files,
-    load_node,
-    story_file,
 )
 from .calibration import (
     CLOSURE_RANGE_KEYS,
@@ -57,7 +37,6 @@ from .rates import (
     TOKEN_CLASSES,
     cost_from_tokens,
     fresh_share,
-    rate_overrides,
     tokens_block,
 )
 
@@ -73,7 +52,7 @@ def observed_mix(cal) -> dict:
     # hasattr(s, "get") first: a stray non-mapping entry (hand-edit, bad
     # merge, partial corruption of the committed, shared calibration file)
     # must fall back to cold-start like every other malformed shape here —
-    # not crash `estimate-story` for the whole project. Same guard as the
+    # not crash `estimate-entries` for the whole project. Same guard as the
     # tokens_k mapping check in record_story_sample above.
     usable = [s for s in samples if hasattr(s, "get") and
               all(_num_or_none(s.get(c)) is not None for c in TOKEN_CLASSES)]
@@ -138,8 +117,8 @@ def compute_story_estimate(state_root, node, cls, model, overrides, confidence=N
     the two can no longer drift apart the way a separately-banded,
     separately-calibrated cost could.
 
-    Never saves and never exits: cmd_estimate_story saves after it; promote-issue
-    writes the new node and its estimate in one save.
+    Never saves and never exits: `estimate-entries` (sidecar.estimate) writes the
+    computed block into the entry's sidecar.
     """
     _, cal = load_calibration(state_root)
     fix = active_fix_factor(cal, cls)
@@ -184,7 +163,7 @@ def compute_story_estimate(state_root, node, cls, model, overrides, confidence=N
     # priced successfully, do we touch node. Get the existing estimate block
     # or create one -- in place, so any other keys and ruamel comments on an
     # existing block survive -- then write the computed values into it in the
-    # same key order cmd_estimate_story has always produced.
+    # same key order it has always had.
     est = node.get("estimate")
     if est is None:
         est = CommentedMap()
@@ -206,27 +185,6 @@ def compute_story_estimate(state_root, node, cls, model, overrides, confidence=N
     return applied
 
 
-def cmd_estimate_story(args) -> int:
-    """CLI wrapper over compute_story_estimate: resolve, compute, save, report."""
-    path = story_file(args.state_root, args.story)
-    if path is None:
-        _die_notfound(f"story {args.story}")
-    y, node = load_node(path)
-    if node is None:
-        _die_notfound(f"story {args.story} — file is empty")
-    try:
-        applied = compute_story_estimate(args.state_root, node, args.classification,
-                                         args.model or DEFAULT_ESTIMATE_MODEL,
-                                         rate_overrides(args), args.confidence)
-    except PMError as e:
-        _die_usage(e.msg)
-    nodes.save_node(y, node, path)
-    shown = " ".join(f"{m}={v}" for m, v in applied.items())
-    sys.stdout.write(f"OK estimate-story {args.story} class={args.classification} "
-                     f"scope_ratios[{shown}] fix_factor={node['estimate']['fix_factor']}\n")
-    return 0
-
-
 # Closure overhead as a fraction of children, used when no calibrated ratio is
 # active yet. Deliberately a band, not a point: closure cost is variable.
 COLD_START_CLOSURE_BAND = (0.10, 0.25)
@@ -237,9 +195,18 @@ def rollup_values(cal, level, children, model, overrides):
     """The roll-up arithmetic over already-loaded children: (estimate, children counted,
     metrics whose orchestration band is not yet active). `level` names the calibration
     components applied (`epic`); each child is a mapping holding `estimate`.
-    Shared by the 3.x node roll-up below and the v7 epic roll-up (`sidecar.estimate`),
-    whose children are the epic's entries with no sprint between them. Raises PMError(2)
-    when no child carries an estimate, or for an unpriceable model."""
+    The v7 epic roll-up (`sidecar.estimate`, run by `estimate-entries`) passes the epic's
+    entries, with no sprint between them (ADR-0016).
+
+    Output is always range form: sum(children) + a closure band + an orchestration band.
+    The closure band scales by the calibrated closure ratio once active (>=3 samples), else
+    the cold-start band applies (ratio 1.0). The orchestration band scales by the
+    calibrated orchestration FRACTION once active, else it contributes nothing -- there is
+    no cold-start prior for orchestration (see ORCH_SPREAD). The applied ratios are recorded
+    as `closure_ratios` and `orchestration_ratios`, per metric. `cost` is not banded: it is
+    priced from the rolled-up tokens_k range, split across classes by `observed_mix`.
+
+    Raises PMError(2) when no child carries an estimate, or for an unpriceable model."""
     from ruamel.yaml.comments import CommentedMap
     est = CommentedMap()
     applied = CommentedMap()
@@ -292,90 +259,3 @@ def rollup_values(cal, level, children, model, overrides):
     est["model"] = model
     est["confidence"] = "medium"
     return est, counted, inactive
-
-
-def rollup_parent_estimate(state_root, epic, model, overrides):
-    """Roll an epic's story estimates up to the epic as a range: sum(stories) + a closure
-    band + an orchestration band. There is no sprint level between them (ADR-0016): a 3.x
-    tree still files stories in sprint folders, and every story under the epic counts.
-    Output is always range form, even when every child estimate is single-value (the
-    story form).
-
-    The closure band scales by the calibrated closure ratio for the metric once active
-    (>=3 samples), else the cold-start band applies (equivalently, ratio 1.0). The
-    orchestration band scales by the calibrated orchestration FRACTION once active, else it
-    contributes nothing — there is no cold-start prior for orchestration (see ORCH_SPREAD,
-    and active_orchestration_fraction's docstring for why). Both bands widen by a fixed
-    spread (COLD_START_CLOSURE_BAND, ORCH_SPREAD respectively) rather than landing on a
-    single point.
-
-    The applied ratios/fractions are recorded as `estimate.closure_ratios` and
-    `estimate.orchestration_ratios`, per metric, so `derive_closure_sample` can divide them
-    back out — the same reason `estimate.scope_ratios` exists on a story.
-
-    `cost` is not one of the banded metrics (see CLOSURE_RANGE_KEYS): it is derived from the
-    rolled-up tokens_k range, split across classes by `observed_mix`, then priced for
-    `--model` (falling back to DEFAULT_ESTIMATE_MODEL), so it stays arithmetically bound to
-    the token estimate it prices.
-
-    Never exits: raises PMError(3) for a missing epic, PMError(2) for nothing to roll up or
-    an unpriceable model. It rewrites epic.yaml, so it runs under that epic's
-    epic_node_lock -- re-entrantly when promote-issue, which already holds it, is the caller.
-    """
-    if nodes.epic_file(state_root, epic) is None:
-        raise PMError(3, f"epic {epic}")
-    with epic_node_lock(state_root, epic):
-        return _rollup_parent_estimate(state_root, epic, model, overrides)
-
-
-def _rollup_parent_estimate(state_root, epic, model, overrides):
-    """rollup_parent_estimate's body; the caller holds the epic lock."""
-    level = "epic"
-    ppath = nodes.epic_file(state_root, epic)
-    child_paths = [sf for d in list_sprint_dirs(state_root, epic)
-                   for sf in list_story_files(state_root, epic, _sprint_key_from_dir(d))]
-    if ppath is None:
-        raise PMError(3, f"epic {epic}")
-    y, pnode = load_node(ppath)
-    if pnode is None:
-        raise PMError(3, "epic file is empty")
-
-    _, cal = load_calibration(state_root)
-    children = [load_node(cp)[1] for cp in child_paths if cp is not None]
-    try:
-        est, counted, inactive = rollup_values(cal, level, children, model, overrides)
-    except PMError as e:
-        if e.msg == NO_CHILD_ESTIMATES:
-            raise PMError(2, f"epic {epic} {NO_CHILD_ESTIMATES}")
-        raise
-    # ANY inactive metric warns, not just "every metric inactive" (`not any(...)`
-    # would under-fire: orchestration calibrates per metric, and a metric is
-    # sampled only when every child carries a numeric actual for it, so under a
-    # mixed runtime man_hours can activate while tokens_k never does — `any()`
-    # would then be true and stay silent on exactly the metric the warning
-    # exists to flag). Named, not blanket: listing which metrics are still
-    # unestimated makes the warning actionable instead of a caveat that is
-    # "always true anyway" once any single metric has activated.
-    if inactive:
-        sys.stderr.write(
-            "pm-status.py: warning — orchestration is unestimated for "
-            f"{', '.join(inactive)} (component has <{MIN_SAMPLES} samples at "
-            f"{level} level); this estimate is known-low on those metrics.\n")
-    pnode["estimate"] = est
-    pnode["updated_at"] = _now_iso()
-    nodes.save_node(y, pnode, ppath)
-    return level, counted
-
-
-def cmd_estimate_rollup(args) -> int:
-    """CLI wrapper over rollup_parent_estimate."""
-    try:
-        level, counted = rollup_parent_estimate(args.state_root, args.epic,
-                                                args.model or DEFAULT_ESTIMATE_MODEL,
-                                                rate_overrides(args))
-    except PMError as e:
-        if e.code == 3:
-            _die_notfound(e.msg)
-        _die_usage(e.msg)
-    sys.stdout.write(f"OK estimate-rollup {level} {args.epic} from {counted} stories\n")
-    return 0

@@ -2,9 +2,10 @@
 
 Sofia's slice, refine and replan hooks and `l3io-plan estimate` run this over one epic's
 tickets folder. For each entry it writes `[entry.<id>]` in that folder's `l3io.toml`:
-`class`, `fingerprint`, `estimated_at` and the `estimate` table, computed exactly as
-`estimate-story` computes a 3.x story's (`metrics.estimates.compute_story_estimate`: the
-class's band x the calibrated scope ratio x the fix factor, cost priced from the tokens).
+`class`, `fingerprint`, `estimated_at` and the `estimate` table, computed by
+`metrics.estimates.compute_story_estimate` (the class's band x the calibrated scope ratio x
+the fix factor, cost priced from the tokens). This verb is the v7 address of the retired
+3.x `estimate-story` and `estimate-rollup`.
 Then it rolls `[epic].estimate` up as the entries' sum plus the epic closure band and the
 orchestration band (`metrics.estimates.rollup_values`). There is no sprint between an epic
 and its entries on v7, so there is no sprint term (ADR-0016). The roll-up is recomputed on
