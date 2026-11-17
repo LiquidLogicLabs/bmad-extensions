@@ -23,8 +23,12 @@ same plan, retires the first as `abandoned` (an interactive `bmad-build` runs On
 success only, so a build the user walked away from never closes); its events are written at
 the next close, the first moment a tracked write is allowed.
 
-Tokens under Claude are read from the session's own transcript over the bracket's window
-(`actuals_usage.read_transcript_usage`), never typed by the agent. Other runtimes record
+Tokens follow metrics-contract.md §3 per runtime. Under Claude they are read from the
+session's own transcript over the bracket's window (`actuals_usage.read_transcript_usage`)
+and never typed. Codex and Copilot expose counts the agent can read but this verb cannot,
+so the close takes them as flags -- input, output and cached input with `--model` under
+Codex; input and output under Copilot, whose `cost` is `N/A` -- and refuses to record `N/A`
+in their place, exactly as `set-actual` does, before anything is written. `other` records
 `N/A`. `cost` is derived, as everywhere.
 
 Each close appends one record to the sidecar's `dispatch` list, and `[actual]` is the sum
@@ -206,46 +210,102 @@ def _window_tokens(opened: dict, since: datetime, until: datetime, model: str) -
 
 
 def _sum_dispatches(dispatches: list) -> dict:
-    """The ticket's actual: every closed bracket summed. Tokens per model; `N/A` when no
-    bracket measured them and at least one could not (another runtime)."""
+    """The ticket's actual: every closed bracket summed. Per-model tokens (Claude, Codex),
+    Copilot's input/output totals, and whether any bracket recorded `N/A`."""
     out = {"elapsed_hours": 0.0, "man_hours": 0.0, "hitl_hours": 0.0}
     tokens: dict = {}
+    copilot = {"input": 0, "output": 0}
+    runtimes: set = set()
     na = False
     for d in dispatches:
         for m in out:
             out[m] += float(d.get(m) or 0)
         t = d.get("tokens")
-        if isinstance(t, dict):
+        if isinstance(t, dict) and d.get("runtime") == "copilot":
+            runtimes.add("copilot")
+            for c in copilot:
+                copilot[c] += t.get(c, 0)
+        elif isinstance(t, dict):
+            runtimes.add(d.get("runtime") or "claude")
             for model, counts in t.items():
                 acc = tokens.setdefault(model, {c: 0 for c in TOKEN_CLASSES})
                 for c in TOKEN_CLASSES:
                     acc[c] += counts.get(c, 0)
         elif t == "N/A":
             na = True
-    return {**{m: round(v, 4) for m, v in out.items()}, "tokens": tokens, "na": na}
+    return {**{m: round(v, 4) for m, v in out.items()}, "tokens": tokens,
+            "copilot": copilot, "runtimes": runtimes, "na": na}
 
 
-def _actual_args(total: dict, token_rates: str) -> argparse.Namespace:
-    """set-actual's flags for a summed actual, so `actual_values` validates and prices it
-    exactly as it does a hand-typed one."""
+def _actual_args(total: dict, token_rates: str) -> tuple:
+    """(set-actual's flags for a summed actual, a note or ""), so `actual_values` validates
+    and prices it under the runtime that measured it, as it does a hand-typed one."""
     ns = argparse.Namespace(
         elapsed_hours=total["elapsed_hours"], man_hours=total["man_hours"],
         hitl_hours=total["hitl_hours"], tokens_na=False, model="", runtime="other",
         token_rates=token_rates, tokens_by_model=None,
         **{f"tokens_{c}": None for c in TOKEN_CLASSES})
-    tokens = total["tokens"]
-    if len(tokens) == 1:
+    tokens, runtimes = total["tokens"], total["runtimes"]
+    if "copilot" in runtimes and tokens:
+        ns.tokens_na = True
+        return ns, ("tokens recorded as N/A: this ticket's brackets mix Copilot, which has "
+                    "no class split, with per-class runtimes, and one actual cannot hold both")
+    if "copilot" in runtimes:
+        ns.runtime = "copilot"
+        ns.tokens_input = round(total["copilot"]["input"] / 1000.0, 3)
+        ns.tokens_output = round(total["copilot"]["output"] / 1000.0, 3)
+    elif len(tokens) == 1:
         (model, counts), = tokens.items()
-        ns.runtime, ns.model = "claude", model
+        ns.runtime = "claude" if "claude" in runtimes else "codex"
+        ns.model = model
         for c in TOKEN_CLASSES:
             setattr(ns, f"tokens_{c}", round(counts[c] / 1000.0, 3))
     elif tokens:
-        ns.runtime = "claude"
+        ns.runtime = "claude" if "claude" in runtimes else "codex"
         ns.tokens_by_model = json.dumps({m: {c: round(v[c] / 1000.0, 3) for c in TOKEN_CLASSES}
                                          for m, v in sorted(tokens.items())})
     elif total["na"]:
         ns.tokens_na = True
-    return ns
+    return ns, ""
+
+
+# The counts each runtime exposes to the agent (metrics-contract.md §3), as build-close flags.
+TYPED_TOKENS = {"codex": ("input", "output", "cache_read"), "copilot": ("input", "output")}
+
+
+def _typed_tokens(args):
+    """The bracket's tokens as typed for a runtime this verb cannot read: per-model counts
+    under Codex, {input, output} under Copilot, None otherwise. Exits 2, before anything is
+    written, on counts a runtime does not take or on missing ones."""
+    given = {c: getattr(args, f"tokens_{c}", None) for c in ("input", "output", "cache_read")}
+    given = {c: v for c, v in given.items() if v is not None}
+    need = TYPED_TOKENS.get(args.runtime)
+    if need is None:
+        if given:
+            _die_usage(f"runtime={args.runtime} takes no typed token counts: "
+                       + ("they are read from this session's transcript"
+                          if args.runtime == "claude" else "it records tokens as N/A"))
+        return None
+    flag = {c: "--tokens-" + c.replace("_", "-") for c in TYPED_TOKENS["codex"]}
+    extra = [flag[c] for c in given if c not in need]
+    if extra:
+        _die_usage(f"runtime={args.runtime} does not expose {', '.join(extra)}")
+    missing = [flag[c] for c in need if c not in given]
+    if missing:
+        _die_usage(f"runtime={args.runtime} forbids tokens=N/A: pass {', '.join(missing)} "
+                   "(thousands of tokens over this build; see metrics-contract.md §3)")
+    if any(v < 0 for v in given.values()):
+        _die_usage("token counts must be >= 0")
+    raw = {c: round(v * 1000) for c, v in given.items()}
+    if args.runtime == "copilot":
+        return raw
+    if not args.model:
+        _die_usage("runtime=codex needs --model: the same tokens price differently per model")
+    unpriced = _priceable({args.model: None}, args.token_rates)
+    if unpriced:
+        _die_usage(f"no rate card for {unpriced}; add it to modules.l3io-pm.token_rates")
+    return {args.model: {"input": raw["input"], "output": raw["output"], "cache_write": 0,
+                         "cache_read": raw["cache_read"]}}
 
 
 def _priceable(tokens: dict, token_rates: str) -> str:
@@ -312,6 +372,7 @@ def _commit(project_root: str, paths: list, message: str) -> str:
 
 def cmd_build_close(args) -> int:
     runs = _parse_test_runs(args.test_run)
+    typed = _typed_tokens(args)
     for flag in ("man_hours", "hitl_hours"):
         v = getattr(args, flag)
         if v < 0:
@@ -368,7 +429,9 @@ def cmd_build_close(args) -> int:
                   if since else 0.0}
         if since:
             record["opened_at"] = _iso(since)
-        if args.runtime != "claude":
+        if typed is not None:
+            record["tokens"] = typed
+        elif args.runtime != "claude":
             record["tokens"] = "N/A"
         elif since:
             tokens, why = _window_tokens(opened, since, now, args.model)
@@ -392,8 +455,10 @@ def cmd_build_close(args) -> int:
                 item[k] = v
             doc["dispatch"].append(item)
             dispatches = sidecar.plain(doc["dispatch"])
-        provided = actuals_usage.actual_values(_actual_args(_sum_dispatches(dispatches),
-                                                            args.token_rates))
+        summed, why = _actual_args(_sum_dispatches(dispatches), args.token_rates)
+        if why:
+            notes.append(why)
+        provided = actuals_usage.actual_values(summed)
         sidecar_verbs.write_ticket_actual(sidecar_path, provided)
         append_event(state_root, {"ts": _iso(now), "event": "actual", "from": None,
                                   "to": None, "session": args.session_id, "node": "ticket",
@@ -443,7 +508,8 @@ def register(sub):
                     help="the ticket's plan; omit to close the bracket and record events only")
     bc.add_argument("--runtime", required=True, choices=RUNTIMES)
     bc.add_argument("--model", default="",
-                    help="model for transcript turns that name none")
+                    help="claude: the model for transcript turns that name none; codex: "
+                         "the model that priced the typed counts")
     bc.add_argument("--man-hours", dest="man_hours", type=float, required=True,
                     help="counterfactual: what a developer would have taken by hand")
     bc.add_argument("--hitl-hours", dest="hitl_hours", type=float, required=True,
@@ -451,6 +517,10 @@ def register(sub):
     bc.add_argument("--test-run", dest="test_run", action="append", default=[],
                     metavar="CMD=EXIT", help="one executed verification command and its "
                                              "exit code; repeatable")
+    for c in TYPED_TOKENS["codex"]:
+        bc.add_argument("--tokens-" + c.replace("_", "-"), dest=f"tokens_{c}", type=float,
+                        default=None, help="thousands of tokens over this build; codex and "
+                                           "copilot only (metrics-contract.md §3)")
     bc.add_argument("--token-rates", dest="token_rates", default="",
                     help="JSON object of per-model rate overrides")
     bc.add_argument("--session-id", dest="session_id", default=None,

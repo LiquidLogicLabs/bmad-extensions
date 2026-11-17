@@ -759,7 +759,9 @@ no `tickets.toml` holds is reported, since it cannot be followed without the mov
 of `*`, so it is invisible to git and `bmad-build-auto`'s clean-tree check still passes.
 `build-close` appends the `dispatch_open`/`dispatch_close` pair, adds the bracket to the
 plan sidecar's `dispatch` list and writes `actual` as the sum of that list (tokens from the
-Claude transcript over the bracket, `N/A` under other runtimes, `cost` derived), records each
+Claude transcript over the bracket; under Codex and Copilot the counts the agent passes as
+`--tokens-*`, refused when missing because `N/A` is forbidden there; `N/A` under `other`;
+`cost` derived), records each
 `--test-run`, and takes `fix_iterations` from the plan's `review_loop_iteration`. It takes one
 calibration sample per ticket, and only when the plan reads `built` or `done` and the entry's
 `[entry.<id>].estimate` exists: an estimate made after the build is not a prediction. It then

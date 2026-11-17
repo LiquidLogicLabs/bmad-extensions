@@ -323,11 +323,14 @@ Subcommands
   build-close   --project-root P  --agent {bmad-build,bmad-build-auto}  [--plan-file F]
                 --runtime {claude,codex,copilot,other}  [--model M]  --man-hours H
                 --hitl-hours H  [--test-run 'CMD=EXIT' ...]  [--token-rates JSON]
+                [--tokens-input K --tokens-output K [--tokens-cache-read K]]
                 [--session-id ID]
                 (v7 build hook, on_complete: appends the dispatch_open/dispatch_close pair,
                 appends the bracket to the ticket sidecar's `dispatch` list and writes
                 [actual] as their sum -- tokens read from the Claude transcript over the
-                bracket, N/A under other runtimes, cost derived -- records each --test-run,
+                bracket; typed under codex (input, output, cache-read, --model) and
+                copilot (input, output), where a missing count is exit 2 before any
+                write; N/A under other; cost derived -- records each --test-run,
                 takes one calibration sample when the plan reads built and its entry was
                 estimated beforehand, then commits each path it wrote inside the worktree
                 as `chore(l3io): actuals <ticket>`. Exit 4 when no bracket was open: the

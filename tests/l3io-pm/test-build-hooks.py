@@ -296,6 +296,101 @@ class TestBuildHooks(Project):
         self.assertEqual(list((self.state_root / ".inflight").glob("*.json")), [])
         self.assertEqual(self.porcelain(), "")
 
+    def _close_under(self, runtime, extra=""):
+        """open, then close with `<runtime>` filled and `extra` appended to the command, as
+        the On Complete prose tells a codex or copilot agent to; returns the close."""
+        open_e, close_e = entries("l3io-build-auto-open", "l3io-build-auto-close")
+        base = {"{project-root}": str(self.root), "{plan_file}": str(self.plan)}
+        self.sh(command_of(open_e, base))
+        cmd = command_of(close_e, {**base, **BUILD_FILL, "<runtime>": runtime})
+        r = subprocess.run(["bash", "-c", f"{cmd} {extra}"], cwd=self.root,
+                           capture_output=True, text=True, env=self.env)
+        return r
+
+    def _verify_under(self, runtime):
+        return self.pm("verify", "--scope", "story", "--project-root", str(self.root),
+                       "--plan-file", str(self.plan), "--runtime", runtime)
+
+    def test_codex_close_records_the_counts_the_runtime_exposes(self):
+        """metrics-contract.md §3: codex exposes input, output and cached input, so tokens
+        are captured, never `N/A`, and `verify --runtime codex` accepts what was written."""
+        self.estimate()
+        r = self._close_under("codex", "--model gpt-5.6-terra --tokens-input 10 "
+                                       "--tokens-output 2 --tokens-cache-read 30")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        side = self.sidecar()
+        tk = side["actual"]["tokens_k"]
+        self.assertEqual((tk["input"], tk["output"], tk["cache_write"], tk["cache_read"]),
+                         (10, 2, 0, 30), side["actual"])
+        self.assertGreater(side["actual"]["cost"], 0)
+        self.assertEqual([d["runtime"] for d in side["dispatch"]], ["codex"])
+        self._verify_under("codex")
+        self.assertEqual(self.samples(), 1)
+        self.assertEqual(self.porcelain(), "")
+
+    def test_copilot_close_records_input_output_and_cost_na(self):
+        """Copilot exposes prompt and completion tokens and no class split, so `tokens_k` is
+        their total and `cost` is `N/A`, which is what `verify --runtime copilot` expects."""
+        r = self._close_under("copilot", "--tokens-input 10 --tokens-output 2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        side = self.sidecar()
+        self.assertEqual(side["actual"]["tokens_k"], 12, side["actual"])
+        self.assertEqual(side["actual"]["cost"], "N/A")
+        self._verify_under("copilot")
+        self.assertEqual(self.porcelain(), "")
+
+    def test_other_runtime_records_na_tokens_and_cost(self):
+        r = self._close_under("other")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        side = self.sidecar()
+        self.assertEqual((side["actual"]["tokens_k"], side["actual"]["cost"]), ("N/A", "N/A"))
+        self.assertEqual([d["runtime"] for d in side["dispatch"]], ["other"])
+        self._verify_under("other")
+        self.assertEqual(self.porcelain(), "")
+
+    def test_codex_or_copilot_close_without_counts_is_refused_and_writes_nothing(self):
+        """`N/A` is forbidden under codex and copilot, as `set-actual` forbids it: a close
+        missing the counts is a usage error that writes nothing and leaves the bracket
+        open, so the agent can run it again with them."""
+        for runtime in ("codex", "copilot"):
+            with self.subTest(runtime=runtime):
+                self.setUp()
+                head = self.git("rev-parse", "HEAD")
+                r = self._close_under(runtime)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn(f"runtime={runtime}", r.stderr)
+                self.assertIn("--tokens-input", r.stderr)
+                self.assertFalse((self.tdir / "story-basket-plan.l3io.toml").exists())
+                self.assertEqual(self.events(), [])
+                self.assertEqual(len(list((self.state_root / ".inflight").glob("*.json"))), 1)
+                self.assertEqual(self.git("rev-parse", "HEAD"), head)
+                self.assertEqual(self.porcelain(), "")
+
+    def test_claude_close_refuses_typed_token_counts(self):
+        r = self._close_under("claude", "--tokens-input 10 --tokens-output 2")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("transcript", r.stderr)
+
+    def test_close_with_no_plan_file_records_the_bracket_only(self):
+        """bmad-build's quick path can finish with no plan. The close still pairs the bracket
+        in `events.jsonl` and commits it; there is no ticket to carry an actual or a sample."""
+        open_e, close_e = entries("l3io-build-auto-open", "l3io-build-auto-close")
+        base = {"{project-root}": str(self.root)}
+        self.sh(command_of(open_e, base))
+        cmd = command_of(close_e, {**base, "{plan_file}": "", **BUILD_FILL})
+        cmd = cmd.replace("--plan-file  ", "").split(" --test-run")[0]
+        r = self.sh(cmd)
+        ev = [e for e in self.events() if e.get("event", "").startswith("dispatch_")]
+        self.assertEqual([e["event"] for e in ev], ["dispatch_open", "dispatch_close"], ev)
+        self.assertTrue(all("ticket" not in e for e in ev), ev)
+        self.assertEqual([e for e in self.events() if e.get("event") == "actual"], [])
+        self.assertEqual(self.samples(), 0)
+        self.assertEqual(list(self.tdir.glob("*.l3io.toml")), [])
+        self.assertEqual(self.porcelain(), "")
+        self.assertIn("chore(l3io): build bracket bmad-build-auto",
+                      self.git("log", "-1", "--format=%s"))
+        self.assertIn("OK build-close", r.stdout)
+
     def test_hook_values_name_only_the_declared_script(self):
         for e in entries("l3io-build-open", "l3io-build-close", "l3io-build-auto-open",
                          "l3io-build-auto-close"):

@@ -74,7 +74,7 @@ Close l3io's measurement bracket for this build (l3io-pm). Fill the slots, then 
 uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-close --project-root {project-root} --agent bmad-build --plan-file {plan_file} --runtime <runtime> --man-hours <man_hours> --hitl-hours <hitl_hours> --test-run '<verification command>=<exit code>'
 ```
 
-- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Never type token counts: under Claude the command reads them from this session's transcript.
+- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Under Claude never type token counts: the command reads them from this session's transcript. Under Codex append `--model <model> --tokens-input K --tokens-output K --tokens-cache-read K`, and under Copilot `--tokens-input K --tokens-output K`, in thousands of tokens over this build, read from the runtime's own usage records; they are required there, and never guessed.
 - `<man_hours>`: the counterfactual, not the wall-clock. How long a developer would have taken to do this work by hand, assessed from the diff, the tests and the scope you delivered (l3io's HARD RULE on estimates and actuals). Never 0.
 - `<hitl_hours>`: the human attention this build actually took: the time the user spent answering, reviewing and approving.
 - `--test-run`: one per command you ran from the plan's `## Verification`, with its exit code. Repeat the flag for each command, and drop it when you ran none.
@@ -110,7 +110,7 @@ Close l3io's measurement bracket for this run (l3io-pm), whatever the final stat
 uv run {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py build-close --project-root {project-root} --agent bmad-build-auto --plan-file {plan_file} --runtime <runtime> --man-hours <man_hours> --hitl-hours 0 --test-run '<verification command>=<exit code>'
 ```
 
-- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Never type token counts: under Claude the command reads them from this session's transcript.
+- `<runtime>`: `claude`, `codex`, `copilot` or `other`, for the harness running you. Under Claude never type token counts: the command reads them from this session's transcript. Under Codex append `--model <model> --tokens-input K --tokens-output K --tokens-cache-read K`, and under Copilot `--tokens-input K --tokens-output K`, in thousands of tokens over this build, read from the runtime's own usage records; they are required there, and never guessed.
 - `<man_hours>`: the counterfactual, not the wall-clock. How long a developer would have taken to do this work by hand, assessed from the diff, the tests and the scope you delivered (l3io's HARD RULE on estimates and actuals). Never 0 unless nothing was delivered.
 - `hitl_hours` is 0: this run is unattended.
 - `--test-run`: one per command you ran from the plan's `## Verification`, with its exit code. Repeat the flag for each command, and drop it when you ran none.
