@@ -92,6 +92,7 @@ from ..nodes import (
     story_doc_path,
     story_file,
 )
+from ..sidecar import entry_address_args, plan_address_args
 
 
 def cmd_notice(args) -> int:
@@ -769,7 +770,15 @@ def _set_estimate(args, kind) -> int:
     if est is None:
         est = CommentedMap()
         node["estimate"] = est
+    apply_estimate(est, args, kind)
+    nodes.save_node(y, node, path, getattr(args, "flock", False))
+    sys.stdout.write(f"OK set-estimate {label}\n")
+    return 0
 
+
+def apply_estimate(est, args, kind) -> None:
+    """Write set-estimate's flags into the mapping `est`. A story (and a v7 ticket entry)
+    takes single values; a sprint or epic takes low/high ranges."""
     if kind == "story":
         # Stories: single values (not ranges)
         _maybe_set(est, "man_hours", args.man_hours, float)
@@ -808,10 +817,6 @@ def _set_estimate(args, kind) -> int:
         story_keys = ["man_hours", "hitl_hours", "elapsed_hours", "tokens_k"]
         check = story_keys if kind == "story" else range_keys
         est["confidence"] = "medium" if all(k in est for k in check) else "low"
-
-    nodes.save_node(y, node, path, getattr(args, "flock", False))
-    sys.stdout.write(f"OK set-estimate {label}\n")
-    return 0
 
 
 def cmd_set_field(args) -> int:
@@ -953,6 +958,16 @@ def cmd_add_test_run(args) -> int:
     entry["command"] = args.command
     entry["exit_code"] = int(args.exit_code)
     runs.append(entry)
+    ce["tests_passing"] = tests_passing(runs)
+    nodes.save_node(y, node, path, use_flock=True)
+    sys.stdout.write(f"OK {args.story} test run recorded "
+                     f"({args.command} -> {args.exit_code}); "
+                     f"tests_passing={ce['tests_passing']}\n")
+    return 0
+
+
+def tests_passing(runs) -> bool:
+    """cmd_add_test_run's DERIVATION RULE over a test_runs list."""
     # Last run wins per distinct command (see the docstring's DERIVATION RULE).
     # dict keeps insertion order and a re-run overwrites in place, so this is the
     # latest verdict for each command, in the order the commands first appeared.
@@ -964,15 +979,10 @@ def cmd_add_test_run(args) -> int:
             latest[("__malformed__", id(r))] = r
             continue
         latest[r.get("command")] = r
-    ce["tests_passing"] = all(
+    return all(
         _exit_code_or_fail(r.get("exit_code") if isinstance(r, dict) else None) == 0
         for r in latest.values()
     )
-    nodes.save_node(y, node, path, use_flock=True)
-    sys.stdout.write(f"OK {args.story} test run recorded "
-                     f"({args.command} -> {args.exit_code}); "
-                     f"tests_passing={ce['tests_passing']}\n")
-    return 0
 
 
 def cmd_list_epics(args) -> int:
@@ -1099,9 +1109,14 @@ def cmd_verify(args) -> int:
         return 0
 
     _y, node, _path, label = _load_checked(args.state_root, args, kind)
+    return verify_node(args, node, label, kind)
 
+
+def verify_node(args, node, label, kind, judge_status=True) -> int:
+    """verify's completeness verdict on one loaded node; prints PASS/FAIL, returns 0 or 4.
+    A v7 ticket passes judge_status=False: its status is the plan's, written by v7."""
     problems: list[str] = []
-    if node.get("status") != "done":
+    if judge_status and node.get("status") != "done":
         problems.append(f"status={node.get('status')!r} (expected done)")
 
     actual = node.get("actual") or {}
@@ -1296,9 +1311,10 @@ def register(sub):
     imp.set_defaults(func=cmd_import_node)
 
     v = sub.add_parser("verify", help="read-back gate; nonzero exit on any gap")
-    v.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    v.add_argument("--state-root", help="path to {implementation_artifacts}/state")
     v.add_argument("--scope", required=True, choices=["story", "sprint", "epic"])
     node_args(v)
+    plan_address_args(v)
     v.add_argument("--require-tokens", action="store_true")
     v.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
     v.add_argument("--token-rates", dest="token_rates", default="",
@@ -1344,8 +1360,9 @@ def register(sub):
     ck.set_defaults(func=cmd_check_lock)
 
     se = sub.add_parser("set-estimate", help="write estimate block to a story, sprint, or epic node")
-    se.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    se.add_argument("--state-root", help="path to {implementation_artifacts}/state")
     node_args(se)
+    entry_address_args(se)
     # Range fields (sprint/epic)
     se.add_argument("--man-hours-low", dest="man_hours_low")
     se.add_argument("--man-hours-high", dest="man_hours_high")
@@ -1387,8 +1404,9 @@ def register(sub):
     sf.set_defaults(func=cmd_set_field)
 
     a = sub.add_parser("add-test-run", help="record one executed test command and its exit code")
-    a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    a.add_argument("--story", required=True)
+    a.add_argument("--state-root", help="path to {implementation_artifacts}/state")
+    a.add_argument("--story")
+    plan_address_args(a)
     a.add_argument("--command", required=True, help="the test command actually executed")
     a.add_argument("--exit-code", dest="exit_code", type=int, required=True)
     a.set_defaults(func=cmd_add_test_run)

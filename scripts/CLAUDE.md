@@ -54,7 +54,7 @@ resolves; each module's declared `pm_status` (`l3io-pm`, `l3io-util`) is install
 `_bmad/<module-code>/scripts/`, every file its `bmod.toml` lists, and `uv run` of its `__main__.py
 --help` exits 0; the installed doctor's `report-version.py` finds the two copies agreeing, and
 with one copy's version marker changed exits 3 with one finding naming both paths (the copy is
-restored after); a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
+restored after); a hand-written initiative under the project's `core.output_folder` reads byte-identically through v7's own `tickets.py status` before and after `set-estimate`/`set-actual` with v7 addressing, with the sidecars and `{output_folder}/l3io/events.jsonl` written beside it; a 3.x runtime copy planted in `_bmad/scripts/` (the `pm-status/` package and
 the older single file) is gone after setup runs again, while BMad's own `setup.py` there stays;
 with only `l3io-pm`, `l3io-doctor` is an unmet requirement whose install hint selects
 it with `--skill`, and following that hint against this checkout satisfies it. Setup's update

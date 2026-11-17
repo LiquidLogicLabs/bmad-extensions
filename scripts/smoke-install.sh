@@ -177,6 +177,50 @@ check "a lane_count in _bmad/custom/config.toml resolves through v7's merge" \
   "(cd '$proj' && uv run --quiet --no-project _bmad/scripts/resolve_config.py --project-root . \
      --key modules.l3io-pm.lane_count) | jq -e '.\"modules.l3io-pm.lane_count\" == \"3\"' >/dev/null"
 
+echo "== sidecars beside v7's tree (Phase 4 Task 4.1) =="
+# A hand-written initiative (one epic, three entries, one plan each) under the project's own
+# core.output_folder. set-estimate and set-actual with v7 addressing write only our sidecars:
+# tickets.py's own `status` reads the tree byte-identically before and after, with no problems.
+pm_main="$proj/_bmad/l3io-pm/scripts/pm_status/__main__.py"
+tickets_py="$proj/_bmad/method/scripts/tickets.py"
+check "v7 installed tickets.py at _bmad/method/scripts/" "[ -f '$tickets_py' ]"
+out_folder="$(cd "$proj" && uv run --quiet --no-project _bmad/scripts/resolve_config.py --project-root . \
+  --key core.output_folder | jq -r '."core.output_folder" // empty')"
+out_folder="${out_folder//\{project-root\}/$proj}"
+case "$out_folder" in /*) ;; *) out_folder="$proj/$out_folder" ;; esac
+info "core.output_folder: $out_folder"
+init="$out_folder/initiative-smoke"
+epic_t="$init/tickets/epic-smoke/tickets"
+mkdir -p "$epic_t"
+printf -- '---\ntype: initiative\n---\n# Smoke\n' > "$init/initiative-smoke.md"
+printf '[[epic]]\nid = 1\nslug = "epic-smoke"\ntitle = "Smoke"\n' > "$init/tickets/tickets.toml"
+printf -- '---\ntype: epic\nafter: []\n---\n# epic-smoke\n' > "$init/tickets/epic-smoke/epic-smoke.md"
+: > "$epic_t/tickets.toml"
+for n in 1 2 3; do
+  printf '[[entry]]\nid = %s\ntype = "story"\ntitle = "Story %s"\n\n' "$n" "$n" >> "$epic_t/tickets.toml"
+  printf -- "---\ntitle: 'Story %s'\ntype: 'feature'\nticket: '%s'\nstatus: 'in-progress'\n---\n\n# Story %s\n" \
+    "$n" "$n" "$n" > "$epic_t/story-$n-plan.md"
+done
+tstatus() { (cd "$proj" && uv run --quiet "$tickets_py" --project-root . status "$init"); }
+tstatus > "$work/tickets-before.json"
+check "tickets.py status reads the hand-written initiative with no problems" \
+  "jq -e 'has(\"problems\") | not' '$work/tickets-before.json' >/dev/null"
+sidecar_ok=1
+for n in 1 2 3; do
+  (cd "$proj" && uv run --quiet "$pm_main" set-estimate --project-root . --ticket-dir "$epic_t" \
+     --entry "$n" --elapsed-hours 1 --man-hours 3 --hitl-hours 0.5 --tokens-k 120 >/dev/null) || sidecar_ok=0
+  (cd "$proj" && uv run --quiet "$pm_main" set-actual --project-root . --plan-file "$epic_t/story-$n-plan.md" \
+     --node story --elapsed-hours 1.5 --man-hours 4 --hitl-hours 0.25 --tokens-na >/dev/null) || sidecar_ok=0
+done
+check "set-estimate and set-actual with v7 addressing exit 0 from the installed copy" "[ '$sidecar_ok' = 1 ]"
+tstatus > "$work/tickets-after.json"
+check "tickets.py status prints byte-identical JSON after our writes" \
+  "cmp -s '$work/tickets-before.json' '$work/tickets-after.json'"
+check "the sidecars landed beside the tree (l3io.toml and three plan sidecars)" \
+  "[ -f '$epic_t/l3io.toml' ] && [ \"\$(ls '$epic_t'/*-plan.l3io.toml | wc -l)\" -eq 3 ]"
+check "the actual events landed in {output_folder}/l3io/events.jsonl" \
+  "[ \"\$(grep -c '\"event\": \"actual\"' '$out_folder/l3io/events.jsonl')\" -eq 3 ]"
+
 echo "== only l3io-pm (Review Focus 3) =="
 add_module "$pm_only" "$pkg/skills/l3io-pm" -s '*'
 status="$work/pm-only-status.json"

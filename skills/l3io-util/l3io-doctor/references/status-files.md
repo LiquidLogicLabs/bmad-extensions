@@ -706,3 +706,49 @@ one key or as several. The refusal exists because a string *iterates character b
 a scalar `'E001'` is read as the four keys `E`, `0`, `0`, `1`, none of which match an epic, so
 the dependency is dropped entirely and the epic reads as having none — the planner then marks
 its phase `parallel: true` and the two epics run concurrently in one working tree.
+
+## 12. 4.x sidecars
+
+On BMad v7, v7 owns the work-item tree — `tickets.toml`, leaf files and plans — and
+`pm-status.py` **never writes any of them** (ADR-0015; design §3.2). What l3io records about
+that tree lives in TOML sidecars beside it, written through `tomlkit` (comments and key order
+survive) under a `flock` on the sidecar's own directory (no lock file is left in the tree).
+None of these names is a `*.md` file or an `epic-*` directory, so `tickets.py`'s folder scan
+never reads one.
+
+| File | Holds | Written by |
+|---|---|---|
+| `<initiative>/tickets/l3io.toml` | `[epic.<slug>]` with `lane` (1–999) | lane assignment |
+| `<initiative>/tickets/epic-<slug>/tickets/l3io.toml` | `[entry.<id>]` with `class` and `estimate` (the five metrics, canonical order); `[epic]` with `estimate`, `actual`, `orchestration` | `set-estimate --ticket-dir DIR --entry ID`, estimation, epic closure |
+| `<…>/tickets/<stem>-plan.l3io.toml`, beside `<stem>-plan.md` | `actual`, `fix_iterations`, `completion_evidence.test_runs` / `tests_passing`, `dispatch` | `set-actual`, `add-test-run` with `--plan-file PATH` |
+| `{state_root}` = `<main checkout>/<core.output_folder>/l3io/` | `events.jsonl`, `pm-calibration.yaml`, `adr-register.yaml`, `.notices.yaml`, `.inflight/` | every verb with `--project-root P` |
+
+**The state root is the main checkout's from any worktree.** The main checkout is the
+directory holding `git rev-parse --path-format=absolute --git-common-dir`, which every linked
+worktree shares; `core.output_folder` is resolved by BMad core's
+`{project-root}/_bmad/scripts/resolve_config.py --key core.output_folder` and re-anchored on
+the main checkout. A project with no resolver is a usage error (exit 2) — pass `--state-root`
+for a 3.x state tree instead.
+
+**Addressing.** `--project-root P` takes the place of `--state-root S`, and a v7 address takes
+the place of the node keys: `--ticket-dir DIR --entry ID` for an entry's estimate,
+`--plan-file PATH` for a ticket's actuals, test runs and `verify`. Mixing the two schemes is
+a usage error. `--ticket-dir` may name the epic folder or its `tickets/` folder; an entry id
+that its `tickets.toml` does not hold, or a plan that does not exist, is exit 3. A ticket's
+`verify` judges the sidecar as a story node's is judged, except its status, which is the
+plan's and v7's to write. `set-actual` on a ticket records **no** calibration sample: a sample
+pairs an actual with the estimate made before the work, and that pairing is the build
+bracket's.
+
+**Hand-set overrides.** A person may set `estimate` or an `l3io_<name>` key on a
+`tickets.toml` entry. It is read, never written: `l3io_<metric>` replaces that metric of our
+`[entry.<id>].estimate`, `l3io_class` the class, and a bare `estimate` (v7's own field, in
+whatever unit the user gave) is carried verbatim and marks the entry hand-estimated.
+
+**`tickets.py move` does not carry our sidecars.** It moves the leaf and the plan and
+renumbers the entry; a folder's `next_id` never decreases, so an old id is never reused.
+`sidecar-reconcile --project-root P --initiative-dir D --moved-json J` (J = the move's stdout)
+repoints `[entry.<old_id>]` to `[entry.<id>]` in the destination's `l3io.toml` and moves the
+plan's sidecar beside the moved plan. Without `--moved-json` it sweeps `D`: a plan sidecar
+whose plan is gone is moved beside the one same-named plan elsewhere, and an `[entry.<id>]`
+no `tickets.toml` holds is reported, since it cannot be followed without the move.

@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 
 from ..core import node_args
+from ..sidecar import plan_address_args
 from . import (  # noqa: F401 -- submodule imports, so `metrics.<mod>` resolves on the package
     actuals_usage,
     calibration,
@@ -60,9 +61,10 @@ from . import (  # noqa: F401 -- submodule imports, so `metrics.<mod>` resolves 
 # --------------------------------------------------------------------------- #
 def register(sub):
     a = sub.add_parser("set-actual", help="write a validated actual block")
-    a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    a.add_argument("--state-root", help="path to {implementation_artifacts}/state")
     a.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
     node_args(a)
+    plan_address_args(a)
     a.add_argument("--block", choices=["actual", "orchestration"], default="actual",
                    help="which metric block to write (orchestration: sprint/epic only)")
     a.add_argument("--elapsed-hours", dest="elapsed_hours")

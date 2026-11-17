@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["ruamel.yaml>=0.18"]
+# dependencies = ["ruamel.yaml>=0.18", "tomlkit>=0.13"]
 # ///
 # pm-status-version: 3.7.1   (machine-readable marker; the doctor reads it off each installed copy — keep at top)
 """
@@ -307,6 +307,13 @@ Subcommands
                 (never conflated with exit 1); advisory only -- a damaged notices file
                 never blocks the caller, but a failed write is reported, not silently
                 treated as success)
+  sidecar-reconcile  --project-root P  --initiative-dir D  [--moved-json J]
+                (after `tickets.py move`: J is its stdout -- the JSON, a file holding it,
+                or - for stdin. Repoints [entry.<old_id>] to [entry.<id>] in the
+                destination's l3io.toml and moves <plan-stem>.l3io.toml beside the moved
+                plan. Without J, sweeps D: a plan sidecar whose plan is gone is moved beside
+                the one same-named plan elsewhere in D; an [entry.<id>] whose id no
+                tickets.toml has is reported. One line per action; exit 0, 2 on usage)
   sync-agent-instructions  --runtime {claude,codex,copilot,other}  --project-root P
                 [--body-file F] [--version V]  (--apply | --remove | --check)
                 (creates, replaces or removes the marker-wrapped l3io block in the running
@@ -317,6 +324,16 @@ Subcommands
                 found no block for this harness, exit 2 = usage, an undecodable file, or
                 ambiguous markers, exit 3 = --check found another harness's file holding a
                 stale copy)
+
+v7 addressing (status-files.md §12). set-estimate, set-actual, add-test-run and verify
+also take --project-root P IN PLACE OF --state-root S, with a v7 address IN PLACE OF the
+node keys: set-estimate --ticket-dir DIR --entry ID writes [entry.<id>].estimate in that
+epic's tickets/l3io.toml; set-actual, add-test-run and verify --plan-file PATH address the
+ticket sidecar <plan-stem>.l3io.toml beside the plan. Project-wide state (events.jsonl,
+pm-calibration.yaml) lives at the main checkout's {output_folder}/l3io/ from any worktree.
+Mixing the two schemes is a usage error. No v7 file (tickets.toml, leaf, plan) is ever
+written; a hand-set `estimate` or `l3io_<name>` on a tickets.toml entry is read as an
+override. set-actual on a ticket records no calibration sample.
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
@@ -399,6 +416,13 @@ if not __package__ and __name__ == "__main__":
 # dependency root and the node layer, not verb buckets), so nothing here calls them and they
 # are bound purely for the suite's `pm.core.<name>` and `pm.nodes.<name>` patch targets. Its directive is its own, not shared, so if another
 # module later loses its caller that is reported separately rather than absorbed.
+#
+# `sidecar` is the package's eighth module (4.x sidecars beside v7's ticket tree). Its
+# `__init__` is a low layer -- `verbs` and `metrics` import its CLI helpers -- so it owns no
+# `register` and is bound here as `pm.sidecar` for the suite. Its verbs live one level down
+# in `sidecar.verbs`, which sits above `verbs` and `metrics` and is imported by name: its
+# `register` adds `sidecar-reconcile`, and `main` asks its `route` which handler a parsed
+# command line runs.
 from . import (
     core,  # noqa: F401 -- re-export only
     instructions,
@@ -406,6 +430,7 @@ from . import (
     metrics,
     nodes,  # noqa: F401 -- re-export only
     plan,
+    sidecar,  # noqa: F401 -- re-export only
     verbs,
 )
 from .core import (
@@ -570,6 +595,7 @@ from .plan import (
     retire_epic,  # noqa: F401 -- re-export only
     undo_reorg,  # noqa: F401 -- re-export only
 )
+from .sidecar import verbs as sidecar_verbs
 
 # The status verbs, by name. Nothing here is a mock.patch target: the patched names the
 # verbs touch are reached from `verbs/__init__.py` through their module objects.
@@ -613,6 +639,7 @@ def build_parser() -> argparse.ArgumentParser:
     issues.register(sub)
     plan.register(sub)
     instructions.register(sub)
+    sidecar_verbs.register(sub)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p
@@ -620,7 +647,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    # A verb with both 3.x node addressing and v7 addressing runs the handler its flags
+    # name; every other verb runs its own `func` (sidecar/verbs.py, `route`).
+    return sidecar_verbs.route(args)(args)
 
 
 if __name__ == "__main__":

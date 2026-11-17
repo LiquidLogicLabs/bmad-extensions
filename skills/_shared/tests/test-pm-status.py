@@ -370,7 +370,7 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
 
 
 class TestSubcommandRegistration(unittest.TestCase):
-    """Every one of the 42 subcommands must still be registered on the parser.
+    """Every one of the 43 subcommands must still be registered on the parser.
 
     A REGRESSION guard, not a TDD driver: `build_parser()` already registered all 43 before
     registration was distributed across the modules, so this passed on the day it was
@@ -402,6 +402,7 @@ class TestSubcommandRegistration(unittest.TestCase):
         "list-issues", "move-epic", "archive-epic", "usage", "calibration", "estimate-story",
         "estimate-rollup", "rates", "adr-reserve", "dump-plan", "retire-epic",
         "reparent-story", "reorg-log", "reorg-undo", "notice", "sync-agent-instructions",
+        "sidecar-reconcile",
     )
 
     def _registered(self):
@@ -422,7 +423,8 @@ class TestSubcommandRegistration(unittest.TestCase):
         unattributed verb is reported as such, so this half can never turn a green run red
         on its own."""
         owners = {}
-        for name in ("core", "instructions", "issues", "metrics", "nodes", "plan", "verbs"):
+        for name in ("core", "instructions", "issues", "metrics", "nodes", "plan", "verbs",
+                     "sidecar_verbs"):
             mod = getattr(pm, name, None)
             register = getattr(mod, "register", None)
             if register is None:
@@ -434,7 +436,7 @@ class TestSubcommandRegistration(unittest.TestCase):
                 owners.setdefault(verb, name)
         return owners
 
-    def test_build_parser_registers_all_42_subcommands(self):
+    def test_build_parser_registers_all_43_subcommands(self):
         registered = self._registered()
         owners = self._owners()
         missing = [v for v in self.EXPECTED if v not in registered]
@@ -453,12 +455,12 @@ class TestSubcommandRegistration(unittest.TestCase):
             f"build_parser() registers {len(registered)} subcommands, expected "
             f"{len(self.EXPECTED)}.{detail}")
 
-    def test_the_count_is_42(self):
+    def test_the_count_is_43(self):
         """Stated as its own assertion because the number is quoted in the design spec, the
         task briefs and the surface baseline. A set comparison alone reports 'missing one'
         without ever saying what the total is supposed to be."""
-        self.assertEqual(len(self._registered()), 42)
-        self.assertEqual(len(set(self.EXPECTED)), 42, "EXPECTED has a duplicate")
+        self.assertEqual(len(self._registered()), 43)
+        self.assertEqual(len(set(self.EXPECTED)), 43, "EXPECTED has a duplicate")
 
 
 class TestLockCommands(Base):

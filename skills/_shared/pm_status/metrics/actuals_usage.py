@@ -133,10 +133,10 @@ def cmd_set_actual(args) -> int:
         return _set_actual(args, kind, block)
 
 
-def _set_actual(args, kind, block) -> int:
-    """cmd_set_actual's body; the caller holds the epic lock for an epic node."""
-    y, node, path, label = _load_checked(args.state_root, args, kind)
-
+def actual_values(args) -> dict:
+    """The validated actual block set-actual's flags describe: {metric: value}, with `cost`
+    derived from tokens x rates and never taken from the caller. Exits 2 on any usage error.
+    Shared by the 3.x node write below and the v7 ticket-sidecar write (sidecar.verbs)."""
     provided = {
         "elapsed_hours": args.elapsed_hours,
         "man_hours": args.man_hours,
@@ -251,6 +251,13 @@ def _set_actual(args, kind, block) -> int:
     if not provided:
         _die_usage("set-actual needs at least one of --elapsed-hours/--man-hours/"
                    "--hitl-hours/--tokens-* /--tokens-na")
+    return {k: v if not isinstance(v, str) else _coerce(k, v) for k, v in provided.items()}
+
+
+def _set_actual(args, kind, block) -> int:
+    """cmd_set_actual's body; the caller holds the epic lock for an epic node."""
+    y, node, path, label = _load_checked(args.state_root, args, kind)
+    provided = actual_values(args)
 
     block_data = node.get(block)
     if block_data is None:
@@ -259,7 +266,7 @@ def _set_actual(args, kind, block) -> int:
         block_data = CommentedMap()
         node[block] = block_data
     for k, v in provided.items():
-        block_data[k] = v if not isinstance(v, str) else _coerce(k, v)
+        block_data[k] = v
     # A re-capture that is not split per model must not leave an earlier split behind:
     # verify would sum it against tokens_k it no longer describes.
     if "tokens_k" in provided and "by_model" not in provided and "by_model" in block_data:
