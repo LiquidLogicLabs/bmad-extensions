@@ -72,17 +72,13 @@ Scalars override; arrays append. The root key is `[workflow]` for both PM skills
 | `activation_steps_prepend` | `[]` | Extra steps to run before the skill's own activation |
 | `activation_steps_append` | `[]` | Extra steps to run after activation |
 | `persistent_facts` | `["file:{project-root}/project-context.md", "file:{project-root}/docs/project-context.md"]` | Files always loaded into skill context |
-| `max_fix_iterations` | `3` | Fix-loop cap for CODE and MIXED work. Each iteration is a turn multiplier inside an already-long session — see Fix loop below |
-| `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (both PM skills). Self-monitored, not mechanically enforced |
+| `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (`l3io-plan`). Self-monitored, not mechanically enforced |
 
 **`l3io-execute`:**
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `max_parallel_subagents` | `4` | Maximum epics dispatched concurrently within a parallel plan phase |
-| `epic_lock_ttl_minutes` | `30` | TTL on the epic ownership lock; stale locks can be reclaimed |
-| `spec_alignment` | `true` | Spec↔implementation alignment. The spec index reaches the epic architecture gate and the drift reviews, every applicable technical-AC dimension must end with a resolving `Spec: <path>#<anchor>` line, and epic closure runs spec sync. `false` disables all of it |
-| `spec_paths` | `[]` | Project-root-relative paths or globs that **replace** spec discovery. `[]` discovers every spec under `{planning_artifacts}` by name and kind |
+| `max_parallel_subagents` | `4` | Maximum epics of one wave run at once, each in its own worktree and agent session. Capped at 1 by `dispatch-plan.py` when the project does not commit `_bmad/` (ADR-0022) |
 
 **`l3io-plan`:**
 
@@ -203,166 +199,80 @@ depends_on: ['E001-S02-003']
 
 ## Execute Reference
 
+`l3io-execute` is the unattended run over a BMad v7 initiative or epic. It plans nothing and
+reviews nothing of its own (ADR-0017): Sofia owns the tickets, `bmad-build-auto` builds and
+reviews each one, `bmad-retrospective` judges each epic.
+
 ### Activation and step order
 
-Activation ends with an operative digest (§8 of `step-00-activate.md`) covering keys,
-`pm-status.py` signatures, exit codes, and the estimates hard rule. `status-files.md` and
-`metrics-contract.md` are **not** loaded at activation — they are deep references consulted on
-demand, and the digest's routing table names the section to read for each case. Precedence is
-`pm-status.py` > reference > digest. This applies to both modes below.
-
-**Normal mode** (epic orchestration):
-
 ```
-steps/shared/step-00-activate.md        variable binding, state resolution, gitignore check
-steps/shared/step-01-classify-work.md   determines work_type: CODE | DOCS | CONFIG | MIXED
-steps/execute/step-02-scope-resolve.md  full plan, single epic, or single sprint
-steps/execute/step-03-load-plan.md      reads plan-output-meta.yaml
-steps/execute/step-04-arch-gate.md      pre-execution architecture gate
-steps/execute/step-05-epic-loop.md      per-epic: promote, lock, dispatch sprints, re-estimate
-steps/execute/step-06-epic-closure.md   epic closure
+steps/shared/step-00-activate.md   §0–§2.6 and §7: v7 check, config, pm_status, runtime
+steps/execute/step-02-resolve.md   scope, a clean main checkout, Sofia's skill root, the run plan, ownership
+steps/execute/step-03-sync.md      repo: `next`; tracker: Sofia's Tracker sync, then `next --synced`
+steps/execute/step-04-dispatch.md  wave by wave: worktrees, one agent session per epic, the builds
+steps/execute/step-05-close.md     retrospective, `done` on an accepted verdict, merge, gates, end-of-run commit
 ```
 
-**Headless mode** (one sprint, dispatched by step-05). `step-01-classify-work` is skipped because `work_type` arrives in the injected context block:
+Invoked as `/l3io-execute` (the active initiative), `/l3io-execute <initiative folder>` or
+`/l3io-execute <epic folder>`. An epic session — started by the orchestrator in the epic's own
+worktree as `/l3io-execute epic-session` with `l3io_epic_run` in its context — runs step-04 §2–§3
+and step-05 §1–§2 for that one epic and ends with one line: `DONE — …`, `CHECKPOINT: …` or
+`BLOCKED: …`.
 
-```
-steps/shared/step-00-activate.md
-steps/sprint/step-02-story-prep.md
-steps/sprint/step-03-dev-loop.md
-steps/sprint/step-04-sprint-closure.md
-```
+### The run plan (`dispatch-plan.py`)
 
-### Architecture gate (step-04)
+`scripts/dispatch-plan.py --project-root P (--initiative D | --epic D) --max-parallel N
+[--status-json F] [--waves-json F] [--base BRANCH]` reads the store (`_bmad/custom/ticketing-store-config.toml`,
+exactly as `tickets.py`'s `store_name()` does), `tickets.py status` and `plan-graph.py waves`,
+and prints the plan as JSON. It never runs a build and writes nothing. Each step is one of seven
+kinds:
 
-Runs once per epic, before any sprint. Skipped entirely for `DOCS`/`CONFIG` work types, and when `l3io-arch-review` is not installed — the gate never partially skips, since at least one reviewer must run.
-
-The detected reviewers do not all run together: `l3io-arch-review` Mode B always runs first, alone. Only when it reports a BLOCKER or MAJOR do the other detected reviewers (`bmad-agent-architect`, superpowers) join, in parallel, to corroborate. Findings consolidate by rule — any BLOCKER stays a BLOCKER; a MAJOR blocks even from a single reviewer; MINOR defers to `issues.yaml`.
-
-Before any ADR subagent is dispatched, the whole batch of numbers is reserved in one call —
-`adr-reserve --state-root {pm_state_root} --epic {epic_key} --slug arch-gate --count
-{blocking_finding_count} --adr-dir {project-root}/docs/adr` — under a lock in
-`adr-register.yaml`, so parallel agents are handed distinct numbers rather than each deriving
-one from a directory listing (which shows only who has finished, not who is in flight). Each
-blocking finding is then resolved by an ADR written
-to `{project-root}/docs/adr/{adr_number}-{slug}.md` (the one ADR home, ADR-0005) using its reserved
-number, with its `Epic:` and `Departs from spec:` lines filled, **and** by patching the affected
-story files with the technical ACs the decision implies. One re-validation pass follows;
-persistent blockers emit `BLOCKED`.
-
-With `spec_alignment` on (the default, pm-execute `customize.toml`), the reviewer also receives
-the spec index (`{implementation_artifacts}/spec/spec-index.md`, built by
-`spec-align.py build` without a model) and the line ranges the stories' `Spec:` pointers name
-— never whole spec documents — and may raise `spec-conflict` and `spec-gap` findings. Every
-reviewer ends with a `Sections read:` footer, so extra reading is measurable.
-
-Zero findings on non-trivial CODE scope prompts for confirmation rather than passing silently.
-
-### Epic loop (step-05)
-
-For each phase in the plan, epics dispatch concurrently up to `max_parallel_subagents` when the phase is marked parallel and holds more than one epic; otherwise sequentially. After a phase, every prerequisite is verified `done` before the next begins.
-
-Per epic: `move-epic --to active` (a no-op if already active, so it is always safe on resume) → `set-lock` → dispatch sprints → epic closure.
-
-`set-lock` enforces mutual exclusion, not a skip-with-`BLOCKED` shortcut: no existing `_lock` claims it (exit 0); an existing lock held by the same `session_id` re-claims and refreshes `claimed_at` (exit 0); a lock held by a different session whose TTL has expired is taken over (exit 0, announced with the prior holder and its age); a lock held by a different session still within its TTL is refused — exit 5, naming the holder and the remaining minutes — and the file is left untouched; and a malformed `_lock` (not a mapping, or missing/unparseable `claimed_at`) is refused outright rather than treated as absent, since a lock that cannot be read is not one that may be silently stolen. The epic loop treats exit 5 as `BLOCKED` for that epic and moves on.
-
-**Sprints within an epic are always sequential.** After each sprint completes, remaining unstarted sprints are re-estimated so calibration learned from the finished sprint feeds forward.
-
-A progress tree renders at phase start and phase end. Inside a parallel phase, per-epic and per-sprint renders are suppressed — concurrent epic subagents would interleave their output — so phase end is the first point the whole phase can be shown coherently. See [Progress Reporting](#progress-reporting).
-
-### The technical-AC gate — six dimensions
-
-Every story is checked against all six before it can reach `ready-for-dev`. This is **not** an
-any-one-of check: each dimension is either satisfied or explicitly marked `N/A — <reason>` in
-the story.
-
-| # | Dimension | Satisfied when the story states… |
-|---|---|---|
-| 1 | Interface contracts | API signatures, data models, events the story adds or changes |
-| 2 | Error and edge cases | what fails, how it fails, and what the caller sees |
-| 3 | Observability | the logging, metrics or tracing the change must emit |
-| 4 | Security | auth, validation, and how data is handled |
-| 5 | Testability | test entry points and mock boundaries |
-| 6 | **Existing-library check** | which library or platform capability covers this, or why none does and custom code is warranted |
-
-"Not applicable" is a legitimate answer — a pure refactor adds no interface, a background job
-faces no auth — but it has to be *stated*, because an absent dimension and an inapplicable one
-are otherwise indistinguishable.
-
-**Provenance.** With `spec_alignment` on (the default), the ACs use a fixed layout — a
-`## Technical acceptance criteria` section with one `###` heading per dimension — and each
-applicable dimension ends with `Spec: <path>#<anchor>`, a pointer into the spec index, or
-`Spec: none — <reason>`. `spec-align.py check-pointers` checks every story mechanically before
-`ready-for-dev`; a story it rejects is enriched like any thin story. The dev loop still never
-opens the spec tree: when an AC falls short, the pointer names the one section to read.
-
-Dimension 6 is paired with a **reused-before-written check** in the dev loop's code review,
-which flags hand-rolled retries, date handling, config merging, HTTP clients, parsing,
-validation and caching — normally HIGH, since a hand-rolled equivalent must be maintained
-forever to reach parity a dependency already has. The story states the intent; the review
-checks the code matches it, rather than re-litigating a justified decision.
-
-Until 2.4.4 the step file read "at least one of" five dimensions, which made the gate five
-times weaker than documented — a story carrying interface contracts alone advanced. Everything
-downstream assumes stories arrive with technical ACs; this gate is what makes that true.
-
-### Per-story phases (step-03 dev loop)
-
-Stories process in order; a story with `depends_on` waits until each referenced story is `done`. A dependency outside this sprint's scope moves the story to the end of the queue rather than blocking the sprint.
-
-| Phase | What happens |
+| Step | When / what |
 |---|---|
-| Story prep | Technical-AC gate over **six** dimensions (below); the legacy `bmad-create-story` enriches what is missing when installed, else this package's own in-package agent does, in one batched call for the sprint. Estimates written, status → `ready-for-dev` |
-| Development | Status → `in-progress`. The legacy `bmad-dev-story` implements all tasks when installed, else this package's own in-package agent does |
-| Code review | `bmad-code-review` on changed files. Skipped for `DOCS`/`CONFIG` |
-| Fix loop | CRITICAL/HIGH re-invoke the dev subagent, capped at `{max_fix_iterations}` iterations per story |
-| Completion | Completion evidence, then actuals, then status → `done` |
+| `sync` | tracker only: Sofia's Tracker sync, then `next --synced`; first in the run and first in each ticket |
+| `checkpoint-plan` | the ticket sets `plan_checkpoint`: `bmad-build-auto` with `Halt after planning.`, then ask |
+| `build` | `bmad-build-auto thorough <ref> <folder>` |
+| `checkpoint-done` | the ticket sets `done_checkpoint`: ask after `built` |
+| `close-epic` | `bmad-retrospective -H <slug>`, then `close-commit.py retro` commits its document and prints the verdict |
+| `status-done` | repo: `tickets.py mark <ref> done`, then `close-commit.py plans`; tracker: the store's `write` to done, then `mirror` — never `mark` |
+| `merge` | `close-commit.py state` in the main checkout, then merge `l3io/<slug>` into the base branch |
 
-Severity routing: **CRITICAL/HIGH** open the fix loop; **MEDIUM** is fixed in the current iteration before done; **LOW** defers to `issues.yaml` without re-development.
+A ticket already `built` is not rebuilt; it is marked `done` with the rest. A blocked ticket, or
+one that still needs Sofia's REFINE, is listed under `skipped` with the reason. A parent
+initiative is refused (exit 2): run each child initiative in turn.
 
-`{max_fix_iterations}` is bound at `step-01-classify-work.md` §5 from `customize.toml`: 3 for
-CODE/MIXED and DOCS/CONFIG alike — one value, since the separate `max_fix_iterations_non_code`
-was removed. It makes no difference for DOCS/CONFIG either way: this fix loop only fires off a
-code-review finding, and code review itself is skipped for those work types (row above), so the
-loop never runs for them today.
+### Worktrees and parallel epics
 
-Exceeding the `{max_fix_iterations}` cap emits `FAILED` for that story, leaves it at `status: review`, and continues to the next story.
+Each epic runs on `l3io/<slug>`. When git tracks `_bmad/scripts/render_skill.py`,
+`_bmad/method/scripts/tickets.py` and `_bmad/l3io-pm/scripts/pm_status/__main__.py`, each epic
+of a wave gets its own worktree beside the checkout and its own agent session, up to
+`max_parallel_subagents`. Otherwise the plan's `parallel.reason` says `_bmad/` is not committed,
+and epics run one at a time in the main checkout. Measured on the fixture: a worktree of a
+project that does not commit `_bmad/` has no `render_skill.py`, so no v7 skill renders there
+(ADR-0022, spec §13.5).
 
-> **Write order is load-bearing.** `completion_evidence.fix_iterations` must be written **before** `set-actual`. `set-actual` derives the calibration sample inline and reads `fix_iterations` to choose the sample's provenance (`exact` vs `backout`) and its `fix` cohort. Writing it afterwards means it is always absent at derivation time — `provenance: exact` becomes unreachable, neither fix cohort ever fills, and the fix factor stays frozen at the 1.25 cold-start prior, silently and forever.
+### Closing an epic
 
-### Sprint closure (step-04)
+The retrospective runs in the epic's own session after its last build, with `--since` passed to
+l3io's `epic-close` hook, so its measurement window holds only that epic. `bmad-retrospective`
+commits nothing, so `close-commit.py retro` commits its document before anything else builds.
+An accepted verdict moves every ticket to `done`; `rejected` leaves them `built` and halts that
+epic (absolute: accepting the work anyway is the user's call). Builds in a worktree commit their
+ticket sidecars there; the project-wide events log and calibration file live in the main
+checkout, which `close-commit.py state` commits before each merge and at the end of the run.
 
-| Phase | CODE | DOCS | CONFIG | MIXED |
-|---|---|---|---|---|
-| Retrospective | run | run | run | run |
-| Clean release review | run | skip | run | run |
-| Adversarial analysis | run | skip | run | run |
-| Red team (`l3io-sec-redteam`) | run | skip | run | run |
-| UX review (legacy `bmad-ux-review`) | run | skip | run | run |
-| Sprint architectural drift (`l3io-arch-review` Mode B) | run | skip | run | run |
-| Issue triage | run | run | run | run |
+### Gates
 
-The phase-gating matrix now lives in `steps/shared/step-01-classify-work.md` §4 (single source
-of truth); this table mirrors it.
+The run pauses after a wave for each epic in `plan-graph.py waves`' `gates`: an epic that a
+later ticket's or epic file's own `after` waits on for closure. `tickets.py` holds the
+dependent until the container reads `done`, which Sofia sets on the user's confirmation. An
+epic that a later epic only follows through `[[epic]] after` orders the waves and gates nothing.
 
-Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-report.md`. The closure report records stories done, estimates vs actuals, issue counts resolved and deferred, and which phases ran versus were skipped.
+### Not in this run
 
-Closure also regenerates `{implementation_artifacts}/progress-report.md`, and renders a progress tree when the phase holds a single epic.
-
-Its architectural-drift phase gives every finding an ID (`SD-{nn}-{n}`), records a disposition for each BLOCKER/MAJOR, and gates on `spec-align.py check-dispositions`; with `spec_alignment` on it also receives the spec index and the ranges the stories' `Spec:` pointers name.
-
-Closure ends with a commit checkpoint that stages `state/`, the sprint's artifacts and `spec/`. It first untracks any `*.lock` file an earlier run committed under `state/`, leaving the files on disk. `pm-status.py`'s lock files are never committed: it keeps `*.lock` in `state/.gitignore`.
-
-### Epic closure (step-06)
-
-1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
-2. **Architectural drift** — `l3io-arch-review` Mode B over the epic's ADRs (`spec-align.py adrs`), story files and cumulative diff, plus the spec index and pointed-to ranges when `spec_alignment` is on. CODE/MIXED only, and only when installed. Every BLOCKER/MAJOR gets a disposition — `resolved-in-code` (fix loop, `{max_fix_iterations}` cap, 3), `adr-justified`, `spec-updated` or `spec-proposal` — gated by `spec-align.py check-dispositions`; MINOR defers to the issues file
-2a. **Spec sync** — when `spec_alignment` is on and `spec-align.py sync-plan` finds pending items: one `l3io-spec-sync` agent under a spec-edit lease writes each accepted architecture departure back as its own `docs(spec)` commit (a scope guard keeps it inside the section; an anchor guard protects story pointers) and writes proposals for PRD/UX/epic changes; each becomes a `spec-change` or `spec-proposal` backlog item, confirmed or rejected in `/l3io-doctor triage`. An empty plan dispatches nothing.
-3. **Epic security review** — `l3io-sec-redteam` over the epic's cumulative diff, story files, and ADRs, with explicit permission to widen for surface mapping. CODE/MIXED only, and only when installed. Uses redteam's own vocabulary (CRITICAL/HIGH/MEDIUM/LOW/OBSERVATION); CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 3
-4. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
-5. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced, and a Spec changes section (dispositions, commits, proposals, index size, sections read, spec sync's token share against the 5% budget)
-6. **Commit checkpoint** — stages `state/`, the epic's artifacts, `spec/` and planning artifacts, and commits `chore({epic_key}): close epic`
-
-Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
+The epic architecture gate and the epic-closure spec sync left `l3io-execute` with its 3.x
+phases. Phase 5 of the v7 readiness plan re-homes the gate on `bmad-architecture`'s
+`finalize_reviewers`, and the spec sync beside `bmad-retrospective`'s decision records.
 
 ## Relationship to bmad-loop
 
@@ -411,40 +321,6 @@ installed can use either flow at any time; neither reads the other's tracking fi
   integrated pass. Non-trivial — status vocabularies, commit discipline, and calibration
   timing would all need adaptation. Neither is on the roadmap; both are named here so a future
   contributor knows the space has been considered.
-
-## Headless Dispatch
-
-Step-05 spawns each sprint with an authoritative context block:
-
-```
-# l3io-pm execution context [AUTHORITATIVE — read before any step file]
-work_type: {work_type}
-skip_phases: {skip_phases}
-max_fix_iterations: {max_fix_iterations}
-epic_key: {epic_key}
-epic_nnn: {epic_nnn}
-sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
-story_keys: [{story_keys}]
-sprint_num: {sprint_num}
-execute_skill_root: {skill-root}
-single_epic_phase: {single_epic_phase}
-headless: true
-
-Load and execute in order:
-  {skill-root}/steps/shared/step-00-activate.md
-  {skill-root}/steps/sprint/step-02-story-prep.md
-  {skill-root}/steps/sprint/step-03-dev-loop.md
-  {skill-root}/steps/sprint/step-04-sprint-closure.md
-
-End with exactly one of:
-  DONE — Stories: N, Issues resolved: N, Issues deferred: N
-  BLOCKED: [one-line reason]
-  FAILED: [one-line reason]
-```
-
-`{skip_phases}` is bound by `steps/shared/step-01-classify-work.md` §4 from the phase matrix there, which is authoritative; the table above mirrors it.
-
-The orchestrator branches on the returned line: `DONE` marks the sprint done and continues; `BLOCKED` halts the epic loop; `FAILED` is non-fatal at epic level — logged and counted, then the next sprint runs.
 
 ## Paths Reference
 
@@ -629,7 +505,6 @@ step files name no CRITICAL tier for legacy `bmad-ux-review`.
 | `set-status`, `set-actual` extras | `--no-events` skips the verb's own event (`set-status`'s `status` event, `set-actual`'s `actual` event); the done hook's `issue_resolved` events are still written; `--session-id ID` stamps it; `set-status --status done` on a story resolves the backlog items its `resolves:` lists (a failure warns, never fails the call); a key already resolved prints `ok <key> already resolved (<resolution>)`; `resolved <key> …` is printed only for a new resolution |
 | `set-field` extras | Refuses any field in `DERIVED_NODE_FIELDS`, any sub-path of one (e.g. `status.x`, `resolves.x`), **and any parent path that contains one** (e.g. `--field completion_evidence`, which would silently discard `completion_evidence.test_runs`) — outright (exit 2), naming the contained field and the verb that writes it — currently `completion_evidence.tests_passing` (use `add-test-run`), `status` (use `set-status`), and `resolves` (use `promote-issue`), rather than asserted directly |
 | `add-test-run` | `--state-root --story KEY --command CMD --exit-code N` — appends `{command, exit_code}` to `completion_evidence.test_runs` and derives `completion_evidence.tests_passing` from the **last run of each distinct command** (the full history is kept in `test_runs`, so a failing run you then fixed is superseded by its passing re-run) |
-| `sync-story-doc` | `--artifacts-root A --story KEY --status S [--quiet]` — writes `status:` into the story markdown's frontmatter (ruamel round-trip: key order and comments survive). Runs after a `set-status` that already succeeded, so it is deliberately incapable of failing its caller: a missing story file, missing frontmatter, or an unterminated frontmatter block each warn on stderr and return 0. Only an invalid `--status` or a malformed story key — both caller errors detectable before any state was touched — return 2 |
 | `story-doc-init` | `--state-root --artifacts-root A --story KEY` — creates the story markdown skeleton from its state node if absent; the only writer of that skeleton. |
 | `import-node` | `--state-root S` + (`--story KEY` \| `--epic ID [--sprint ID]`) `--status S` + optional `--title`, `--classification`, `--origin {inferred}`, `--origin-note`, `--no-events`, `--session-id` — creates a missing state node from a migration record; idempotent by SKIP (an existing node is left exactly as-is, no event appended); exit 3 when a sprint or story's parent epic is absent. |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
@@ -649,7 +524,6 @@ step files name no CRITICAL tier for legacy `bmad-ux-review`.
 | `reorg-log` | `--state-root [--hash] [--record FILE] [--list] [--show ID] [--format text\|json]` — the reorg journal (`state/reorg-log.yaml`, committed). `--hash` prints the planned tree's **placement** digest — epic/sprint/story placement only, so re-estimating between a reorg and its undo does not invalidate the undo, while a story added or removed does. Capture it **before** applying the first operation and carry it as the record's `pre_hash`; `--record` appends one reorg's rationale and operations and prints its id (`R0001`). A record whose operations include a kind `reorg-undo` cannot invert, or that omits a field undo needs, is **refused** — an entry that looks undoable and is not is worse than no entry. |
 | `reorg-undo` | `--state-root --artifacts-root --id R0001 [--check]` — inverts a recorded reorg through the same `reparent-story`/`move-epic` primitives, in **reverse** operation order so an epic is un-retired before work moves back into it. **Refuses** when the placement digest no longer matches what was recorded: an undo replays placements derived from a plan that no longer exists. Restores **placement, not keys** — the allocator's high-water never decreases, so a story returns to its original sprint with a new number and the whole journey stays in `previous_keys`. A sprint the reorg created is left standing, empty; deletion is the one thing this never does unasked. `--check` tests the guard and reports without moving anything. |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
-| `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived`; does not accept `--to` itself |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility; must equal `<state-root>/issues.yaml`). `--key` is optional: omitted, the key is allocated as max(`next[epic]`, highest suffix in either issue file + 1); given, it is canonicalized, must match `--epic`, and exits 2 if it exists in either file. `--allow-duplicate` forces a content duplicate. `--kind {defect,spec-change,spec-proposal}` (default `defect`, written only when not the default) with `--ref` — required for the spec kinds, and a commit SHA for `spec-change`; `promote-issue` refuses spec items (they are confirmed or rejected in `/l3io-doctor triage`). |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. `--kind {defect,spec-change,spec-proposal}` filters by kind (no `kind` = defect). |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete,deferred}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. `deferred` records a decision taken and not actioned — it exists because the pre-3.0 open status of the same name was a *disposition*, and no open status can hold one; it needs `--note`. |
@@ -871,27 +745,9 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 
 | Phase | Skill invoked |
 |-------|--------------|
-| Readiness check (plan) | legacy `bmad-check-implementation-readiness`, **preferred when installed** — its presence is itself evidence of a pre-6.12 install whose `bmad-sprint-planning` may not understand `intent=readiness`; `bmad-sprint-planning intent=readiness` is used only when the legacy name is absent (optional; presence-gated, CODE/MIXED stories only) |
-| Story prep / elaboration | legacy `bmad-create-story` when installed, else this package's in-package agent — **one batched call per sprint**, not one per story |
-| Development | legacy `bmad-dev-story` when installed, else this package's in-package agent |
-| Fix loop | legacy `bmad-dev-story` when installed, else this package's in-package agent |
-| Code review | `bmad-code-review` |
-| Retrospective (sprint + epic) | `bmad-retrospective` |
-| Clean release + adversarial (sprint) | `bmad-review` (adversarial lens), tried first; legacy `bmad-review-adversarial-general` used only when `bmad-review` is absent — **one call carrying both scopes** where the phase matrix runs both — CODE, CONFIG and MIXED, since ADR-0009 made CONFIG's column identical to CODE's. DOCS runs neither |
-| Architecture gate (epic) | `l3io-arch-review` Mode B **alone**; `bmad-agent-architect` and superpowers escalate in parallel only on a BLOCKER or MAJOR |
-| Architectural drift (sprint + epic) | `l3io-arch-review` Mode B (optional) |
-| Red-team review (sprint + epic) | `l3io-sec-redteam` (optional) |
-| UX review (sprint) | legacy `bmad-ux-review`, preferred when installed; `bmad-ux`'s opt-in Reviewer Gate used only when it is absent (optional) |
-| Issue triage | Inline — no skill invoked |
+| Readiness check (plan, 3.x) | legacy `bmad-check-implementation-readiness`, **preferred when installed**; `bmad-sprint-planning intent=readiness` used only when the legacy name is absent |
+| Elaboration (plan, 3.x) | legacy `bmad-create-story` when installed, else this package's in-package agent |
+| Build, review and fix (execute) | `bmad-build-auto`, invoked `thorough` — one run per ticket |
+| Epic closure (execute) | `bmad-retrospective -H <slug>` |
+| Ticket tree, tracker sync, status (execute) | `bmad-agent-po` (Sofia): `tickets.py`, and the Tracker sync and Status procedures of her `board.md` |
 
-### Declared-vs-invoked gaps
-
-Dependency declarations and actual invocations do not currently agree in both directions. Verified against every `spawn`/`invoke` in `skills/_shared/steps/`:
-
-| Skill | Declared | Invoked |
-|---|---|---|
-| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, and `l3io-doctor/assets/bmad-dependencies.json` | **Never** — the dev loop is develop → code review → fix → done |
-| legacy `bmad-create-story` | Declared `deprecated` in `l3io-doctor/assets/bmad-dependencies.json`; the in-package agent covers its absence | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
-| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Declared in `l3io-doctor/assets/bmad-dependencies.json` | Yes — plan step-02 readiness check |
-
-The `tests/` directories in the artifact layout are real but are not written by a QA phase. Treat the QA dependency as aspirational until a step actually calls it.

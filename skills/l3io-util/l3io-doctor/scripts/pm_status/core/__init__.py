@@ -678,7 +678,7 @@ _EPIC_NODE_LOCK = {"depth": 0, "fh": None, "path": None}
 def epic_lock_path(state_root: str, epic_key: str) -> str:
     """One epic's lock file: `{state_root}/epic-{nnn}.lock`.
 
-    OUTSIDE the epic's directory, deliberately. move-epic / archive-epic `git mv` that whole
+    OUTSIDE the epic's directory, deliberately. move-epic and retire-epic `git mv` that whole
     directory between status folders. A lock file inside it would travel with it: a waiter
     that had resolved the old path would then lock a file that is no longer there (and
     recreate the old directory to hold it) while later callers lock the moved file -- two

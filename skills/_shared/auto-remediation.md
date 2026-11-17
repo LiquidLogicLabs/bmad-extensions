@@ -19,23 +19,20 @@ halt recurs after its own remedy has run, it becomes a hard halt naming what was
 > BLOCKED: I ran `<remedy>` to resolve `<condition>` and the condition persists. `<detail>`.
 > This needs a decision.
 
-There is no second attempt under any condition. Four of the remedies re-run `/l3io-plan`,
-which carries its own halts; unbounded, a RED plan re-plans into RED forever.
+There is no second attempt under any condition: a remedy that re-runs a skill carrying its
+own halts would otherwise loop on them forever.
 
 **Remedies that share one command and one underlying cause share a single attempt.** This
-refines the rule above and does not replace it. The four plan-pointer sites in
-`step-03-load-plan` all derive their symptom from one `/l3io-plan` run's output, so a second
-symptom after a rebuild cannot be independent of the first: a second run over the same state
-regenerates the same result. They therefore share the in-run flag `{plan_rebuilt}`, set before
-the first run, and a symptom that survives the rebuild goes to its site's persists halt rather
-than to a second run.
+refines the rule above and does not replace it: a second symptom produced by the same command
+over the same state cannot be independent of the first, so it goes to its site's persists halt
+rather than to a second run.
 
 **The budget is per site id, not per run.** Sites that do not share a command and a cause each
-keep their own. A project can be both legacy-layout and have a missing plan pointer: remediating
-`step-00-activate: legacy state layout — migrate required.` (`/l3io-doctor migrate-state`) does not consume
-`step-03-load-plan: plan-output-meta.yaml absent. I ran /l3io-plan and` (`/l3io-plan`), so both run
-in that one invocation, each once. Sharing is the exception above, for
-one command and one cause; two different remedies are never one attempt.
+keep their own. A project can be both legacy-layout and have artifact-only stories: remediating
+`step-00-activate: legacy state layout — migrate required.` (`/l3io-doctor migrate-state`) does
+not consume `step-02-readiness-check: artifact-only stories detected — I ran`
+(`/l3io-doctor bootstrap-state`), so both run in that one invocation, each once. Sharing is the
+exception above, for one command and one cause; two different remedies are never one attempt.
 
 The record is **in-run memory**, not a file: the bound is per run, a run is one orchestrator
 invocation, and every remediable site is inline in that invocation rather than inside a
@@ -98,36 +95,24 @@ if it is shorter; placeholders in braces match whatever they hold at runtime.
 
 `absolute`, and the `absolute` half of `auto+absolute`, may never be removed by a later task.
 
-**Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. The
-phase status-line template (`BLOCKED: [one-line reason]`, indented in
-`execute/step-05-epic-loop.md`) is a report format, not a halt, and is deliberately out of
-scope. Outside the inventory, and so not among the 22, are `BLOCKED:` lines this scope does not reach:
-
-- `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blocked pending external
-  resolution`) — a genuine halt, indented.
-- `skills/l3io-util/l3io-doctor/steps/redrive.md:103` — a halt in a doctor mode, not an orchestrator step.
+**Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. An epic's
+last-line template (`BLOCKED: <one-line reason>`, indented in `execute/step-04-dispatch.md`
+§3) is a report format, not a halt, and is deliberately out of scope. Outside the inventory
+too is `skills/l3io-util/l3io-doctor/steps/redrive.md:103`, a halt in a doctor mode, not an
+orchestrator step.
 
 ## Re-entry
 
-Four remedies re-run `/l3io-plan` from inside `l3io-execute`, and `/l3io-plan` has first-run
-behaviour: the once-per-project setup pointer (`config-resolution.md` §5). **It does not fire
-again mid-run.** `pm-status.py notice` reads and writes `state/.notices.yaml` keyed on `--key`
-alone, with no session, run or caller in the key, and records a key at most once ever per
-project: exit 0 the first time, exit 1 for every call after. `l3io-execute` applies the pointer
-at its own entry, before `step-03-load-plan`, so the nested `/l3io-plan` finds `setup-pointer`
-already recorded, gets exit 1 and says nothing. When the pointer was not shown at entry, it is
-because `modules.l3io-pm` is configured, and `{l3io_pm_section_absent}` is then false for the
-nested run too. The remediation therefore needs no suppression of its own.
+`step-02-readiness-check`'s remedy runs `/l3io-doctor bootstrap-state` from inside `l3io-plan`,
+and the doctor has no first-run behaviour of its own to repeat. The once-per-project setup
+pointer (`config-resolution.md` §5) cannot fire twice in any case: `pm-status.py notice` records
+a key at most once ever per project, exit 0 the first time and exit 1 for every call after.
 
 ## Remediable
 
 | Site | Trigger | Remedy | Changes | Class |
 |---|---|---|---|---|
 | `step-02-readiness-check: artifact-only stories detected — I ran` | story `.md` files exist with no state YAML | `/l3io-doctor bootstrap-state` | creates state nodes from artifacts; writes no artifact | `auto` |
-| `step-03-load-plan: plan-output-meta.yaml absent. I ran /l3io-plan and` | no pointer, no snapshots | `/l3io-plan` | writes the pointer and a fresh snapshot | `auto` |
-| `step-03-load-plan: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}).` | pointer missing, snapshots present | `/l3io-plan` | rebuilds from current state; existing snapshots are not deleted or read, because the newest may be incomplete | `auto` |
-| `step-03-load-plan: plan readiness is RED for {current_plan_file}.` | pointer readiness is red | `/l3io-plan` | resolves gaps and rebuilds; route 1 only. **Route 2 is ABSOLUTE and stays a halt:** accepting the risk and setting readiness to amber is a risk acceptance that is the user's alone, so no remediation writes `readiness:` | `auto+absolute` |
-| `step-03-load-plan: plan-output-meta.yaml points at {current_plan}, which does` | pointer target missing | `/l3io-plan` | rebuilds plan and pointer; does not substitute another snapshot | `auto` |
 | `step-00-activate: legacy state layout — migrate required.` | only a legacy layout present | `/l3io-doctor migrate-state` | migrates to the sharded layout; preserves the original as `.legacy`, which is what makes it reversible | `auto` |
 | `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | `_bmad/custom/config.toml` | repoints `implementation_artifacts` at the existing tree; records the previous value beside the new one in the same write | `auto` |
 | `step-00-activate: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC` | **CONDITIONAL — remediates only on evidence.** `SHARDED` and `LEGACY_EPIC` are both present, `LEGACY_FLAT` is absent, **and every epic key in the legacy tree is also in the sharded tree** (equal sets and an empty legacy tree included). A legacy-only epic key, a legacy entry that is not an epic key, or a flat legacy file leaves it a halt that prints the keys that differ | `_bmad/state.superseded` | moves the legacy `_bmad/state/` tree to `_bmad/state.superseded` (moving it back restores it); **the sharded tree is not modified**. Compares epic keys only — sprint or story divergence inside a shared epic key is not examined | `auto` |
@@ -139,15 +124,16 @@ convert them, whatever remedy appears to exist.
 
 | Site | Why | Class |
 |---|---|---|
-| `step-02-scope-resolve: {epic_key} is owned by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
-| `step-05-epic-loop: {epic_key} lock held by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
-| `sprint-closure: sprint {sprint_num} of {epic_key} — {N}` | External dependency; no remedy exists | `halt` |
+| `step-02-resolve: {slug} is owned by another session.` | **ABSOLUTE.** The branch is checked out in another worktree, which may hold a build in flight; removing or reusing it is data loss across a boundary `flock` cannot see | `absolute` |
+| `step-05-close: the retrospective of {slug} is rejected` | **ABSOLUTE.** Moving a rejected epic's tickets to `done` would accept work its retrospective refused; that acceptance is the user's alone, as setting readiness from red to amber was | `absolute` |
+| `step-02-resolve: no initiative to run — name a` | User input error | `halt` |
+| `step-02-resolve: the working tree is not clean —` | The remaining changes are the user's; committing or stashing them is not ours to decide | `halt` |
+| `step-02-resolve: bmad-agent-po is not installed — l3io-execute` | A required v7 skill is missing; installing it is the user's | `halt` |
+| `step-03-sync: tracker sync failed: <the command and` | The tracker or its credentials; a stale mirror would start tickets the tracker already moved | `halt` |
+| `step-04-dispatch: {ref} of {slug} did not build:` | `bmad-build-auto` halted the ticket `blocked`, or left the tree dirty; its blocking condition is the remedy's input, not ours to guess | `halt` |
+| `step-05-close: merging l3io/{slug} into {base} conflicts: <the` | Resolving a merge conflict is a code decision | `halt` |
+| `step-05-close: {slug} gates the next wave and` | A container's `done` is Sofia's to set on the user's confirmation (`board.md`, Status) | `halt` |
 | `step-02-readiness-check: readiness gate — red. Do not` | Aggregate of per-story findings; no single remedy | `halt` |
-| `step-02-scope-resolve: unrecognized scope argument.` | User input error | `halt` |
-| `step-02-scope-resolve: {epic_key} not found under {pm_state_root} —` | User input error | `halt` |
-| `step-03-dev-loop: story {story_key} depends on {dep_key}, which` | Ordering fact, not a defect | `halt` |
-| `step-04-arch-gate: arch gate — {N} blocking findings` | Requires design decisions | `halt` |
-| `step-02-story-prep: story {story_key} still missing required acceptance` | Content authoring | `halt` |
 | `step-00-activate: _bmad/l3io-pm/scripts/pm_status is not installed — run` | Setup has not run since the skills were added. The remedy is `bmad setup l3io-pm`, which asks the module's config questions, and those answers are the user's to give | `halt` |
 | `step-00-activate: BMad v7 not detected. l3io 4.x` | Wrong product line, not a defect: l3io 4.x supports BMad v7 only, and the remedy is installing BMad v7 or l3io 3.x, which no step can do | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |

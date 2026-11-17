@@ -906,9 +906,8 @@ def cmd_move_epic(args) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# CLI registration -- this module's seven verbs (design §3.2; the contract and the reason
-# are in core's own register section). `archive-epic` is an alias: a second parser over the
-# same handler with `to` fixed, which is why it is seven parsers for six handlers.
+# CLI registration -- this module's verbs (design §3.2; the contract and the reason are in
+# core's own register section).
 # --------------------------------------------------------------------------- #
 def register(sub):
     mv = sub.add_parser("move-epic", help="move an epic directory between status folders")
@@ -916,11 +915,6 @@ def register(sub):
     mv.add_argument("--epic", required=True)
     mv.add_argument("--to", required=True, choices=list(STATUS_DIRS))
     mv.set_defaults(func=cmd_move_epic)
-
-    ae = sub.add_parser("archive-epic", help="alias for move-epic --to archived")
-    ae.add_argument("--state-root", required=True)
-    ae.add_argument("--epic", required=True)
-    ae.set_defaults(func=cmd_move_epic, to="archived")
 
     dp = sub.add_parser("dump-plan",
                         help="the planned tree plus read-only context, as JSON (read-only)")

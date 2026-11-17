@@ -61,9 +61,8 @@ Examine the stories in scope (those in the active epics or the epics being plann
 4. Compute `{skip_phases}` from the phase matrix below.
 
 **This matrix is the single source of truth for phase gating.** No other step file computes
-`{skip_phases}` — `step-05-epic-loop.md` passes through what is bound here, and
-`closure/sprint-closure.md` skips whatever this names. If you are about to recompute it
-somewhere else, that is the bug this table exists to prevent.
+`{skip_phases}`. If you are about to recompute it somewhere else, that is the bug this table
+exists to prevent.
 
 **Two mechanisms, and the difference matters.** Rows marked `{skip_phases}` are skipped by
 being named in that binding. Rows marked with a step file are gated by a `{work_type}` check
@@ -74,58 +73,19 @@ into the first: a malformed `{skip_phases}` string would silently disable a gate
 **Governing principle.** A phase is skipped by `{work_type}` only when that work type means
 the phase has **no subject matter at all** — true of `DOCS` alone. Everything else gates on
 its own applicability signal (an installed check, UI-facing stories), never on the work type.
-IaC and CI/CD are where IAM misconfiguration, secret handling, blast radius and supply-chain
-compromise live, so red team and the arch gate are *more* applicable to infrastructure than
-to typical app code, not less.
-
-This resolves a standing contradiction: **sprint** architectural drift ran for `CONFIG` while
-**epic** architectural drift skipped — the same concern, the same work type, opposite answers,
-with no principle separating them.
-
-UX review is `run` for `CONFIG` not because infra epics need it, but because it is already
-gated on UI-facing stories independently of work type (`{ui_facing_stories}`, bound above), so
-that check is the operative one. Leaving the cell `skip` would make `CONFIG` a second
-suppressing type and contradict the principle. An infra story still gets no UX review —
-decided now by the signal that actually means it.
 
 | Phase | CODE | DOCS | CONFIG | MIXED | Enforced by |
 |---|---|---|---|---|---|
-| Retrospective | run | run | run | run | always runs |
-| Clean release review | run | skip | run | run | `{skip_phases}` |
-| Adversarial analysis | run | skip | run | run | `{skip_phases}` |
-| Red team (`l3io-sec`) | run | skip | run | run | `{skip_phases}` + installed check |
-| UX review | run | skip | run | run | `{skip_phases}` + installed check + UI-facing stories |
-| Sprint architectural drift | run | skip | run | run | `{skip_phases}` + installed check |
-| Issue triage | run | run | run | run | always runs |
-| Story technical-AC gate | run | skip | run | run | `{work_type}` at `l3io-execute/steps/sprint/step-02-story-prep.md` |
-| Epic arch gate | run | skip | run | run | `{work_type}` at `l3io-execute/steps/execute/step-04-arch-gate.md` |
-| Epic architectural drift | run | skip | run | run | `{work_type}` at `l3io-execute/steps/closure/epic-closure.md` |
-| Epic security review (`l3io-sec`) | run | skip | run | run | `{work_type}` at `l3io-execute/steps/closure/epic-closure.md` + installed check |
+| Readiness technical-AC check | run | skip | run | run | `{work_type}` at `l3io-plan/steps/plan/step-02-readiness-check.md` |
+| Story elaboration | run | run | run | run | always runs; `{work_type}` selects the dimension vocabulary |
+
+`l3io-execute` runs no phase of this table: a v7 build's review is `bmad-build-auto`'s own,
+and an epic's closure is `bmad-retrospective`'s (ADR-0017), so none of them reads
+`{work_type}` or `{skip_phases}`.
 
 Bind `{skip_phases}` = comma-separated list of the `{skip_phases}`-enforced phase names that
 this `{work_type}` column marks `skip` (empty if none). Rows whose *Enforced by* is a step
 file, or "always runs", are never included.
-
-For `{work_type}` = CODE, CONFIG or MIXED, `{skip_phases}` is empty unless an installed check fails.
-
-5. Bind `{max_fix_iterations}` from `{work_type}`:
-
-| `{work_type}` | Binding |
-|---|---|
-| CODE, MIXED | `max_fix_iterations` (default 3) |
-| DOCS, CONFIG | `max_fix_iterations` (default 3) — same cap (a DOCS run has no fix-loop phase to bound; CONFIG runs them) |
-
-It comes from the resolved `customize.toml` `[workflow]` table.
-
-> There used to be a separate `max_fix_iterations_non_code`. It was doubly inert: it held the
-> same value, AND every phase containing a fix loop was then skipped for DOCS and CONFIG
-> work, so it had nothing to bound either way. (Historical: CONFIG now runs those phases, so
-> only DOCS still has nothing to bound; the removal stands because the value was identical.) It was removed rather than documented, because
-> it was user-settable in four `customize.toml` files and therefore invited tuning that could
-> not do anything. This one integer is the cap for
-**every** fix loop in the run — per-story in the dev loop, and at sprint and epic closure.
-A ten-iteration autonomous fix loop is proportionate to a broken API contract and wildly
-disproportionate to a typo, which is why it follows the work type.
 
 To check if a skill is installed — query the installer's module manifest, never a config
 section. A module can be installed and carry no config at all, so a config lookup reports a
@@ -148,7 +108,6 @@ Report the classification result:
 Work type: {work_type}
 UI-facing stories: {count of {ui_facing_stories}} of {count of in-scope stories}
 Skipping phases: {skip_phases or "(none)"}
-Max fix iterations: {max_fix_iterations}
 Rationale: [one sentence explaining the dominant story type]
 ```
 

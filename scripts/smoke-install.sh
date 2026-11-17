@@ -441,6 +441,37 @@ tstatus > "$work/tickets-after-close.json"
 check "tickets.py status prints byte-identical JSON after epic-close" \
   "cmp -s '$work/tickets-before-close.json' '$work/tickets-after-close.json'"
 
+echo "== the unattended run's plan (Phase 4 Task 4.7) =="
+# dispatch-plan.py, from the installed l3io-execute skill, over the hand-written initiative and
+# v7's own tickets.py: once on the repo store and once with a tracker store planted. It never
+# builds; what it emits is the run. This project does not commit _bmad/, so a worktree of it
+# could run nothing, and the plan must say so and run epics one at a time.
+dispatch_py="$(find "$proj/.agents/skills/l3io-execute" "$proj/.claude/skills/l3io-execute" \
+  -name dispatch-plan.py -path '*/scripts/*' 2>/dev/null | head -n 1)"
+check "the installed l3io-execute ships dispatch-plan.py" "[ -n '$dispatch_py' ]"
+kinds='["sync","checkpoint-plan","build","checkpoint-done","close-epic","status-done","merge"]'
+dplan() { (cd "$proj" && uv run --quiet "$dispatch_py" --project-root . --initiative "$init" --max-parallel 4); }
+code=0; dplan > "$work/dispatch-repo.json" || code=$?
+check "dispatch-plan runs on the repo store (exit 0)" "[ '$code' = 0 ]"
+check "... repo store, no sync step, no worktrees (_bmad/ is not committed here)" \
+  "jq -e '.store == \"repo\" and .sync == [] and .parallel.worktrees == false and .parallel.max == 1' '$work/dispatch-repo.json' >/dev/null"
+check "... every step is one of the seven kinds, every build is bmad-build-auto thorough" \
+  "jq -e --argjson k '$kinds' '[.waves[].epics[] | (.tickets[].steps[], .close[])] | all(.kind as \$x | \$k | index(\$x)) and ([.[] | select(.kind == \"build\") | .invocation | test(\"^bmad-build-auto thorough \")] | all)' '$work/dispatch-repo.json' >/dev/null"
+check "... status-done is tickets.py mark <ref> done on the repo store" \
+  "jq -e '[.waves[].epics[].close[] | select(.kind == \"status-done\") | .command | test(\"tickets.py .* mark .* done\$\")] | (length > 0 and all)' '$work/dispatch-repo.json' >/dev/null"
+store_cfg="$custom/ticketing-store-config.toml"
+printf '[tickets]\nstore = "github"\n' > "$store_cfg"
+code=0; dplan > "$work/dispatch-github.json" || code=$?
+rm -f "$store_cfg"
+check "dispatch-plan runs with a tracker store planted (exit 0)" "[ '$code' = 0 ]"
+check "... the run starts with sync, and every ticket's first step is sync" \
+  "jq -e '.store == \"github\" and .sync[0].kind == \"sync\" and ([.waves[].epics[].tickets[].steps[0].kind == \"sync\"] | all)' '$work/dispatch-github.json' >/dev/null"
+check "... no step names tickets.py mark, and every next carries --synced" \
+  "! grep -Eq 'tickets\\.py[^\"]*\\bmark\\b' '$work/dispatch-github.json' \
+     && ! grep -Eo 'tickets\\.py[^\"]* next [^\"]*' '$work/dispatch-github.json' | grep -vq -- '--synced'"
+check "tickets.py status prints byte-identical JSON after both plans" \
+  "tstatus | cmp -s '$work/tickets-after-close.json' -"
+
 echo "== only l3io-pm (Review Focus 3) =="
 add_module "$pm_only" "$pkg/skills/l3io-pm" -s '*'
 status="$work/pm-only-status.json"

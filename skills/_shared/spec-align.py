@@ -430,8 +430,8 @@ def cmd_build(ctx, a):
 # -- provenance pointers ---------------------------------------------------------------------- #
 
 # The six technical-AC dimensions, in the order the enrichment prompt writes them
-# (steps/sprint/step-02-story-prep.md §2). check-docs check 13 compares this tuple with the
-# prompt's layout block; keep it a literal, one name per line.
+# (l3io-plan's steps/plan/step-03-story-elaboration.md). check-docs check 13 compares this tuple
+# with the prompt's layout block; keep it a literal, one name per line.
 DIMENSIONS = (
     "Interface contracts",
     "Error and edge case handling",
@@ -442,8 +442,8 @@ DIMENSIONS = (
 )
 TAC_HEADING = "Technical acceptance criteria"
 # The two business-AC dimensions, in the order the enrichment prompt writes them
-# (steps/sprint/step-02-story-prep.md §2). check-docs check 13 compares this tuple with the
-# prompt's layout block; keep it a literal, one name per line.
+# (l3io-plan's steps/plan/step-03-story-elaboration.md). check-docs check 13 compares this tuple
+# with the prompt's layout block; keep it a literal, one name per line.
 BUSINESS_DIMENSIONS = (
     "Outcome",
     "Non-goals",

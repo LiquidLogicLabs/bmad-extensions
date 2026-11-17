@@ -1,7 +1,7 @@
 """pm_status.verbs -- the status verbs: the single-node writes and the read-only listings.
 
 `set-status`, `set-field`, `set-estimate`, `set-depends-on`, `import-node`,
-`sync-story-doc` / `story-doc-init`, the lock verbs (`set-lock`, `clear-lock`,
+`story-doc-init`, the lock verbs (`set-lock`, `clear-lock`,
 `check-lock`), `add-test-run`, `notice`, and the read side -- `list-epics`,
 `list-stories`, `show`, `verify`.
 
@@ -25,7 +25,6 @@ binding names.
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import re
@@ -537,76 +536,6 @@ def cmd_import_node(args) -> int:
                 append_event(args.state_root, bp)
 
     sys.stdout.write(f"OK import-node {label} -> {args.status}\n")
-    return 0
-
-
-def cmd_sync_story_doc(args) -> int:
-    """Write `status:` into the story markdown's frontmatter.
-
-    The state YAML is the machine's truth; this file is the human's. They have
-    never agreed -- a production audit found 73 of 73 stories divergent, every
-    one of them in the same direction, which is an unimplemented write rather
-    than drift.
-
-    This NEVER fails its caller. It runs after a set-status that has already
-    succeeded, and a documentation write must not be able to strand a state
-    transition that is already durable.
-    """
-    if args.status not in VALID_STORY_STATUS:
-        sys.stderr.write(f"ERROR unknown story status {args.status!r}; "
-                         f"expected one of {', '.join(sorted(VALID_STORY_STATUS))}\n")
-        return 2
-    try:
-        path = story_doc_path(args.artifacts_root, args.story)
-    except ValueError as exc:
-        sys.stderr.write(f"ERROR {exc}\n")
-        return 2
-    if not os.path.exists(path):
-        sys.stderr.write(f"WARN no story file at {path} — state was written, "
-                         f"document not updated\n")
-        return 0
-
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    if not text.startswith("---\n"):
-        sys.stderr.write(f"WARN {path} has no YAML frontmatter — nothing to update\n")
-        return 0
-    end = text.find("\n---", 3)
-    if end == -1:
-        sys.stderr.write(f"WARN {path} has an unterminated frontmatter block\n")
-        return 0
-    head, body = text[4:end + 1], text[end + 4:]
-
-    # ruamel round-trip: preserves key order and comments. Never split on '---'
-    # by hand -- a body line of dashes is legal markdown and would corrupt it.
-    from ruamel.yaml.comments import CommentedMap
-    yaml = _yaml()
-    try:
-        meta = yaml.load(head)
-    except Exception:                                    # noqa: BLE001
-        # Deliberately broad. This runs after a set-status that already
-        # succeeded, and no parse failure is worth stranding a durable state
-        # transition over. The warning is the signal; the exit code is not.
-        sys.stderr.write(f"WARN {path} frontmatter does not parse as YAML — "
-                         f"state was written, document not updated\n")
-        return 0
-    if meta is None:
-        meta = CommentedMap()
-    if not hasattr(meta, "get"):
-        sys.stderr.write(f"WARN {path} frontmatter is not a mapping — "
-                         f"state was written, document not updated\n")
-        return 0
-    if meta.get("status") == args.status:
-        if not args.quiet:
-            sys.stdout.write(f"OK {args.story} document already {args.status}\n")
-        return 0
-    meta["status"] = args.status
-    buf = io.StringIO()
-    yaml.dump(meta, buf)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("---\n" + buf.getvalue() + "---" + body)
-    if not args.quiet:
-        sys.stdout.write(f"OK {args.story} document -> {args.status}\n")
     return 0
 
 
@@ -1253,15 +1182,6 @@ def register(sub):
     s.add_argument("--session-id", dest="session_id", default=None,
                    help="recorded in the event payload; null when omitted")
     s.set_defaults(func=cmd_set_status)
-
-    sd = sub.add_parser("sync-story-doc",
-                        help="write status into the story markdown's frontmatter")
-    sd.add_argument("--artifacts-root", required=True,
-                    help="implementation_artifacts root (NOT the state root)")
-    sd.add_argument("--story", required=True)
-    sd.add_argument("--status", required=True)
-    sd.add_argument("--quiet", action="store_true")
-    sd.set_defaults(func=cmd_sync_story_doc)
 
     di = sub.add_parser("story-doc-init",
                         help="create a story document skeleton from its state node")

@@ -4,13 +4,13 @@
   "files": {
     "SKILL.md": "d947a169824e052570fe02eac4ee35fdfef96f58cf3978f49e48c4223d43b1c8",
     "bmod.toml": "e3832a9d592f95a3a5b991218a9695634bc55800f63d8bad2b92b72c0365e2a6",
-    "customize.toml": "fca175b99ad4d5e45ea3b699486d0895ccab16179b84c9d044d1cf5325ea11b4",
+    "customize.toml": "54daa701ac3fb59158148c027f5ab6e7d67cc3b3841973ecc9c48ff9d9c45f95",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
-    "references/auto-remediation.md": "eebfe96fc657b761132fda54a09b7a790e7f9498545b84fd4c5c1b667568adec",
-    "references/calibration-model.md": "e3fc8d9fc41285bca19257f0ac796856e025e9992ce6401a5c41437f55830f27",
+    "references/auto-remediation.md": "3556f0028224da3ff211c42a7bbc64e79f1c60db38993625f61cb71d87f1295a",
+    "references/calibration-model.md": "b875a02d2a01fd64437788007793e4b2fe69da539be301296ae1d24f86e89b2e",
     "references/config-resolution.md": "3738cc1842bcc1330ff46f8b9582ebd3cbcf2b7eebfcc1b420e8c07849bc1ef7",
-    "references/metrics-contract.md": "ed061125fc98c17b6a94215c365e7a18a4ed9e7e5cbe988f86d4ffa0665be572",
-    "references/status-files.md": "7230dc6f3eed6d9c453018e3bda3818f5b1ec7b89d31bdd4e462ddd47ce5ebe1",
+    "references/metrics-contract.md": "5e74a46814f63561d345c928a156f65a6dfd10c1a99946916623b282c22d3de8",
+    "references/status-files.md": "55d0a9ad4f1afd00e17dee7d51c415c0c1f432791a29e81d02606555b084f77c",
     "scripts/plan-graph.py": "4285901cc97afff66334b37028984440cce384526460644bdce2a9b6892dc46d",
     "scripts/reorg-derive.py": "cd412e592ad051fcaf860dde0e8de5df1c2902f4979c8b401b1be2f8bbd19862",
     "scripts/reorg-validate.py": "345b96e16244601b3365fd73fb6b7a7d162789c6cb0aa97a2561164024ba4b60",
@@ -24,10 +24,10 @@
     "steps/plan/step-backlog-intake.md": "645975e272bc284dbd68023e26b1d430de6f6fe2112d714dd2ba0560895dd045",
     "steps/reorg/step-reorg-undo.md": "8f1e28462b14d21da79cc42692333f83f2b7c2e036a57d663d520527ee8e8e3c",
     "steps/reorg/step-reorg.md": "c4b8783a429eeaead57d9670dc8b8fe107b9c05a283b4e8dde83ba1c641024c7",
-    "steps/shared/step-00-activate.md": "7c4d7594eb26ba89c9e5e7079d312e3ed5c2f708ccbbc7b8731daf423ea3f331",
-    "steps/shared/step-00-digest.md": "27af27894b622e1da2ffade4cd6d292d207bf4d114ef0f1bb5706be86ee0146d",
-    "steps/shared/step-01-classify-work.md": "d6b51f011e4281c49600e52f8bd4d39eb54e1f81308081be38e97220c127a51b",
-    "steps/shared/step-estimate.md": "f991f28330f6c88b116f8ed9309441a23cb35c62d9d142cf053c78a00472467d",
+    "steps/shared/step-00-activate.md": "6e11bbc7f94f6deb7a9f3f409ba411952545e333bcb61f5aed2700f33ede073d",
+    "steps/shared/step-00-digest.md": "881cbab374aaa3a4246df51131dbef20dc6738079b158729ad959aa15b8de681",
+    "steps/shared/step-01-classify-work.md": "f7f9ed17f62aa2ac6fd11bb082e035a23b18a4e65defacfedaf85a929abdb50e",
+    "steps/shared/step-estimate.md": "fc0a742a529772d90f811028f83647d91b9271b362ec332a806b3a3a3936eb40",
     "steps/waves/step-waves.md": "334deac0182bfdcab7c2ac0ead02dd6c72e734baf39fd5ab39ba23e2d7ffa1af"
   }
 }

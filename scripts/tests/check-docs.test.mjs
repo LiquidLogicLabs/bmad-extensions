@@ -453,9 +453,9 @@ test("check 13: a pattern added to layout-cleanup alone is caught", async (t) =>
 
 test("check 13: a renamed dimension in the enrichment prompt is caught", async (t) => {
   const root = fixture(t);
-  const rel = "skills/_shared/steps/sprint/step-02-story-prep.md";
+  const rel = "skills/_shared/steps/plan/step-03-story-elaboration.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
-  write(root, rel, text.replace("   ### Testability approach", "   ### Test approach"));
+  write(root, rel, text.replace("### Testability approach", "### Test approach"));
   const r = await run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /dimensions differ/);
@@ -463,7 +463,7 @@ test("check 13: a renamed dimension in the enrichment prompt is caught", async (
 
 test("check 13 scope: a prompt that lost its layout block is caught", async (t) => {
   const root = fixture(t);
-  const rel = "skills/_shared/steps/sprint/step-02-story-prep.md";
+  const rel = "skills/_shared/steps/plan/step-03-story-elaboration.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
   write(root, rel, text.replace(/^\s*## Technical acceptance criteria\s*$/m, ""));
   const r = await run(root);
@@ -651,11 +651,11 @@ test("check 16: a step file dispatching a removed skill fails", async (t) => {
 test("check 16: an entry missing a status-required field is caught", async (t) => {
   const root = fixture(t);
   editInventory(root, (inv) => {
-    delete inv.skills.find((e) => e.name === "bmad-code-review").module;
+    delete inv.skills.find((e) => e.name === "bmad-build-auto").module;
   });
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /'bmad-code-review' is required but names no module/);
+  assert.match(r.stderr, /'bmad-build-auto' is required but names no module/);
 });
 
 test("check 16: a duplicate inventory entry is caught", async (t) => {
@@ -3025,21 +3025,18 @@ function writeSharedReference(root, basename, text) {
   }
 }
 
-// Re-plant one of the pointers this check was built to catch: metrics-contract.md ships to
-// l3io-execute and l3io-plan, and the sprint-closure step file it cites
-// ships to l3io-execute alone. Reverting the qualifier must turn CI red again.
-test("check 24 catches a re-planted bare pointer in a shared reference", async (t) => {
+// Plant the shape this check was built to catch: metrics-contract.md ships to l3io-execute and
+// l3io-plan, and the dispatch step file ships to l3io-execute alone. A bare pointer to it must
+// turn CI red.
+test("check 24 catches a bare pointer planted in a shared reference", async (t) => {
   const root = fixture(t);
-  const before = read(root, "skills/_shared/metrics-contract.md");
-  const planted = before.replace(
-    "`l3io-execute/steps/sprint/step-04-sprint-closure.md`",
-    "`steps/sprint/step-04-sprint-closure.md`");
-  assert.notEqual(planted, before, "the qualified pointer is gone — re-anchor this test");
-  writeSharedReference(root, "metrics-contract.md", planted);
+  writeSharedReference(root, "metrics-contract.md",
+    read(root, "skills/_shared/metrics-contract.md") +
+    "\nThe run's dispatch is `steps/execute/step-04-dispatch.md`.\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /metrics-contract\.md:\d+: `steps\/sprint\/step-04-sprint-closure\.md` does not exist in l3io-plan/);
+    /metrics-contract\.md:\d+: `steps\/execute\/step-04-dispatch\.md` does not exist in l3io-plan/);
 });
 
 // The same shape in the file that made this class visible: status-files.md is the one shared
@@ -3063,7 +3060,7 @@ test("check 24 catches a bare onward pointer in the reference shipped to l3io-do
 test("scope attack: a pointer in a newly registered shared file is in scope at once", async (t) => {
   const root = fixture(t);
   write(root, "skills/_shared/steps/plan/step-99-brand-new.md",
-    "# New\n\nSee `steps/execute/step-05-epic-loop.md` §5.\n");
+    "# New\n\nSee `steps/execute/step-04-dispatch.md` §2.\n");
   const syncRel = "scripts/sync-shared-scripts.mjs";
   const sync = read(root, syncRel);
   const anchor = `const planStepFiles = [\n`;
@@ -3074,7 +3071,7 @@ test("scope attack: a pointer in a newly registered shared file is in scope at o
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /step-99-brand-new\.md:\d+: `steps\/execute\/step-05-epic-loop\.md` does not exist in l3io-plan/);
+    /step-99-brand-new\.md:\d+: `steps\/execute\/step-04-dispatch\.md` does not exist in l3io-plan/);
 });
 
 // A skill-qualified pointer is judged against the skill it names, so the replacement shape
@@ -3098,7 +3095,7 @@ test("check 24 stays green on a bare pointer attributed to a skill that has it",
   const root = fixture(t);
   writeSharedReference(root, "config-resolution.md",
     read(root, "skills/_shared/config-resolution.md") +
-    "\n`l3io-execute`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
+    "\n`l3io-execute`'s own `steps/execute/step-04-dispatch.md` dispatches the builds.\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -3109,10 +3106,10 @@ test("check 24 does not accept attribution to a skill that lacks the file", asyn
   const root = fixture(t);
   writeSharedReference(root, "config-resolution.md",
     read(root, "skills/_shared/config-resolution.md") +
-    "\n`l3io-doctor`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
+    "\n`l3io-doctor`'s own `steps/execute/step-04-dispatch.md` dispatches the builds.\n");
   const r = await run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /`steps\/execute\/step-04-arch-gate\.md` does not exist in/);
+  assert.match(r.stderr, /`steps\/execute\/step-04-dispatch\.md` does not exist in/);
 });
 
 // An input set that can silently become empty is the failure this repo keeps meeting: if the
@@ -3507,7 +3504,7 @@ test("check 25: a cross-skill qualified mode-file pointer is not a doctor pointe
   const root = fixture(t);
   write(root, "skills/l3io-util/l3io-doctor/steps/sort-status.md",
     read(root, "skills/l3io-util/l3io-doctor/steps/sort-status.md") +
-    "\nThe same arch gate runs in `l3io-execute/steps/execute/step-04-arch-gate.md`.\n");
+    "\nThe run's builds are dispatched in `l3io-execute/steps/execute/step-04-dispatch.md`.\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -4139,11 +4136,11 @@ test("check 36: a Remediable row whose step file omits the remedy fails", async 
 
 test("check 36: a table row whose BLOCKED line was removed fails", async (t) => {
   const root = fixture(t);
-  const f = "skills/_shared/steps/execute/step-02-scope-resolve.md";
+  const f = "skills/_shared/steps/execute/step-02-resolve.md";
   const before = fs.readFileSync(path.join(root, f), "utf8");
-  write(root, f, before.replace(/^BLOCKED: unrecognized scope argument\./m, "Stop: unrecognized scope argument."));
+  write(root, f, before.replace(/^BLOCKED: no initiative to run/m, "Stop: no initiative to run"));
   const r = await run(root);
-  assert.match(r.stderr, /\[check 36\][^\n]*unrecognized scope argument/);
+  assert.match(r.stderr, /\[check 36\][^\n]*no initiative to run/);
 });
 
 test("check 36: the shipped tree passes, and examined something", async (t) => {
@@ -4152,7 +4149,7 @@ test("check 36: the shipped tree passes, and examined something", async (t) => {
   // Load-bearing: a matcher that found nothing would also report no violations.
   const m = r.stdout.match(/remediation-coverage: (\d+) halt\(s\), (\d+) classified/);
   assert.ok(m, "check 36 reported no counts");
-  assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 22, `examined too little: ${m[0]}`);
+  assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 19, `examined too little: ${m[0]}`);
 });
 
 const REMEDIATION_REF_PATH = "skills/_shared/auto-remediation.md";

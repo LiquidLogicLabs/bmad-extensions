@@ -25,7 +25,7 @@ short agents beat one long one.
 
 | You are a… | Start here |
 |---|---|
-| **Developer** running the work | This guide, then [First Sprint Run](#first-sprint-run) and the [l3io-pm reference](l3io-pm-reference.md) |
+| **Developer** running the work | This guide, then [First Run](#first-run) and the [l3io-pm reference](l3io-pm-reference.md) |
 | **Project manager** tracking it | [Checking Progress](#checking-progress), then the [estimation guide](estimation-guide.md) for how estimates, actuals and calibration work |
 | **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the state contract, and the pre-execution gates |
 | **Contributor** to this package | [CONTRIBUTING.md](../CONTRIBUTING.md) — note that `skills/_shared/` holds the only editable copies of shared files |
@@ -385,43 +385,36 @@ diverging on the same file — the failure that makes teams abandon parallel wor
 invisible to every signal here. Partition the work with lanes; agree the file boundaries
 between yourselves.
 
-## First Sprint Run
+## First Run
 
-There is no separate sprint skill — `/l3io-execute` takes a scope argument. To run one
-sprint:
-
-```
-/l3io-execute E001-S01
-```
-
-The skill loads config and resolves state from the sharded tree. The orchestrator begins
-immediately — there is no confirmation prompt. It dispatches story-prep, then one agent per
-story, then closure, and reports each phase boundary as it completes.
-
-Per story: Dev → Code Review → Fix Loop (capped at `max_fix_iterations`, default 3). Story
-Prep and Closure each run once, for the whole sprint — never per story.
-
-At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, capped at `max_fix_iterations` — default 3); Low findings auto-defer to `state/issues.yaml` as `BL-` backlog items — never as new stories. They stay open until fixed or triaged: `/l3io-plan` offers to promote them into a story, which resolves them automatically when it is done, and `/l3io-doctor triage` audits the backlog and closes what is already fixed. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its `max_fix_iterations` cap.
-
-At sign-off the orchestrator records **actuals** alongside the estimate for all five metrics — compute (wall-clock) hours, man-hours (a counterfactual re-assessment made at closure, not an observed figure), human-attention (hitl) hours, tokens, and token cost. Cost is never entered directly; it is derived from the captured tokens and the model's rate table. Under Claude, tokens are captured exactly from the session transcript, split by class, and cost is priced from them; under other runtimes (e.g. Copilot) tokens show as `N/A` rather than a guess. Estimates self-calibrate from this plan-vs-actual history — decomposed into story-scope, closure, fix, and orchestration components that each activate once they have enough samples — with no setup needed. See the [PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics contract and calibration details.
-
-## First Epic Run
-
-Same skill, epic scope:
+`/l3io-execute` builds the tickets Sofia (`bmad-agent-po`) planned, unattended:
 
 ```
-/l3io-execute E001
+/l3io-execute                                   # the active initiative
+/l3io-execute _bmad-output/initiative-shop      # one initiative, wave by wave
+/l3io-execute _bmad-output/initiative-shop/tickets/epic-cart   # one epic
 ```
 
-Omit the argument entirely to run the whole plan in phase order. Sprints must already exist in
-state before an epic run — the orchestrator does not group stories into sprints or ask you
-to split them. State is created by `/l3io-plan` (recommended) or by
-`/l3io-doctor bootstrap-state` for projects whose stories were created via the legacy `bmad-create-story` workflow without going through l3io-plan.
+It reads the store, `tickets.py status` and the waves `plan-graph.py` derives, then runs one
+`bmad-build-auto` per ticket, invoked `thorough` — that skill plans, implements, reviews and
+fixes on its own, so there is no separate review or fix loop here. When an epic's tickets are
+built it runs `bmad-retrospective -H` on it; on an accepted verdict it marks the tickets `done`
+and merges the epic's branch. It stops and asks you only where v7 says you decide: a ticket's
+`plan_checkpoint` or `done_checkpoint`, a rejected retrospective, and an epic that a later wave
+waits on, which Sofia closes on your word.
 
-The orchestrator dispatches each pending sprint in order. For each sprint it dispatches
-*headless* subagent invocations of itself — **one to prep the sprint, one per story, and one to close the sprint** — with no grouping prompt and no per-sprint scope-confirmation prompt — then runs epic-level closure after all sprints complete.
+Each epic runs on its own branch, `l3io/<slug>`. If your project commits `_bmad/`, each epic of
+a wave also gets its own git worktree and runs at the same time as the others, up to
+`max_parallel_subagents`; if it does not, a worktree has no runnable `_bmad/`, and epics run one
+at a time. Your working tree must be clean when the run starts.
 
-You will see more agents than you might expect, and that is the point: cost grows with the number of turns a single session accumulates, not with the number of sessions. Splitting a sprint across short-lived agents is cheaper than one long one, and costs nothing in continuity because every hand-off is a file on disk. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the `max_fix_iterations` cap.
+Every build records **actuals** beside the ticket's estimate for all five metrics — compute
+(wall-clock) hours, man-hours (a counterfactual assessed from the delivered work, not an
+observed figure), human-attention (hitl) hours, tokens, and token cost — through l3io's hooks on
+`bmad-build-auto`, and every retrospective records the epic's. Cost is never entered directly;
+it is derived from the captured tokens and the model's rate table. See the
+[PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics
+contract and calibration details.
 
 ## Checking Progress
 

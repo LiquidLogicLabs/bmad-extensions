@@ -65,10 +65,9 @@ self-report of how long the dev/review subagents ran (that is `elapsed_hours`), 
 **not** derived by any formula from the other metrics. **Anti-anchoring requirement:** form
 this number **before** reading the node's own `estimate.man_hours` (or any report that shows
 it) — reading the estimate first anchors the re-assessment toward it. This requirement is
-agent discipline, "specified, not mechanized" (§9) — no script enforces the read order. The
-closure step files (`l3io-execute/steps/sprint/step-04-sprint-closure.md`,
-`l3io-execute/steps/execute/step-06-epic-closure.md`)
-place the re-assessment as their first step for exactly this reason.
+agent discipline, "specified, not mechanized" (§9) — no script enforces the read order. On
+v7 the hook values that ask for it (`build-close` on `bmad-build-auto`, `epic-close` on
+`bmad-retrospective`) ask for the counterfactual before anything else for exactly this reason.
 
 **`hitl_hours` is new and observable.** It is the human's own supervisory attention — reading
 output, approving a gate, redirecting a stuck run — not the AI's wall-clock time and not a
@@ -680,11 +679,9 @@ actual comparable at all, and it is what `derive_closure_sample` and
 > not to a child, not to the parent, not to `orchestration` (a different bucket, per the table
 > above). The closure component is measured from exactly that residual, so a bare sum makes it
 > identically zero and, after three closes, trains the closure band to contribute nothing to
-> every future estimate. `set-actual` refuses a zero residual for this reason (§8), and the
-> closure step files
-> (`l3io-execute/steps/sprint/step-04-sprint-closure.md` §3,
-> `l3io-execute/steps/execute/step-06-epic-closure.md` §3)
-> state the sum-plus-closure rule per metric.
+> every future estimate. `set-actual` refuses a zero residual for this reason (§8). On v7,
+> `epic-close` writes the epic's actual as the sum of its tickets plus its closure runs, per
+> metric, so the residual is the measured closure.
 
 `man_hours` is the one exception, and it is not a sum in the first place: it is the
 counterfactual re-assessment of the whole level (§2), which already covers the closure
@@ -705,22 +702,12 @@ home:
 
 | Spawn site | Bucket | Recorded in |
 |---|---|---|
-| `sprint/step-02-story-prep.md` — the enricher (legacy `bmad-create-story`) (batched per sprint) | child | split evenly across the `actual` of each story the batch enriched |
-| `sprint/step-03-dev-loop.md` §2/§3 — dev, code review, fix passes | child | that story's `actual` |
-| `execute/step-05-epic-loop.md` §5 — sprint subagent | child | that sprint's `actual` |
-| `closure/sprint-closure.md`, `closure/epic-closure.md` — every phase | closure | the parent's own `actual`, on top of the children's sum |
-| `execute/step-04-arch-gate.md` — reviewers, ADR subagents | orchestration | the **epic's** `orchestration` block |
+| a `bmad-build-auto` or `bmad-build` run (l3io's `build-open`/`build-close` hooks) | child | that ticket's sidecar `actual` |
+| a `bmad-retrospective` run (l3io's `epic-close` hook) | closure | the epic's own `closure`, on top of the tickets' sum |
 | `plan/step-03-story-elaboration.md` | none | planning sits outside the execution roll-up |
 
 Messages **outside every open dispatch** — deciding what to dispatch, reading a result — are
 orchestration, and land in the parent's `orchestration` block.
-
-The arch gate is the one entry that needs saying out loud: it is epic-level work that belongs
-to no sprint and is not a closure phase, so it has no child `actual` to land in and would
-otherwise fall through the rule above into orchestration by default. Recording it there is
-deliberate rather than accidental — it is pre-sprint epic overhead, exactly the class of spend
-the orchestration band exists to cover, and bracketing it means the band measures it instead
-of inferring it.
 
 > **The counts themselves are still read by the agent, from the session transcript — exactly
 > as for every other metric.** `pm-status.py` has no access to a session transcript and never

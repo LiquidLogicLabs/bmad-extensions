@@ -557,7 +557,7 @@ class TestFallback(Base):
         self.assertIn("(via bmad-review-adversarial-general)", out)
 
     def test_preferred_wins_when_both_present(self):
-        root = self._tree(self.required_preferred() + ["bmad-review-adversarial-general"])
+        root = self._tree(self.required_preferred() + ["bmad-review", "bmad-review-adversarial-general"])
         code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
         self.assertEqual(code, 0, self.err)
         entry = next(r for r in json.loads(out)["resolved"] if r["name"] == "bmad-review")

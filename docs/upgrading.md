@@ -64,7 +64,7 @@ up a mid-flight file replacement.
 
 This matters for locking specifically: an epic's lock file lives at a fixed path per
 `pm-status.py` version, and that path was relocated (from inside the epic's own directory to
-`{state_root}/epic-NNN.lock`) so it survives a `move-epic`/`archive-epic` `git mv`. A
+`{state_root}/epic-NNN.lock`) so it survives a `move-epic` `git mv`. A
 pre-upgrade process and a post-upgrade process therefore do not lock the *same file* for the
 same epic during the transition window, and so do not exclude each other, even though both
 believe they hold "the" epic lock.
@@ -124,6 +124,26 @@ for both copies.
 **A copy l3io 3.x left in `_bmad/scripts/` goes away by itself.** v7's setup rebuilds that
 directory to exactly its own files, so the 3.x `pm-status/` package (and the older single
 `pm-status.py`) is removed the first time setup runs — verified on a real v7 install.
+
+**`/l3io-execute` is the unattended run over a v7 initiative or epic.** It takes an
+initiative or epic folder (or the active initiative) instead of `E001` / `E001-S01`, runs one
+`bmad-build-auto` per ticket invoked `thorough`, closes each epic with `bmad-retrospective -H`,
+marks its tickets `done` on an accepted verdict and merges it. Its own story prep, dev agent,
+code review, fix loop, sprint closure, epic architecture gate and epic-closure spec sync are
+gone: review and fixing are `bmad-build-auto`'s, and the gate and the spec sync move to
+`bmad-architecture` and `bmad-retrospective` in a later release. `bmad-build-auto`,
+`bmad-retrospective` and `bmad-agent-po` are now required. In `l3io-execute`'s
+`customize.toml`, `max_fix_iterations`, `max_turns_per_story`, `epic_lock_ttl_minutes`,
+`spec_alignment` and `spec_paths` are removed; a team file still setting them sets nothing.
+
+**Epics build in parallel only if you commit `_bmad/`.** Each epic gets its own branch,
+`l3io/<slug>`, and — when git tracks `_bmad/` — its own git worktree, so several epics of a
+wave build at once. A worktree of a project that ignores `_bmad/` cannot run any v7 skill, so
+such a project builds one epic at a time; the run says so when it starts.
+
+**`pm-status.py`'s `sync-story-doc` and `archive-epic` are removed**, with the 3.x sprint and
+closure phases that were their last callers. `move-epic --to archived` does what
+`archive-epic` did.
 
 ### → 3.7.2
 

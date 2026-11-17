@@ -98,7 +98,9 @@ Extract and bind from the resolved JSON:
   entirely. Passing it to the writers but not to `verify` makes `verify` recompute `cost`
   against the shipped rates and fail every node the override priced. See
   `references/config-resolution.md` §3.
-- Set `{pm_state_root}` = `{implementation_artifacts}/state`
+- Set `{pm_state_root}` = `{implementation_artifacts}/state` — except in `l3io-execute`,
+  which runs over v7's ticket tree and binds `{pm_state_root}` = `{output_folder}/l3io`, the
+  project-wide state root its hooks share (`references/status-files.md` §12)
 - Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - Set `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
 
@@ -262,6 +264,10 @@ fi
 - Any other exit — say nothing and continue; a documentation probe never fails the run.
 
 ## 3. Detect state layout
+
+`l3io-execute` skips §3–§6 and §8 and continues at §7: it reads v7's ticket tree through
+`tickets.py`, and its state is the sidecars beside that tree, so there is no state layout of
+ours to detect, create, list or verify. §3–§6 and §8 serve `l3io-plan`.
 
 Count how many of these three layouts are present — do **not** stop at the first match:
 

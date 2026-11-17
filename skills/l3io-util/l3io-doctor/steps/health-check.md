@@ -391,9 +391,10 @@ uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifac
 > and the not-a-git-repo cases.
 
 **Check 22 — Story document vs state node status**
-A story's markdown frontmatter and its state node can disagree: `sync-story-doc` warns and
-returns 0 when the document is missing or has no frontmatter, because the state transition it
-follows is already durable. That is the right call at write time and leaves this drift behind.
+A story's markdown frontmatter and its state node can disagree: the 3.x run mirrored a status
+into the document after the state write, and warned rather than failed when the document was
+missing or had no frontmatter, because the state transition was already durable. That leaves
+this drift behind.
 
 For each story node in the state tree, compare `status` against the `status:` in
 `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md`.

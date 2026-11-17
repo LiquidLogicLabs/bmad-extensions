@@ -54,7 +54,7 @@ execution sequence (`:391-416`).
 
 | Failure mode | Detected? | Fixable? | Evidence |
 |---|---|---|---|
-| **State node vs story markdown disagree on status** | **No.** No check reads story frontmatter. The only frontmatter read in the whole skill is `bootstrap-state.md:65-90`, and only for *creating* a node. | **No** (`pm-status.py sync-story-doc` exists but is a write-path helper called after `set-status`; the doctor never calls it, never diffs) | grep for `frontmatter|sync-story-doc` across `steps/` + `assets/*.md` returns only `bootstrap-state.md:65` and `:261` |
+| **State node vs story markdown disagree on status** | **No.** No check reads story frontmatter. The only frontmatter read in the whole skill is `bootstrap-state.md:65-90`, and only for *creating* a node. | **No** (`pm-status.py sync-story-doc`, removed in 4.x, was a write-path helper called after `set-status`; the doctor never calls it, never diffs) | grep for `frontmatter|sync-story-doc` across `steps/` + `assets/*.md` returns only `bootstrap-state.md:65` and `:261` |
 | **State exists for a story whose artifact was deleted** (state-without-artifacts) | **Yes** — your guess was wrong. Check 11 diffs both directions; `<` lines = "state files with no story artifact" | **No** — explicitly report-only, "never auto-correct" | `health-check.md:144-166`, esp. `:159-165`; re-stated at `:484-487` |
 | **Artifact exists, no state** (artifact-without-state) | **Yes**, twice: Check 2c and Check 11's `>` lines | **Yes** — `bootstrap-state` | `health-check.md:72-91`; `steps/bootstrap-state.md` |
 | **`issues.yaml` references a story that no longer exists** | **Partly.** `audit-issues` 1b fires when a **`scheduled`** item points at a missing story, and when a story's `resolves:` names a key in neither file. A `backlog`-status item with a stale `story:` field is never evaluated. | Yes for the detected subset — `repair-issue --action unschedule`, driven by `triage` | `skills/_shared/pm-status.py:5755-5758` (the `if st == "scheduled":` guard at `:5754`), `:5766-5768`; wired at `health-check.md:212-235` |
@@ -150,7 +150,7 @@ Yes. Ranked by likelihood × damage:
    scope the check derives from a path it assumes is right.
 
 4. **Status drift between a story `.md` and its state node is completely invisible.** These are
-   the two halves of the same story, `sync-story-doc` keeps them aligned on the write path, and
+   the two halves of the same story, `sync-story-doc` (removed in 4.x) kept them aligned on the write path, and
    nothing ever re-checks. A hand-edited markdown, a failed `sync-story-doc` (which "warns on
    stderr and returns 0" by design), or a story resurrected from git all produce a silent
    disagreement that `stats` will render confidently.

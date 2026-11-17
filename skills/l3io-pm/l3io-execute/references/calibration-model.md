@@ -150,8 +150,8 @@ cohort mean; that is exactly what the metrics migration (below) quarantines.
 **`fix_iterations` must be on the node BEFORE `set-actual` runs.** The sample is derived
 inside `set-actual`, so evidence written afterwards is invisible to it:
 `provenance: exact` becomes unreachable, neither `fix` cohort ever fills, and `F` = 1.25
-freezes. `l3io-execute/steps/sprint/step-03-dev-loop.md` §4 writes the completion evidence first for
-exactly this reason.
+freezes. On v7, `build-close` reads `fix_iterations` from the plan's `review_loop_iteration`
+before it samples, for exactly this reason.
 
 `derive_story_sample` returns `None` — no sample at all — when the node has no `estimate` or
 no `actual` block, or when every calibrated metric's estimate/actual pair is

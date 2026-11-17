@@ -325,8 +325,8 @@ one place at any time; never duplicate a node. Every transition is a directory m
 planned/epic-005/  →  active/epic-005/  →  archived/epic-005/
 ```
 
-There is no separate archive-on-close operation that reshapes data — `archive-epic` is a
-directory move, nothing else. The directory name never changes, only its parent folder, so
+There is no separate archive-on-close operation that reshapes data — `move-epic --to archived`
+is a directory move, nothing else. The directory name never changes, only its parent folder, so
 `git log --follow` keeps working on every file in the tree across every transition.
 
 Sprints and stories never move independently of their epic — they travel with the epic
@@ -443,7 +443,6 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `show` | `--state-root --epic ID [--sprint ID]` — renders a computed roll-up, plus a `spend/` breakout by story / closure / orchestration |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epic only — locks apply to epics) |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
-| `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility) |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. `--kind {defect,spec-change,spec-proposal}` filters by kind (no `kind` = defect). |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. |
@@ -540,7 +539,7 @@ sharding gives each epic its own directory, and nothing below the epic level nee
 - `{state_root}/epic-NNN.lock` — one per epic, created empty (opened `"w"`, never written)
   the first time any locking verb touches that epic. It lives in the state root itself,
   beside `issues.yaml.lock` and `pm-calibration.yaml.lock`, never inside an epic directory,
-  so it survives a `move-epic`/`archive-epic` `git mv` unchanged. It is never deleted
+  so it survives a `move-epic` `git mv` unchanged. It is never deleted
   (deleting a flock file is racy) — do not delete one while a run may be active.
 - `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
   the three shared-append targets below, likewise created empty and never deleted.
@@ -569,9 +568,8 @@ reordered); an absent file is created with both. The check is best-effort: a fai
 stderr and never fails the verb. Neither pattern matches a directory, so the activation gate's
 `git check-ignore` on the state-root directory (the PM skills'
 `l3io-execute/steps/shared/step-00-activate.md`) still passes. Lock files a project
-committed before this rule existed are untracked, and left on disk, by the sprint-closure
-checkpoint (`l3io-execute/steps/sprint/step-04-sprint-closure.md` §9) and by
-`/l3io-doctor`'s health check (Check 14). Old `epic.yaml.lock` files
+committed before this rule existed are untracked, and left on disk, by `/l3io-doctor`'s
+health check (Check 14). Old `epic.yaml.lock` files
 left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock;
 the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
 is harmless.

@@ -2544,13 +2544,12 @@ function checkPmStatusSize() {
 // 13. spec-align.py's contract with the docs it mirrors.
 //
 // Its spec kinds are copied from doctor's layout-cleanup heuristic 5 (the spec says one source
-// of truth), and its DIMENSIONS (six) and BUSINESS_DIMENSIONS must be the headings the two
-// enrichment prompts (step-02-story-prep, step-03-story-elaboration) tell the agent to write under
+// of truth), and its DIMENSIONS (six) and BUSINESS_DIMENSIONS must be the headings the
+// enrichment prompt (step-03-story-elaboration) tells the agent to write under
 // '## Technical acceptance criteria' / '## Business acceptance criteria' -- check-pointers rejects
 // any other name, so a drift here blocks every story.
 // ---------------------------------------------------------------------------
 const LAYOUT_CLEANUP = `${skillRel("l3io-doctor")}/steps/clean-layout.md`;
-const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
 const ELABORATION = "skills/_shared/steps/plan/step-03-story-elaboration.md";
 const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
 
@@ -2600,8 +2599,6 @@ function checkSpecAlignContract() {
   }
 
   for (const [file, heading, names, label] of [
-    [STORY_PREP, "Technical acceptance criteria", dims, "DIMENSIONS"],
-    [STORY_PREP, "Business acceptance criteria", bdims, "BUSINESS_DIMENSIONS"],
     [ELABORATION, "Technical acceptance criteria", dims, "DIMENSIONS"],
     [ELABORATION, "Business acceptance criteria", bdims, "BUSINESS_DIMENSIONS"],
   ]) {
@@ -2617,7 +2614,7 @@ function checkSpecAlignContract() {
     }
   }
   if (verbose) console.log(`  spec-align-contract: ${Object.keys(KIND_LABELS).length} kinds, ` +
-    `${dims.length} technical + ${bdims.length} business dimensions, 2 prompts`);
+    `${dims.length} technical + ${bdims.length} business dimensions, 1 prompt`);
 }
 
 // ---------------------------------------------------------------------------

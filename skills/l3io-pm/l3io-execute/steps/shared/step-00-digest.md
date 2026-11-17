@@ -49,8 +49,7 @@ do not "just confirm it's still running". If you cannot arm a wait, end with `BL
 naming what you were waiting for.
 
 **Every poll is a full turn, and a turn costs your whole history, not one line.** Cost is
-turns × what you carry through them. Read narrowly, end early —
-`l3io-execute/steps/execute/step-05-epic-loop.md` §5.
+turns × what you carry through them. Read narrowly, end early.
 
 **These rules reach a spawned subagent only if you put them there** — a `bmad-*` agent
 loads none of this file. Bind `{agent_contract}` to the lines below and include them
@@ -80,9 +79,7 @@ verbatim in **every** spawn prompt you issue:
 
 `pm-status.py` is the only component that resolves a key to a location for writes. Address
 nodes by key when writing; if you find yourself concatenating `state/active/epic-...` to write
-a file, stop and use a subcommand. Direct reads are fine where a step file directs one — e.g.
-`l3io-execute/steps/sprint/step-02-story-prep.md` reads `epic.yaml` directly for `goal`,
-a field `show` omits.
+a file, stop and use a subcommand. Direct reads are fine where a step file directs one.
 
 Uses `{pm_status}` (bound in §2).
 
@@ -113,9 +110,6 @@ set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field N
 add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
               (record every run, failures too; tests_passing derives from the LAST
               run of each distinct command)
-sync-story-doc --artifacts-root A  --story KEY  --status S
-              (mirrors status into the story doc's frontmatter; a missing or
-              frontmatter-less doc warns and returns 0 — never roll state back)
 adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]  [--adr-dir D]
               (N sequential ADR numbers under a lock, before dispatch; one per line)
 estimate-story   --state-root S  --story KEY  --classification {simple,standard,complex}
@@ -132,7 +126,6 @@ set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
 clear-lock    --state-root S  --epic ID
 check-lock    --state-root S  --epic ID  --session-id SESS
 move-epic     --state-root S  --epic ID  --to {planned,active,archived}
-archive-epic  --state-root S  --epic ID  (alias for move-epic --to archived)
 append-issue  --file F [--key K]  --epic {nnn}  [--sprint S]  --title T  --source S
               --severity {Low,Medium,High,Critical}  [--description D] [--allow-duplicate]
 rates         [--model ID] [--token-rates JSON]   (read-only; the effective rate table)

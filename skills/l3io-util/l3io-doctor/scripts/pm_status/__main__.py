@@ -40,12 +40,6 @@ Subcommands
                 as fixed, ref the story, printing `resolved BL-...` per NEW resolution
                 and `ok BL-... already resolved (...)` per key resolved before; a failure
                 there warns, naming /l3io-doctor triage, and still exits 0 -- ADR-0003)
-  sync-story-doc --artifacts-root R  (NOT the state root)  --story KEY  --status S
-                [--quiet]
-                (writes status: into the story markdown's frontmatter; the state
-                YAML stays the source of truth. Never fails its caller -- a
-                missing file, missing/unterminated frontmatter, or a parse
-                error prints WARN to stderr and exits 0)
   story-doc-init --state-root S  --artifacts-root R  --story KEY
                 (creates the story document skeleton from the state node when absent;
                 an existing document is left untouched, exit 0 "exists")
@@ -279,7 +273,6 @@ Subcommands
                    derived from a plan that no longer exists. Restores PLACEMENT, not keys --
                    the allocator's high-water never decreases, by design.)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
-  archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
                 (inspects pm-calibration.yaml; a missing file is a normal
                 cold-start state, not an error)

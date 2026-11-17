@@ -38,10 +38,7 @@ estimate block.
 For each story in the selected set — **whether or not it already carries an `estimate`
 block**. `estimate-story` overwrites unconditionally (`node["estimate"] = est`), which is
 exactly what re-estimation needs; there is no "needs re-estimation" flag to test and none is
-required. Note this is deliberately the opposite of
-`l3io-execute/steps/sprint/step-02-story-prep.md` §4,
-which skips a story that is already estimated: prep is priming a story about to be built, and
-re-estimation is re-pricing one that has not started. Both are right for their caller.
+required.
 
 The model supplies only the classification — `estimate-story` does the rest: looks up the base band
 (`references/metrics-contract.md` §6 cites `BASE_BANDS` in `pm-status.py` as the single

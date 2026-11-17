@@ -7,7 +7,7 @@
 Tests for pm-status.py — run with: uv run test-pm-status.py
 Exercises the sharded split-directory layout resolution, key-based node addressing
 (set-status/set-actual/set-estimate/set-field/verify), epic directory moves
-(move-epic/archive-epic), the unconverted --file-based commands (locks,
+(move-epic), the unconverted --file-based commands (locks,
 append-issue), comment/order preservation, the events.jsonl
 transition log, the progress report, and verify exit codes.
 """
@@ -394,12 +394,12 @@ class TestSubcommandRegistration(unittest.TestCase):
     # The CLI surface, in registration order. Adding or removing a verb is a deliberate edit
     # here.
     EXPECTED = (
-        "set-status", "sync-story-doc", "story-doc-init", "set-depends-on", "import-node",
+        "set-status", "story-doc-init", "set-depends-on", "import-node",
         "set-actual", "import-actual", "verify", "list-epics", "list-stories", "show",
         "report", "dispatch", "set-lock", "clear-lock", "check-lock",
         "set-estimate", "set-field", "add-test-run", "append-issue", "resolve-issue",
         "update-issue", "promote-issue", "schedule-issue", "audit-issues", "repair-issue",
-        "list-issues", "move-epic", "archive-epic", "usage", "calibration", "estimate-story",
+        "list-issues", "move-epic", "usage", "calibration", "estimate-story",
         "estimate-rollup", "rates", "adr-reserve", "dump-plan", "retire-epic",
         "reparent-story", "reorg-log", "reorg-undo", "notice", "sync-agent-instructions",
         "sidecar-reconcile", "build-open", "build-close", "estimate-entries", "set-lane",
@@ -456,12 +456,12 @@ class TestSubcommandRegistration(unittest.TestCase):
             f"build_parser() registers {len(registered)} subcommands, expected "
             f"{len(self.EXPECTED)}.{detail}")
 
-    def test_the_count_is_48(self):
+    def test_the_count_is_46(self):
         """Stated as its own assertion because the number is quoted in the design spec, the
         task briefs and the surface baseline. A set comparison alone reports 'missing one'
         without ever saying what the total is supposed to be."""
-        self.assertEqual(len(self._registered()), 48)
-        self.assertEqual(len(set(self.EXPECTED)), 48, "EXPECTED has a duplicate")
+        self.assertEqual(len(self._registered()), 46)
+        self.assertEqual(len(set(self.EXPECTED)), 46, "EXPECTED has a duplicate")
 
 
 class TestLockCommands(Base):
@@ -2782,7 +2782,7 @@ class TestLockOnMissingEpic(Base):
 
 
 class TestEpicMoves(TestLayoutResolution):
-    """move-epic / archive-epic — epic directory moves between status folders."""
+    """move-epic — epic directory moves between status folders."""
 
     def run_main(self, argv):
         buf = io.StringIO()
@@ -2821,11 +2821,6 @@ class TestEpicMoves(TestLayoutResolution):
         with self.assertRaises(FileExistsError):
             pm.move_epic(self.root, "E001", "archived")
 
-    def test_archive_epic_alias(self):
-        code, out = self.run_main(["archive-epic", "--state-root", self.root, "--epic", "E001"])
-        self.assertEqual(code, 0, out)
-        self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
-
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
         existing path unchanged and must not touch epic.yaml's status field."""
@@ -2863,11 +2858,6 @@ class TestEpicMoves(TestLayoutResolution):
         code, out = self.run_main(
             ["move-epic", "--state-root", self.root, "--epic", "E001", "--to", "nonsense"])
         self.assertEqual(code, 2, out)
-
-    def test_cli_archive_epic_alias_missing_epic_exits_3(self):
-        code, out = self.run_main(
-            ["archive-epic", "--state-root", self.root, "--epic", "E999"])
-        self.assertEqual(code, 3, out)
 
 
 class TestEpicMovesGitBacked(unittest.TestCase):
@@ -4868,7 +4858,7 @@ class TestConvergence(TestLayoutResolution):
         return key
 
     def _scope_generation(self, i):
-        """One full turn of the loop, in the order step-03-dev-loop.md runs it:
+        """One full turn of the loop, in the order a story's dev loop ran it:
         estimate -> fix_iterations -> actual (which samples)."""
         key = self._new_story(i)
         self.run_main(["estimate-story", "--state-root", self.root, "--story", key,
@@ -7114,100 +7104,6 @@ class TestCalibrationRedrive(TestLayoutResolution):
         self.assertEqual(cal["closure"]["sprint"]["man_hours"]["samples"], [1.1])
 
 
-class TestSyncStoryDoc(Base):
-    # Base (test-pm-status.py:30) supplies run_main; TestLayoutResolution does NOT,
-    # which is why every class extending it defines its own. This command needs no
-    # node tree, so Base is the right fixture.
-    def setUp(self):
-        super().setUp()
-        self.dir = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.dir, True)
-        self.doc = os.path.join(self.dir, "epic-001", "sprint-01", "stories",
-                                "E001-S01-003.md")
-        os.makedirs(os.path.dirname(self.doc), exist_ok=True)
-
-    def _write(self, text):
-        with open(self.doc, "w", encoding="utf-8") as fh:
-            fh.write(text)
-
-    def _read(self):
-        with open(self.doc, encoding="utf-8") as fh:
-            return fh.read()
-
-    def test_status_in_frontmatter_is_rewritten(self):
-        self._write("---\nkey: E001-S01-003\nstatus: backlog\n---\n\n# Story\n\nBody.\n")
-        code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                            "--story", "E001-S01-003", "--status", "done"])
-        self.assertEqual(code, 0)
-        self.assertIn("status: done", self._read())
-
-    def test_body_and_key_order_survive_the_rewrite(self):
-        # The body carries a genuine standalone fence line (a markdown thematic
-        # break) -- not a dash run mid-sentence, which the closing-fence search
-        # ("\n---") could never mistake for the real one anyway. This is the
-        # actual hazard the implementation must get right: it must stop at the
-        # FIRST "\n---" (the frontmatter's own close) and leave every later one
-        # in the body untouched.
-        self._write("---\nkey: E001-S01-003\nstatus: backlog\ntitle: A thing\n---\n\n"
-                    "# Story\n\nIntro paragraph.\n\n---\n\nAfter a thematic break.\n")
-        self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                  "--story", "E001-S01-003", "--status", "review"])
-        out = self._read()
-        self.assertIn("Intro paragraph.", out)
-        self.assertIn("\n\n---\n\nAfter a thematic break.\n", out,
-                      "the body's own thematic-break fence must survive verbatim")
-        self.assertLess(out.index("key:"), out.index("status:"))
-        self.assertLess(out.index("status:"), out.index("title:"))
-
-    def test_a_missing_story_file_warns_but_never_fails_the_caller(self):
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                                "--story", "E001-S01-999", "--status", "done"])
-        self.assertEqual(code, 0)
-        self.assertIn("no story file", buf.getvalue())
-
-    def test_an_invalid_status_is_refused(self):
-        self._write("---\nstatus: backlog\n---\n\nBody.\n")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                                "--story", "E001-S01-003", "--status", "finished"])
-        self.assertEqual(code, 2)
-
-    # Finding 1 (fix round 1): a set-status this command follows has already
-    # succeeded, so a frontmatter that fails to load as a mapping must never
-    # raise past this command -- warn on stderr and return 0. Three realistic
-    # shapes of "frontmatter a human could actually leave behind":
-
-    def test_frontmatter_that_parses_to_a_list_never_fails_the_caller(self):
-        self._write("---\n- a\n- b\n---\n\nBody.\n")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                                "--story", "E001-S01-003", "--status", "done"])
-        self.assertEqual(code, 0)
-        self.assertIn("not a mapping", buf.getvalue())
-
-    def test_frontmatter_that_parses_to_a_bare_scalar_never_fails_the_caller(self):
-        self._write("---\njust a string\n---\n\nBody.\n")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                                "--story", "E001-S01-003", "--status", "done"])
-        self.assertEqual(code, 0)
-        self.assertIn("not a mapping", buf.getvalue())
-
-    def test_frontmatter_with_invalid_yaml_never_fails_the_caller(self):
-        self._write("---\nkey: [unclosed\n---\n\nBody.\n")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
-                                "--story", "E001-S01-003", "--status", "done"])
-        self.assertEqual(code, 0)
-        self.assertIn("does not parse as YAML", buf.getvalue())
-
-
 class TestAdrRegister(TestLayoutResolution):
     # TestLayoutResolution supplies the node tree but NOT run_main -- every class
     # extending it defines its own (see TestSetFieldTyping above).
@@ -7726,8 +7622,8 @@ class TestListIssuesLifecycle(IssueBase):
     def test_origin_archived_follows_the_epic_directory(self):
         self.append("Later thing", "005", "01", "Low", "qa (Q-1)")
         self.assertFalse(self.ls()[0]["origin_archived"])
-        self.assertEqual(self.run_all(["archive-epic", "--state-root", self.root,
-                                       "--epic", "E005"])[0], 0)
+        self.assertEqual(self.run_all(["move-epic", "--state-root", self.root,
+                                       "--epic", "E005", "--to", "archived"])[0], 0)
         self.assertTrue(self.ls()[0]["origin_archived"])
         code, out, _ = self.run_all(["list-issues", "--state-root", self.root])
         self.assertIn("archived", out)
@@ -8118,7 +8014,7 @@ class TestPromoteIssue(IssueBase):
 
     def test_archived_epic_is_refused(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
-        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
         before = _tree_snapshot(self.d)
         code, _, err = self.promote("BL-E005-001", epic="005", sprint="01")
         self.assertEqual(code, 2)
@@ -9466,7 +9362,7 @@ class TestAuditIssues(IssueBase):
     def test_1g_scheduled_to_an_archived_story_that_never_finished(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
         self.promote("BL-E005-001", "005", "01")
-        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
         self.found("1g", "BL-E005-001")
 
     def test_1h_two_stories_claim_one_item(self):
@@ -9751,8 +9647,8 @@ class TestRepairIssue(TestAuditIssues):
         """Put the item's epic in archived/, i.e. status done."""
         # IssueBase._build_issue_tree already creates E001, and import-node is idempotent
         # by skip -- so this must MOVE the existing epic, not try to create an archived one.
-        code, out, err = self.run_all(["archive-epic", "--state-root", self.root,
-                                       "--epic", f"E{epic}"])
+        code, out, err = self.run_all(["move-epic", "--state-root", self.root,
+                                       "--epic", f"E{epic}", "--to", "archived"])
         self.assertEqual(code, 0, err)
 
     def test_legacy_item_behind_an_ARCHIVED_epic_resolves_as_deferred(self):
@@ -9879,7 +9775,7 @@ class TestRepairIssue(TestAuditIssues):
     def test_unschedule_clears_1g(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
         self.promote("BL-E005-001", "005", "01")
-        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
         self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
         self.assertNotIn(("1g", "BL-E005-001"), self.ids())
         # the archived story still lists the key, but its claim is dead: no 1d, no loop
@@ -9889,7 +9785,7 @@ class TestRepairIssue(TestAuditIssues):
     def test_repromote_after_1g_creates_a_new_story(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
         self.promote("BL-E005-001", "005", "01")
-        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E005", "--to", "archived"])
         self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
         code, out, err = self.run_all(["promote-issue", "--state-root", self.root,
                                        "--artifacts-root", self.arts, "--key", "BL-E005-001",
@@ -10716,140 +10612,6 @@ class TestLockFilesIgnored(IssueBase):
         # step-00-activate's gate: the state-root DIRECTORY must not be ignored.
         gate = self.git("check-ignore", "-q", self.root, check=False)
         self.assertEqual(gate.returncode, 1, "the state root must stay NOT ignored")
-
-    STEP04 = os.path.join(os.path.dirname(HERE), "steps", "sprint", "step-04-sprint-closure.md")
-    UNTRACK = ("git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- "
-               "'{implementation_artifacts}/state/*.lock'")
-
-    def test_checkpoint_untrack_command_untracks_committed_lock_files(self):
-        """The sprint-closure checkpoint's untrack command, read FROM the step file and run
-        against a repo where an older run committed lock files. Reading it from the step file
-        is the point: an edit to the step that breaks the command fails here."""
-        import shlex
-        import subprocess
-        with open(self.STEP04, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
-        found = [ln for ln in lines if ln.startswith("git -C {project-root} rm ")]
-        self.assertEqual(found, [self.UNTRACK], "step-04 must carry the untrack command verbatim")
-        add = next(i for i, ln in enumerate(lines)
-                   if ln.startswith("git add {implementation_artifacts}/state/"))
-        self.assertLess(lines.index(self.UNTRACK), add, "untrack must run before the git add")
-        # step-04's `git add` is one logical command continued over several lines.
-        add_parts = []
-        for ln in lines[add:]:
-            add_parts.append(ln.rstrip().rstrip("\\").strip())
-            if not ln.rstrip().endswith("\\"):
-                break
-        add_cmd = " ".join(add_parts)
-
-        self.init_repo()
-        story = self.write_story()
-        self.assertEqual(self.append("A")[0], 0)
-        self.assertEqual(self.add_test_run()[0], 0)
-        locks = [self.issues + ".lock", story + ".lock"]
-        decoys = [os.path.join(self.arts, "state.lock"),            # outside the state root
-                  os.path.join(self.arts, "other", "keep.lock")]
-        os.makedirs(os.path.dirname(decoys[1]))
-        for p in decoys:
-            open(p, "w").close()
-        rel = [os.path.relpath(p, self.d) for p in locks + decoys]
-        planning = os.path.join(self.d, "planning")
-        for p in (os.path.join(self.arts, "epic-001", "stories", f"{self.STORY}.md"),
-                  os.path.join(planning, "plan.md")):              # the git add's other paths
-            os.makedirs(os.path.dirname(p))
-            open(p, "w").close()
-
-        # A trailing slash on the placeholder value must work too (git collapses the `//`).
-        for n, arts in enumerate((self.arts, self.arts + "/")):
-            with self.subTest(implementation_artifacts=arts):
-                self.git("add", "-f", "--", *rel)
-                self.git("commit", "-q", "-m", "an older run committed its lock files")
-                cmd = (found[0].replace("{project-root}", self.d)
-                       .replace("{implementation_artifacts}", arts))
-                subprocess.run(shlex.split(cmd), check=True, capture_output=True)
-                # ...then step-04's own git add of the state tree, run from the project root.
-                add_run = (add_cmd.replace("{implementation_artifacts}", arts)
-                           .replace("{epic_num}", "001").replace("{planning_artifacts}", planning))
-                self.assertNotIn("{", add_run, f"unbound placeholder in step-04's git add: {add_run}")
-                subprocess.run(shlex.split(add_run), check=True, capture_output=True, cwd=self.d)
-                tracked = self.git("ls-files", "--", "*.lock").stdout.split()
-                self.assertEqual(sorted(tracked), sorted(rel[2:]),
-                                 "state-root lock files stay untracked through the git add; "
-                                 "look-alikes left alone")
-                self.assertIn("impl/state/.gitignore",
-                              self.git("ls-files", "--", "impl/state/.gitignore").stdout.split())
-                if n == 0:
-                    self.assertIn("impl/state/.gitignore",
-                                  self.git("diff", "--cached", "--name-only").stdout.split(),
-                                  "the checkpoint's git add stages the new .gitignore")
-                for p in locks:
-                    self.assertTrue(os.path.exists(p), f"{p} must stay on disk")
-                self.git("commit", "-q", "-m", "checkpoint")   # as step-04 commits the removal
-
-    def test_checkpoint_git_add_survives_missing_spec_directory(self):
-        """`git add` aborts its ENTIRE invocation — staging nothing, not even paths that do
-        exist — the moment one of its pathspecs matches nothing (verified: `git add a/ b/`
-        with only `a/` present exits 128 and stages neither). step-04's spec/ path exists only
-        once spec alignment has run, so the checkpoint must stage it as a separate,
-        conditional `git add`, never inside the unconditional one. This replays the whole
-        block — untrack, main add, and the conditional spec add — verbatim from the step file
-        against a repo where `spec/` is absent, and again where it is present."""
-        import subprocess
-        with open(self.STEP04, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
-        add = next(i for i, ln in enumerate(lines)
-                   if ln.startswith("git add {implementation_artifacts}/state/"))
-        spec_line = next(i for i in range(add, len(lines))
-                          if lines[i].startswith("[ -d {implementation_artifacts}/spec ]"))
-        # Include the line right after (step-04's own `git status --short`) so the block's own
-        # exit code is the real checkpoint's — not the conditional spec-add's, which is 1 by
-        # shell convention whenever its `[ -d ... ]` test is false (the skip itself, not a
-        # failure).
-        self.assertEqual(lines[spec_line + 1], "git status --short",
-                          "expected step-04's git status --short right after the spec add")
-        block = "\n".join(lines[lines.index(self.UNTRACK):spec_line + 2])
-        self.assertIn("git add {implementation_artifacts}/spec/", block,
-                       "the conditional spec add must be part of the replayed block")
-
-        self.init_repo()
-        planning = os.path.join(self.d, "planning")
-        for p in (os.path.join(self.root, "issues.yaml"),
-                  os.path.join(self.arts, "epic-001", "stories", f"{self.STORY}.md"),
-                  os.path.join(planning, "plan.md")):
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            open(p, "w").close()
-
-        script = (block.replace("{project-root}", self.d)
-                       .replace("{implementation_artifacts}", self.arts)
-                       .replace("{epic_num}", "001")
-                       .replace("{planning_artifacts}", planning))
-        self.assertNotIn("{", script, f"unbound placeholder in the checkpoint block: {script}")
-
-        with self.subTest(spec_directory="absent"):
-            self.assertFalse(os.path.isdir(os.path.join(self.arts, "spec")),
-                              "premise: spec/ does not exist yet")
-            result = subprocess.run(["bash", "-c", script], cwd=self.d,
-                                     capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0,
-                              f"checkpoint must succeed with spec/ absent: {result.stderr}")
-            staged = self.git("diff", "--cached", "--name-only").stdout.split()
-            self.assertIn("impl/state/issues.yaml", staged,
-                           "state/ must stage even though spec/ was never dispatched")
-            self.assertIn("planning/plan.md", staged)
-            self.assertFalse(any(p.startswith("impl/spec/") for p in staged))
-            self.git("commit", "-q", "-m", "checkpoint with spec/ absent")
-
-        with self.subTest(spec_directory="present"):
-            spec_file = os.path.join(self.arts, "spec", "spec-index.md")
-            os.makedirs(os.path.dirname(spec_file))
-            open(spec_file, "w").close()
-            result = subprocess.run(["bash", "-c", script], cwd=self.d,
-                                     capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0,
-                              f"checkpoint must still succeed with spec/ present: {result.stderr}")
-            staged = self.git("diff", "--cached", "--name-only").stdout.split()
-            self.assertIn("impl/spec/spec-index.md", staged,
-                           "the conditional add must stage spec/ once it exists")
 
 
 class TestIssueKinds(IssueBase):

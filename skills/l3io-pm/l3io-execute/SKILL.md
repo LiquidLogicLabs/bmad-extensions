@@ -1,16 +1,21 @@
 ---
 name: l3io-execute
-description: Run the l3io-pm plan — full, single epic, or single sprint. Use when the user wants to execute planned work, from elaboration and dev through code review, QA, the fix loop, and sprint and epic closure. Reads plan-output-meta.yaml and executes epics in phase order, dispatching sprint subagents with full context injection.
+description: Run a BMad v7 initiative or epic unattended — dispatches bmad-build-auto per ticket in wave order, one git worktree per epic where the project allows it, closes each epic with bmad-retrospective, and stops at epic gates for the user. Use when the user wants Sofia's planned tickets built without driving each build by hand.
 ---
 
 # l3io-execute
+
+The unattended multi-ticket run v7 does not have. It plans nothing and reviews nothing of its
+own: Sofia (`bmad-agent-po`) owns the tickets, `bmad-build-auto` builds and reviews each one
+(invoked `thorough`), and `bmad-retrospective` judges each epic. This skill decides the order,
+runs the builds, commits what the closing steps leave behind, and asks the user wherever v7
+says the user decides.
 
 ## Conventions
 
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - Bare paths (e.g. `steps/shared/step-00-activate.md`) resolve from `{skill-root}`.
-- `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {implementation_artifacts}/state --pm-status {project-root}/_bmad/l3io-pm/scripts/pm_status/__main__.py --spec-paths '{spec_paths}'` — the spec-alignment helper; it never calls a model. `{spec_paths}` is `customize.toml`'s list rendered as JSON (`[]` by default). Step files run it only where `{spec_alignment}` is `true`, except `disposition`, `check-dispositions` and `adrs`, which run either way. Headless sprint subagents receive both bindings in their context block (`steps/execute/step-05-epic-loop.md` §5a).
 
 ## On Activation
 
@@ -27,25 +32,19 @@ module has no overrides, not that it needs setup.
 
 ## Execution
 
-**Headless mode** — when `headless: true` is present in the injected context block, do not run
-activation: the orchestrator already did, and its context block carries the bindings (pm_status
-path, state dirs, session id). Load the digest, then the sprint steps. Activation is not loaded
-because its in-run records (`{layouts_reconciled}`, `{layout_migrated}`, `{state_repointed}`) are
-orchestrator memory and a subagent has none.
-step-01-classify-work is skipped because `{work_type}` is already injected in the context block.
-No setup pointer here: this is a dispatched sprint subagent, not the entry a user is starting
-work from, and the orchestrator that dispatched it already had its own chance to print it —
-the pointer fires at most once ever per project regardless of which invocation gets there
-first.
+**Epic session** — when the invocation is `epic-session` and the context carries
+`l3io_epic_run`, this is one epic of a run, started by the orchestrator in the epic's own
+worktree. Run step-00-activate §0–§2a only, then bind `{epic}` = `l3io_epic_run`, `{store}` and
+`{po_root}` from the context, and run:
 
 ```
-{skill-root}/steps/shared/step-00-digest.md
-{skill-root}/steps/sprint/step-02-story-prep.md
-{skill-root}/steps/sprint/step-03-dev-loop.md
-{skill-root}/steps/sprint/step-04-sprint-closure.md
+{skill-root}/steps/execute/step-04-dispatch.md   §2 and §3 for {epic}
+{skill-root}/steps/execute/step-05-close.md      §1 and §2 for {epic}
 ```
 
-**Normal mode** — no `headless: true` in context. Load shared steps, then execute steps in order:
+End with the epic's last line (step-04 §3) and nothing after it.
+
+**Normal mode** — load the shared activation, then the run's steps in order:
 
 ```
 {skill-root}/steps/shared/step-00-activate.md
@@ -72,10 +71,8 @@ actually failed (never conflated with exit 1). Never halt on any branch, and nev
 as a setup trigger.
 
 ```
-{skill-root}/steps/shared/step-01-classify-work.md
-{skill-root}/steps/execute/step-02-scope-resolve.md
-{skill-root}/steps/execute/step-03-load-plan.md
-{skill-root}/steps/execute/step-04-arch-gate.md
-{skill-root}/steps/execute/step-05-epic-loop.md
-{skill-root}/steps/execute/step-06-epic-closure.md
+{skill-root}/steps/execute/step-02-resolve.md
+{skill-root}/steps/execute/step-03-sync.md
+{skill-root}/steps/execute/step-04-dispatch.md
+{skill-root}/steps/execute/step-05-close.md
 ```

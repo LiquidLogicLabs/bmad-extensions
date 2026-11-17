@@ -15,6 +15,5 @@ include_estimates        = true    # false: skip step-estimate entirely (useful 
 # Plan output format
 plan_output              = "markdown"  # "markdown": write plan-{date}-v{n}.yaml; "console": print summary only
 
-# Fix loops
-max_fix_iterations          = 3    # CODE and MIXED work — each iteration is a turn multiplier
+# Story agents
 max_turns_per_story         = 120  # soft cap per story agent; self-monitored, not mechanically enforced
