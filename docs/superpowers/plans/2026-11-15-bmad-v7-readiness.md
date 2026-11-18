@@ -290,8 +290,8 @@ Spec §8.1 holds 4.0.0's detailed planning until GA stops the surface moving. §
 
 > **Done 2026-11-17 except R3** — tasks 4.1–4.9 of
 > `docs/superpowers/plans/2026-11-17-v7-phase-4-hooks.md`. R4, R13 and R14 pass on the fixture
-> (`smoke:install`) and in the suites; R3 needs a live agent session and is **pending-manual**,
-> with the procedure in `docs/superpowers/notes/2026-11-17-phase-4-r3-procedure.md`.
+> (`smoke:install`) and in the suites; R3 **passed on 2026-11-18** in a live session,
+> recorded in `docs/superpowers/notes/2026-11-17-phase-4-r3-transcript.md`.
 
 Everything here attaches to a v7 skill. Each item names its host and extension point (spec §14.1).
 

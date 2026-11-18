@@ -2,9 +2,9 @@
 
 R3 is the one Phase 4 exit criterion no gate can prove: one epic planned in Sofia, built by
 `/l3io-execute`, closed through `bmad-retrospective`, with all five metrics then read back
-from l3io's sidecars. It needs a live agent session. Status at the Task 4.9 commit:
-**pending-manual**. Record the transcript and the read-back output beside this file as
-`2026-11-17-phase-4-r3-transcript.md` once it has been run.
+from l3io's sidecars. It needs a live agent session. Status: **passed on 2026-11-18**;
+the run and its read-back are recorded beside this file in
+`2026-11-17-phase-4-r3-transcript.md`.
 
 Upstream pin: `e435a22574fe55722841086e5566420178b98df3` (the one `scripts/fetch-bmad-tool.mjs`
 exports as `PIN`).

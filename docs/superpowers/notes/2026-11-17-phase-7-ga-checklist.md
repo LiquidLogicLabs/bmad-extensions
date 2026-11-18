@@ -66,6 +66,9 @@ back to rework. Only phases whose dependencies moved go back. The citations to r
 
 ## 4. R3 — the manual session
 
+R3 passed at the `e435a22` pin on 2026-11-18 (`2026-11-17-phase-4-r3-transcript.md`); at GA it
+is re-run, and the result is recorded as a dated successor.
+
 - [ ] Follow `docs/superpowers/notes/2026-11-17-phase-4-r3-procedure.md` on the GA fixture (set
       its pin to the GA sha). One epic planned in Sofia, built by `/l3io-execute`, closed by
       `bmad-retrospective`; all five metrics read back as estimate and actual; no `l3io-`

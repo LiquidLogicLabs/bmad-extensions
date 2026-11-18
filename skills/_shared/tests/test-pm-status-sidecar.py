@@ -779,6 +779,27 @@ class TestReportV7(Project):
         self.assertIn("lane 1", tree)
         self.assertEqual(self.tree(), before, "report wrote into the project")
 
+    def test_report_shows_the_range_estimate_and_the_closed_epic_actual(self):
+        """`estimate-entries` writes the epic estimate as a low/high range, and `epic-close`
+        writes `[epic.actual]` as every ticket plus the closure; the report shows both."""
+        write(os.path.join(self.ptd, "l3io.toml"),
+              "[entry.1]\nclass = \"standard\"\n\n[entry.1.estimate]\nelapsed_hours = 1.0\n"
+              "man_hours = 6.0\nhitl_hours = 0.5\ntokens_k = 300\ncost = 4.5\n\n"
+              "[epic.estimate]\nman_hours_low = 8.25\nman_hours_high = 9.38\n\n"
+              "[epic.closure]\nman_hours = 1.0\n\n"
+              "[epic.actual]\nelapsed_hours = 2.0\nman_hours = 5.0\nhitl_hours = 0.25\n"
+              "cost = 1.5\n\n[epic.actual.tokens_k]\ntotal = 70\ninput = 10\noutput = 5\n"
+              "cache_write = 5\ncache_read = 50\n")
+        model = json.loads(self.report("--format", "json").stdout)
+        plat = model["epics"][0]
+        self.assertEqual(plat["actual"]["man_hours"], 5.0)
+        self.assertEqual(plat["tickets"][0]["actual"]["man_hours"], 4.0)
+        self.assertEqual(model["actual_total"]["man_hours"], 5.0)
+        self.assertEqual(plat["actual"]["tokens_k"], 70)
+        row = next(line for line in self.report("--format", "md").stdout.splitlines()
+                   if line.startswith("| epic-platform "))
+        self.assertTrue(row.endswith("| 8.25–9.38 | 5 |"), row)
+
     def test_report_stall_reads_the_open_build_bracket(self):
         """An open build bracket lives only in the gitignored spool until build-close, so
         the stall view must read the spool or it cannot see a hung build."""
