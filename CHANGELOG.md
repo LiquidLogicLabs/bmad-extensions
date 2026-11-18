@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.7.2](https://github.com/LiquidLogicLabs/bmad-extensions/compare/3.7.1...3.7.2) (2026-11-18)
+
+
+### Fixes
+
+* **l3io-pm,l3io-util:** recognise BMad v7 by markers 6.x never ships ([129776e](https://github.com/LiquidLogicLabs/bmad-extensions/commit/129776e849f2aa3b61092b926e620903b4ab3d93))
+* **l3io-util:** /l3io-doctor version recognises the manifests this package ships ([f47f0b3](https://github.com/LiquidLogicLabs/bmad-extensions/commit/f47f0b3c69c0da9345a5dac8e16928cf23cbb33a))
+
+
+### Performance
+
+* **infra:** stop check-docs' helper-call scan going quadratic over masked source ([f95f7e9](https://github.com/LiquidLogicLabs/bmad-extensions/commit/f95f7e9eaac9fa3aef068fbed4d740003aeefeaf))
+
+
+### Documentation
+
+* **infra:** correct the v7 upgrade warning from a real v7 install, and add 3.7.2 notes ([c887291](https://github.com/LiquidLogicLabs/bmad-extensions/commit/c8872916f00c046a4474a848d9d04b92c52c643e))
+* **infra:** remove a downstream organization's name from the public tree ([21517e3](https://github.com/LiquidLogicLabs/bmad-extensions/commit/21517e3b1d61d7acd604e2b923501a8e14b05b30))
+* **infra:** repoint quoted commit IDs after the history rewrite ([606e354](https://github.com/LiquidLogicLabs/bmad-extensions/commit/606e354c1b554c098be741a3ed9157fb41d6f795))
+
 ## [3.7.1](https://github.com/LiquidLogicLabs/bmad-extensions/compare/3.7.0...3.7.1) (2026-11-16)
 
 
